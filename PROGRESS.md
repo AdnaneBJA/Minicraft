@@ -7,6 +7,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 |---|---|---|
 | 2026-10-01 | Tile map, camera, debug mode, movement fixes | 722 |
 | 2026-10-01 | Collision | 829 |
+| 2026-10-01 | Tile borders/transitions | 902 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -39,5 +40,13 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - X and Y are resolved separately: the player stops flush against a wall and slides along it when moving diagonally.
   - Debug panel: new "Player hitbox" and "Solid tiles" (faint red tint) toggles.
 
+- **2026-10-01: Tile borders/transitions.** Port of Minicraft+'s connected textures.
+  - Each tile is drawn as four 8x8 quadrants on a dirt base. Each quadrant checks its two orthogonal neighbours and
+    the diagonal, then picks an edge piece, the centre, or an inner corner from a 3x3 border sheet.
+  - The transparent rims show dirt between different tile types.
+  - Grass connects to trees; rock has dedicated inner-corner art.
+  - Exactly one tree sprite per tree tile. Minicraft+'s forest-canopy merging (`oak_full`) was dropped because it
+    drew extra crowns on the corners between trees, so tiles looked like they held several trees.
+  - Tile interiors use the full speckled texture (and animated water) instead of the plain border centre, so large areas don't look flat.
+
 ## Next
-- Tile borders/transitions (Minicraft+ has `*_border.png` connected textures).
