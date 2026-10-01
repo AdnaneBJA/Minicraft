@@ -23,6 +23,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Merge: crafting (menu/saves/drops) + placeable workbench | 4349 |
 | 2026-10-01 | Workbench recipes, flowers, animals | 4708 |
 | 2026-10-01 | Tools: durability and uses | 4984 |
+| 2026-10-01 | Debug panel item giver | 5022 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -266,6 +267,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - New tiles Farmland, Path and Hole (holes block mobs and furniture like water, the player can walk in them) and
     items Sand, Dirt and Coal, with Minicraft+ sprites.
   - Not yet: shooting bows (no string to craft them), seeds from shovel/hoe, farming, water filling holes.
+
+- **2026-10-01: Debug item giver.** The F3 debug panel has a "Give items" section: pick any item and an amount
+  (1-999) and press Give, or use the shortcuts "+50 wood & stone", "All tools" (every wood and rock tool) and "Clear
+  inventory". What doesn't fit in the inventory is dropped at the player's feet.
 
 ## Next
 - Bows and arrows, a source of string; farming (seeds, wheat) on farmland.

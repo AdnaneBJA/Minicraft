@@ -175,6 +175,30 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             }
         }
 
+        ImGui::SeparatorText("Give items");
+        // Any item, any amount; tools come at full durability and take one slot each.
+        if (ImGui::BeginCombo("Item", itemName(static_cast<ItemType>(giveItem_)))) {
+            for (int i = 0; i < kItemTypeCount; ++i) {
+                if (ImGui::Selectable(itemName(static_cast<ItemType>(i)), i == giveItem_)) giveItem_ = i;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::InputInt("Amount", &giveAmount_);
+        giveAmount_ = std::clamp(giveAmount_, 1, 999);
+        if (ImGui::Button("Give")) actions.giveItems.push_back({static_cast<ItemType>(giveItem_), giveAmount_});
+        ImGui::SameLine();
+        if (ImGui::Button("+50 wood & stone")) {
+            actions.giveItems.push_back({ItemType::Wood, 50});
+            actions.giveItems.push_back({ItemType::Stone, 50});
+        }
+        if (ImGui::Button("All tools")) {
+            for (int i = static_cast<int>(ItemType::WoodSword); i <= static_cast<int>(ItemType::RockBow); ++i) {
+                actions.giveItems.push_back({static_cast<ItemType>(i), 1});
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear inventory")) actions.clearInventory = true;
+
         ImGui::SeparatorText("Time");
         ImGui::Text("%s  (tick %d / %d, darkness %.0f%%)", timeName(dayNight.time()), dayNight.tick(),
                     DayNight::kDayLength, static_cast<double>(dayNight.darkness() * 100.0f));

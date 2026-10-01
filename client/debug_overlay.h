@@ -1,11 +1,13 @@
 #pragma once
 
 #include "day_night.h"
+#include "items.h"
 
 #include <SDL3/SDL.h>
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 class Camera;
 class Inventory;
@@ -33,6 +35,8 @@ public:
         bool spawnAnimal = false;
         bool clearMobs = false;
         std::optional<DayNight::Time> setTime;
+        std::vector<Inventory::Stack> giveItems;  // put in the inventory (whatever doesn't fit drops at the player)
+        bool clearInventory = false;
     };
     // Draws the ImGui panel.
     PanelActions drawPanel(const Camera& camera, float scale, const TileMap& map, const Player& player,
@@ -51,4 +55,6 @@ private:
     int gridOpacity_ = 35;  // 0-255; kept low so the grid is easy on the eyes
     std::uint32_t seedInput_ = 0;
     bool seedInputInitialised_ = false;
+    int giveItem_ = 0;     // index into ItemType for the "Give items" picker
+    int giveAmount_ = 10;
 };

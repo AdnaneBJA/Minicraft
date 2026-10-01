@@ -19,6 +19,7 @@ enum class ItemType {
     Sand, Dirt, Coal,
 };
 constexpr int kFlowerVariants = 8;
+constexpr int kItemTypeCount = static_cast<int>(ItemType::Coal) + 1;  // keep in sync with the last ItemType
 
 const char* itemName(ItemType type);
 // Furniture (Minicraft's FurnitureItem) can be placed in the world, doesn't stack and takes one slot per item.
