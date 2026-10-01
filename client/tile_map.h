@@ -12,7 +12,8 @@
 
 class Camera;
 
-enum class Tile : std::uint8_t { Grass, Sand, Water, Rock, Tree, Dirt };
+// New values go at the end: saves store tiles by number.
+enum class Tile : std::uint8_t { Grass, Sand, Water, Rock, Tree, Dirt, Flower };
 
 const char* tileName(Tile tile);
 
@@ -56,6 +57,9 @@ public:
     float pixelWidth() const { return static_cast<float>(width_ * kTileSize); }
     float pixelHeight() const { return static_cast<float>(height_ * kTileSize); }
     std::uint32_t seed() const { return seed_; }
+    // Which of the kFlowerVariants flowers grows on a flower tile. It comes from the seed and the tile's 8x8-tile
+    // region rather than per-tile data, so nearby flowers match in patches and saves don't need to store it.
+    int flowerVariant(int tx, int ty) const;
     const std::vector<Tile>& tiles() const { return tiles_; }
     const std::vector<std::uint8_t>& damage() const { return damage_; }
 

@@ -11,7 +11,6 @@
 
 namespace {
 
-constexpr const char* kTitle = "Crafting";
 constexpr const char* kHaveTitle = "Have:";
 constexpr const char* kCostTitle = "Cost:";
 constexpr const char* kCursorLeft = "> ";
@@ -53,7 +52,8 @@ float drawInfoBox(SDL_Renderer* renderer, const Hud& hud, const Font& font, cons
 
 }  // namespace
 
-CraftingMenu::CraftingMenu(std::vector<Recipe> recipes) : recipes_(std::move(recipes)) {}
+CraftingMenu::CraftingMenu(std::vector<Recipe> recipes, std::string title)
+    : recipes_(std::move(recipes)), title_(std::move(title)) {}
 
 const Recipe* CraftingMenu::handleKey(SDL_Keycode key, const Inventory& inventory) {
     const int count = static_cast<int>(recipes_.size());
@@ -73,7 +73,7 @@ void CraftingMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font
     const float cursorWidth = Font::textWidth(kCursorLeft);
 
     // Recipe list: sized and drawn like the inventory screen.
-    int columns = static_cast<int>(std::string(kTitle).size()) + 4;
+    int columns = static_cast<int>(title_.size()) + 4;
     for (const auto& recipe : recipes_) {
         columns = std::max(columns, 2 + 1 + static_cast<int>(recipeText(recipe).size()) + 2);
     }
@@ -81,8 +81,8 @@ void CraftingMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font
     const float interiorLeft = kFrameLeft + kCell;
     const float interiorTop = kFrameTop + kCell;
     hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
-    hud.drawTitle(renderer, font, kTitle,
-                  std::floor(kFrameLeft + (frameSize(columns) - Font::textWidth(kTitle)) / 2.0f), kFrameTop);
+    hud.drawTitle(renderer, font, title_,
+                  std::floor(kFrameLeft + (frameSize(columns) - Font::textWidth(title_)) / 2.0f), kFrameTop);
 
     for (std::size_t i = 0; i < recipes_.size(); ++i) {
         const Recipe& recipe = recipes_[i];

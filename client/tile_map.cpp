@@ -1,6 +1,7 @@
 #include "tile_map.h"
 
 #include "camera.h"
+#include "items.h"
 #include "texture.h"
 #include "world_gen.h"
 
@@ -21,6 +22,7 @@ struct AtlasPos {
 };
 constexpr AtlasPos kGrass{0, 0}, kSand{16, 0}, kRock{32, 0}, kDirt{48, 0};
 constexpr AtlasPos kOak{64, 0};         // tree (transparent background), exactly one per tree tile
+constexpr AtlasPos kFlower0{0, 56};     // the flower sprites, one per variant (transparent background)
 constexpr AtlasPos kRockCorner{80, 0};  // 2x2 quadrants for rock's inner corners
 constexpr AtlasPos kWaterFrame0{0, 16};
 // Border sheets: 3x3 grid of 8x8 pieces. Row/column 0 = top/left edge, 1 = no edge, 2 = bottom/right edge.
@@ -37,7 +39,8 @@ struct ConnectedTexture {
 bool connects(Tile kind, Tile other) {
     switch (kind) {
         case Tile::Grass:
-        case Tile::Tree: return other == Tile::Grass || other == Tile::Tree;
+        case Tile::Tree:
+        case Tile::Flower: return other == Tile::Grass || other == Tile::Tree || other == Tile::Flower;
         case Tile::Sand: return other == Tile::Sand;
         case Tile::Water: return other == Tile::Water;
         case Tile::Rock: return other == Tile::Rock;
@@ -97,6 +100,7 @@ const char* tileName(Tile tile) {
         case Tile::Rock: return "Rock";
         case Tile::Tree: return "Tree";
         case Tile::Dirt: return "Dirt";
+        case Tile::Flower: return "Flower";
     }
     return "?";
 }
@@ -109,6 +113,7 @@ int maxHealth(Tile tile) {
     switch (tile) {
         case Tile::Tree: return 20;
         case Tile::Rock: return 50;
+        case Tile::Flower: return 1;  // any punch picks it (FlowerTile.hurt)
         default: return 0;
     }
 }
@@ -144,7 +149,7 @@ std::optional<TileMap::TileHit> TileMap::hurtTile(int tx, int ty, int damage) {
     if (health == 0) return std::nullopt;
     const int total = damageAt(tx, ty) + damage;
     if (total >= health) {
-        tiles_[index(tx, ty)] = tile == Tile::Rock ? Tile::Dirt : Tile::Grass;  // as in Minicraft
+        tiles_[index(tx, ty)] = tile == Tile::Rock ? Tile::Dirt : Tile::Grass;  // as in Minicraft (flowers too)
         damage_[index(tx, ty)] = 0;
         return TileHit{tile, true};
     }
@@ -201,7 +206,21 @@ void TileMap::draw(SDL_Renderer* renderer, const Camera& camera, float timeSecon
                     drawPiece(renderer, atlas, kOak.x, kOak.y, size, x, y);
                     break;
                 case Tile::Dirt: break;  // just the dirt base
+                case Tile::Flower:
+                    drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, grass);  // grass underneath
+                    drawPiece(renderer, atlas, kFlower0.x + static_cast<float>(flowerVariant(tx, ty)) * size,
+                              kFlower0.y, size, x, y);
+                    break;
             }
         }
     }
+}
+
+int TileMap::flowerVariant(int tx, int ty) const {
+    // Hash of (seed, region x, region y), so every flower in an 8x8-tile region is the same kind.
+    std::uint32_t h = seed_ * 374761393u + static_cast<std::uint32_t>(tx >> 3) * 668265263u +
+                      static_cast<std::uint32_t>(ty >> 3) * 2246822519u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    h ^= h >> 16;
+    return static_cast<int>(h % static_cast<std::uint32_t>(kFlowerVariants));
 }

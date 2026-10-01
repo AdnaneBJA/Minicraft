@@ -21,6 +21,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Merge: game menu/saves + crafting/drops | 4078 |
 | 2026-10-01 | Held items, placeable workbench | 3450 |
 | 2026-10-01 | Merge: crafting (menu/saves/drops) + placeable workbench | 4349 |
+| 2026-10-01 | Workbench recipes, flowers, animals | 4708 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -218,6 +219,35 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 - **Known gap after merging the game menu/saves with the placeable workbench:** placed furniture isn't saved yet,
   so a workbench placed in the world is gone after reloading (the held item is saved as part of the inventory).
 
+- **2026-10-01: Workbench recipes, flowers and animals.**
+  - **Workbench crafting:** facing a placed workbench and pressing **E** opens its recipe list (a second
+    `CraftingMenu`, titled "Workbench"); E or Esc closes it. Recipes are Minicraft's `workbenchRecipes`:
+    - Wood sword / axe / hoe / pickaxe / shovel: 5 wood each.
+    - Rock sword / axe / hoe / pickaxe / shovel: 5 wood + 5 stone each.
+    - Wood bow: 5 wood + 2 string. Rock bow: 5 wood + 5 stone + 2 string.
+    - Arrow x3: 2 wood + 2 stone.
+  - New items with Minicraft+ icons: the 12 tools (they don't stack, like `ToolItem`), Arrow, String, Leather,
+    Raw Beef, Raw Pork, White Wool and 8 flowers. Tools are craftable but don't do anything special yet (no extra
+    damage, no tilling/digging). Nothing drops string yet, so the bows can't be crafted until a source exists.
+  - **Flowers** (new `Tile::Flower`, Minicraft+ `FlowerTile`):
+    - Generated in patches on grass by the classic `createTopMap` flower pass.
+    - 8 kinds (dandelion, poppy, oxeye daisy, cornflower, allium, blue orchid, rose, iris). The kind comes from the
+      seed and the tile's 8x8 region, so saves don't change.
+    - Walkable, drawn over connected grass. Punching one picks it: its flower item drops and grass is left.
+  - **Animals** (cow, pig, sheep; Minicraft's `PassiveMob`):
+    - Random walks of 45 ticks, starting 1 in 40 ticks, with each axis often zero, so they often stand still.
+    - Walk at 30 px/s (MobAi's walkTime 2); can't swim.
+    - Health: cow 10, pig and sheep 8. Punching hurts them (red number, white flash, knockback).
+    - On death they drop Minicraft's normal loot: cow 1-2 leather + raw beef, pig 1-2 raw pork, sheep 1-2 white
+      wool and 1-2 raw beef.
+    - Up to 10 are kept alive, spawning on grass or flowers 10-20 tiles from the player at any time of day.
+  - **Mobs refactor** (`mob.h/.cpp`, `mobs.h/.cpp` replace `zombie.h/.cpp`):
+    - The `Mob` base class holds MobAi's shared tick: walking and collision, hurt, knockback, flash and drawing.
+    - `Zombie` (chase + contact punch, unchanged behaviour) and `Animal` (passive wandering) are subclasses.
+    - `Mobs` owns, spawns, despawns, punches and draws them all.
+  - Debug panel: zombie and animal counts, separate spawn toggles, "Spawn zombie nearby" / "Spawn animal nearby"
+    and "Remove all mobs".
+
 ## Next
-- Use a placed workbench (facing it + Space with an empty hand) to open its recipe list (wooden tools).
+- Tool effects (axe/pickaxe/sword damage, hoe/shovel use), bows and arrows, a source of string.
 - Pick furniture back up (Minicraft's power glove).

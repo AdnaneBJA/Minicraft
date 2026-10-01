@@ -187,6 +187,19 @@ std::vector<Tile> WorldGenerator::createTopMap(JavaRandom& random, int w, int h)
         }
     }
 
+    // Flowers: patches of up to 30 flowers on grass (createTopMap's flower pass).
+    for (int i = 0; i < w * h / 400; ++i) {
+        const int x = random.nextInt(w);
+        const int y = random.nextInt(h);
+        for (int j = 0; j < 30; ++j) {
+            const int xx = x + random.nextInt(5) - random.nextInt(5);
+            const int yy = y + random.nextInt(5) - random.nextInt(5);
+            if (xx >= 0 && yy >= 0 && xx < w && yy < h && map[static_cast<std::size_t>(xx + yy * w)] == Tile::Grass) {
+                map[static_cast<std::size_t>(xx + yy * w)] = Tile::Flower;
+            }
+        }
+    }
+
     addBeaches(map, w, h);
     return map;
 }

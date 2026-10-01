@@ -5,6 +5,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -31,6 +32,9 @@ public:
     // on (not water, rock or trees), and only if no other furniture and none of `blockers` (mob hitboxes) is on that
     // tile. Returns false if it can't go there.
     bool place(ItemType type, int tx, int ty, const TileMap& map, std::span<const SDL_FRect> blockers);
+
+    // The furniture standing on tile (tx, ty), if any.
+    std::optional<ItemType> at(int tx, int ty) const;
 
     // Collision boxes of every piece, for movement.
     std::vector<SDL_FRect> hitboxes() const;

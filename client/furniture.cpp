@@ -40,6 +40,13 @@ bool Furniture::place(ItemType type, int tx, int ty, const TileMap& map, std::sp
     return true;
 }
 
+std::optional<ItemType> Furniture::at(int tx, int ty) const {
+    for (const Piece& piece : pieces_) {
+        if (collision::tileIndex(piece.x) == tx && collision::tileIndex(piece.y) == ty) return piece.type;
+    }
+    return std::nullopt;
+}
+
 std::vector<SDL_FRect> Furniture::hitboxes() const {
     std::vector<SDL_FRect> boxes;
     boxes.reserve(pieces_.size());

@@ -8,12 +8,25 @@
 #include <vector>
 
 // The order matches the columns of items.png.
-enum class ItemType { Wood, Stone, Workbench, Cloth, Iron, Potato, Acorn, Apple };
+enum class ItemType {
+    Wood, Stone, Workbench, Cloth, Iron, Potato, Acorn, Apple,
+    // Tools (Minicraft's ToolItem): wood and rock levels.
+    WoodSword, WoodAxe, WoodHoe, WoodPickaxe, WoodShovel, WoodBow,
+    RockSword, RockAxe, RockHoe, RockPickaxe, RockShovel, RockBow,
+    Arrow, String, Leather, RawBeef, RawPork, WhiteWool,
+    // Flowers (Minicraft+'s FlowerTile variants), in the same order as the flower sprites in tiles.png.
+    Dandelion, Poppy, OxeyeDaisy, Cornflower, Allium, BlueOrchid, Rose, Iris,
+};
+constexpr int kFlowerVariants = 8;
 
 const char* itemName(ItemType type);
 // Furniture (Minicraft's FurnitureItem) can be placed in the world, doesn't stack and takes one slot per item.
 bool isFurniture(ItemType type);
+// Tools (swords, axes, hoes, pickaxes, shovels, bows) don't stack either, like Minicraft's ToolItem.
+bool isTool(ItemType type);
 bool isStackable(ItemType type);
+// The flower item for flower variant 0..kFlowerVariants-1.
+ItemType flowerItem(int variant);
 
 // Stacks of items the player carries, in the order they were first picked up. A non-stackable item is a stack of 1.
 class Inventory {

@@ -4,7 +4,7 @@
 #include "items.h"
 #include "player.h"
 #include "tile_map.h"
-#include "zombie.h"
+#include "mobs.h"
 
 #include <imgui.h>
 
@@ -12,7 +12,7 @@
 #include <cmath>
 
 void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera, float scale, const TileMap& map,
-                                    const Player& player, const Zombies& zombies) const {
+                                    const Player& player, const Mobs& mobs) const {
     if (!enabled_) return;
 
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -95,13 +95,13 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
     }
 
     if (showHitbox_) {
-        // Zombie hitboxes, and the area the next punch reaches for mobs.
+        // Mob hitboxes, and the area the next punch reaches for mobs.
         const auto worldRect = [&](const SDL_FRect& r) {
             return SDL_FRect{toScreenX(r.x), toScreenY(r.y), r.w * scale, r.h * scale};
         };
         SDL_SetRenderDrawColor(renderer, 255, 70, 200, 255);
-        for (const Zombie& zombie : zombies.all()) {
-            const SDL_FRect rect = worldRect(zombie.hitbox());
+        for (const auto& mob : mobs.all()) {
+            const SDL_FRect rect = worldRect(mob->hitbox());
             SDL_RenderRect(renderer, &rect);
         }
         SDL_SetRenderDrawColor(renderer, 255, 140, 0, 120);
@@ -112,7 +112,7 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
 
 DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
                                                    const Player& player, const Inventory& inventory,
-                                                   std::size_t droppedItemCount, Zombies& zombies,
+                                                   std::size_t droppedItemCount, Mobs& mobs,
                                                    const DayNight& dayNight) {
     if (!enabled_) return {};
     if (!seedInputInitialised_) {
@@ -184,12 +184,18 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             if (ImGui::Button(timeName(time))) actions.setTime = time;
         }
 
-        ImGui::SeparatorText("Zombies");
-        ImGui::Text("Alive: %zu / %d", zombies.all().size(), Zombies::kMaxAlive);
-        ImGui::Checkbox("Spawn automatically (at night)", &zombies.spawningEnabled);
-        if (ImGui::Button("Spawn one nearby")) actions.spawnZombie = true;
+        ImGui::SeparatorText("Mobs");
+        ImGui::Text("Zombies: %d / %d  Animals: %d / %d (cows %d, pigs %d, sheep %d)", mobs.count(MobKind::Zombie),
+                    Mobs::kMaxZombies, mobs.animalCount(), Mobs::kMaxAnimals, mobs.count(MobKind::Cow),
+                    mobs.count(MobKind::Pig), mobs.count(MobKind::Sheep));
+        ImGui::Checkbox("Spawn zombies (at night)", &mobs.zombieSpawning);
         ImGui::SameLine();
-        if (ImGui::Button("Remove all")) actions.clearZombies = true;
+        ImGui::Checkbox("Spawn animals", &mobs.animalSpawning);
+        if (ImGui::Button("Spawn zombie nearby")) actions.spawnZombie = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Spawn animal nearby")) actions.spawnAnimal = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Remove all mobs")) actions.clearMobs = true;
 
         ImGui::SeparatorText("World");
         ImGui::InputScalar("Seed", ImGuiDataType_U32, &seedInput_);
