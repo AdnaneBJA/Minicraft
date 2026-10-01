@@ -5,6 +5,8 @@
 #include <memory>
 #include <string>
 
+class Camera;
+
 class Player {
 public:
     // Loads the sprite strip (16x16 frames: down, up, right 1, right 2). Returns false on failure.
@@ -12,7 +14,9 @@ public:
 
     void setPosition(float x, float y);
     void update(float dt, const bool* keys, float worldWidth, float worldHeight);
-    void draw(SDL_Renderer* renderer) const;
+    void draw(SDL_Renderer* renderer, const Camera& camera) const;
+
+    SDL_FRect bounds() const { return {x_, y_, kSize, kSize}; }
 
     static constexpr float kSize = 16.0f;
 

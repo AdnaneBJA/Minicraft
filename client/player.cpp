@@ -1,5 +1,7 @@
 #include "player.h"
 
+#include "camera.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -58,7 +60,7 @@ void Player::update(float dt, const bool* keys, float worldWidth, float worldHei
     walkDistance_ += step;
 }
 
-void Player::draw(SDL_Renderer* renderer) const {
+void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
     // The sheet only has down/up/right frames; the rest are horizontal mirrors (same trick as Minicraft):
     //   down: [down, down mirrored]   up: [up, up mirrored]
     //   right: [right1, right2]       left: [right1 mirrored, right2 mirrored]
@@ -84,7 +86,7 @@ void Player::draw(SDL_Renderer* renderer) const {
     }
 
     const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
-    const SDL_FRect destination{std::round(x_), std::round(y_), kSize, kSize};
+    const SDL_FRect destination{std::round(x_) - camera.x(), std::round(y_) - camera.y(), kSize, kSize};
     SDL_RenderTextureRotated(renderer, texture_.get(), &source, &destination, 0.0, nullptr,
                              mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
 }

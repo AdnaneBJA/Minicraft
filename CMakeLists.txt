@@ -15,8 +15,30 @@ FetchContent_Declare(SDL3
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(SDL3)
 
-add_executable(Minicraft client/main.cpp client/player.cpp)
-target_link_libraries(Minicraft PRIVATE SDL3::SDL3)
+# Dear ImGui (debug UI). It has no CMake build of its own, so compile the sources we need here.
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.92.9b
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(imgui)
+add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
+target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+target_link_libraries(imgui PUBLIC SDL3::SDL3)
+
+add_executable(Minicraft
+    client/main.cpp
+    client/player.cpp
+    client/tile_map.cpp
+    client/camera.cpp
+    client/debug_overlay.cpp)
+target_link_libraries(Minicraft PRIVATE SDL3::SDL3 imgui)
 
 # Copy assets next to the executable; the game finds them via SDL_GetBasePath().
 add_custom_command(TARGET Minicraft POST_BUILD
