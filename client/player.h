@@ -64,6 +64,8 @@ public:
     // Ticks left in the pause after running out of energy (bolts blink meanwhile); 0 when not exhausted.
     int energyRechargeDelay() const { return energyRechargeDelay_; }
     void refillStats();
+    // Sets health and energy (a loaded save); clears any hurt cooldown, knockback or exhaustion pause.
+    void restoreStats(int health, int energy);
     bool isDead() const { return health_ <= 0; }
     // Minicraft's entity centre (8, 11 inside the sprite), used for effects attached to the player.
     SDL_FPoint center() const { return {x_ + 8.0f, y_ + 11.0f}; }

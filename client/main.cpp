@@ -6,11 +6,13 @@
 #include "effects.h"
 #include "font.h"
 #include "furniture.h"
+#include "game_menu.h"
 #include "hud.h"
 #include "inventory_menu.h"
 #include "items.h"
 #include "player.h"
 #include "tile_map.h"
+#include "world_save.h"
 #include "zombie.h"
 
 #include <SDL3/SDL.h>
@@ -22,7 +24,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 class Game {
@@ -31,7 +35,6 @@ public:
     static constexpr int kViewWidth = 240;
     static constexpr int kViewHeight = 135;
     static constexpr int kMapSize = 256;  // tiles (power of two, required by the generator)
-    static constexpr std::uint32_t kDefaultSeed = 1337;
     // Holding Space works like Minicraft: the press punches once, and only once the key has been held for a moment
     // (Minicraft waits for the OS key repeat to make the key "sticky") does it unload rapid punches until energy
     // runs out.
@@ -39,6 +42,8 @@ public:
     static constexpr float kRapidPunchInterval = 3.0f / 60.0f;  // 20 punches/s
     static constexpr SDL_Color kPlayerDamageColor{255, 0, 204, 255};  // Minicraft: Color.get(-1, 504)
     static constexpr float kPlayerLightRadius = 40.0f;
+    static constexpr SDL_Color kSavedColor{0, 255, 0, 255};
+    static constexpr SDL_Color kErrorColor{255, 0, 0, 255};
 
     bool init() {
         if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -66,10 +71,10 @@ public:
             !itemIcons_.load(renderer, sprites + "items.png") ||
             !inventoryMenu_.load(renderer, sprites + "inventory_counter.png") ||
             !furniture_.load(renderer, sprites + "furniture.png") ||
-            !zombies_.load(renderer, sprites + "zombie.png")) {
+            !zombies_.load(renderer, sprites + "zombie.png") || !menu_.load(renderer, sprites + "title.png")) {
             return false;
         }
-        newWorld(kDefaultSeed);
+        menu_.openTitle(saves_.list());
         return true;
     }
 
@@ -89,6 +94,105 @@ public:
     }
 
 private:
+    // Saves live in the per-user data folder (e.g. %APPDATA%/Minicraft/Minicraft/saves on Windows), like
+    // Minicraft's game directory.
+    static std::filesystem::path savesDirectory() {
+        char* prefPath = SDL_GetPrefPath("Minicraft", "Minicraft");
+        std::filesystem::path path;
+        if (prefPath) path = std::filesystem::path(reinterpret_cast<const char8_t*>(prefPath));
+        SDL_free(prefPath);
+        return path / "saves";
+    }
+
+    // Everything that belongs to one play session goes back to a fresh start (the map is set separately).
+    void resetWorldState() {
+        effects_.clear();
+        droppedItems_.clear();
+        zombies_.clear();
+        furniture_.clear();
+        inventory_.clear();
+        inventoryMenu_.close();
+        craftingMenu_.close();
+        player_.setHeldItem(std::nullopt);
+        player_.refillStats();
+        dayNight_ = DayNight{};
+        punchRepeatTimer_ = 0.0f;
+    }
+
+    void enterWorld(std::string name) {
+        worldName_ = std::move(name);
+        inWorld_ = true;
+        menu_.close();
+    }
+
+    void createWorld(std::string name, std::uint32_t seed) {
+        map_.generate(seed, kMapSize, kMapSize);
+        resetWorldState();
+        const SDL_FPoint spawn = map_.findSpawnPoint();
+        player_.setPosition(spawn.x, spawn.y);
+        enterWorld(std::move(name));
+        saveWorld();  // so the new world is listed under Load World right away
+    }
+
+    bool loadWorld(std::string name) {
+        auto data = saves_.load(name);
+        if (!data) return false;
+        map_.restore(data->seed, data->width, data->height, std::move(data->tiles), std::move(data->damage));
+        resetWorldState();
+        player_.setPosition(data->playerX, data->playerY);
+        player_.restoreStats(data->health, data->energy);
+        dayNight_.restore(data->dayTick, data->pastDay1);
+        for (const auto& stack : data->inventory) inventory_.add(stack.type, stack.count);
+        enterWorld(std::move(name));
+        return true;
+    }
+
+    bool saveWorld() const {
+        const SDL_FRect bounds = player_.bounds();
+        WorldSaveData data;
+        data.seed = map_.seed();
+        data.width = map_.width();
+        data.height = map_.height();
+        data.tiles = map_.tiles();
+        data.damage = map_.damage();
+        data.playerX = bounds.x;
+        data.playerY = bounds.y;
+        data.health = player_.health();
+        data.energy = player_.energy();
+        data.dayTick = dayNight_.tick();
+        data.pastDay1 = dayNight_.pastDay1();
+        // The item in hand isn't in the inventory; save it as part of it so it isn't lost.
+        Inventory carried = inventory_;
+        if (const auto& held = player_.heldItem()) carried.add(held->type, held->count);
+        data.inventory = carried.stacks();
+        return saves_.save(worldName_, data);
+    }
+
+    void handleMenuAction(const GameMenu::Action& action) {
+        using Kind = GameMenu::Action::Kind;
+        switch (action.kind) {
+            case Kind::CreateWorld: createWorld(action.worldName, action.seed); break;
+            case Kind::LoadWorld:
+                if (!loadWorld(action.worldName)) menu_.showMessage("Could not load world", kErrorColor);
+                break;
+            case Kind::Resume: menu_.close(); break;
+            case Kind::Save:
+                if (saveWorld()) menu_.showMessage("World saved!", kSavedColor);
+                else menu_.showMessage("Could not save!", kErrorColor);
+                break;
+            case Kind::SaveAndQuit:
+                if (!saveWorld()) {
+                    menu_.showMessage("Could not save!", kErrorColor);
+                    break;
+                }
+                inWorld_ = false;
+                menu_.openTitle(saves_.list());
+                break;
+            case Kind::Quit: running_ = false; break;
+            case Kind::None: break;
+        }
+    }
+
     void newWorld(std::uint32_t seed) {
         map_.generate(seed, kMapSize, kMapSize);
         effects_.clear();
@@ -122,9 +226,14 @@ private:
         const float centerY = static_cast<float>(target.y * TileMap::kTileSize + TileMap::kTileSize / 2);
         effects_.addSmash(target.x, target.y);
         effects_.addDamageNumber(damage, centerX, centerY);
+        // Minicraft's TreeTile.hurt: every hit on a tree has a 1 in 100 chance to shake an apple loose.
+        if (hit->tile == Tile::Tree && SDL_rand(100) == 0) droppedItems_.spawn(ItemType::Apple, 1, centerX, centerY);
         if (hit->broken) {
-            // Minicraft drops: a tree gives 1-3 wood, a rock punched by hand gives 1 stone.
-            if (hit->tile == Tile::Tree) droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
+            // Minicraft drops: a tree gives 1-3 wood and 0-2 acorns, a rock punched by hand gives 1 stone.
+            if (hit->tile == Tile::Tree) {
+                droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
+                droppedItems_.spawn(ItemType::Acorn, static_cast<int>(SDL_rand(3)), centerX, centerY);
+            }
             if (hit->tile == Tile::Rock) droppedItems_.spawn(ItemType::Stone, 1, centerX, centerY);
         }
     }
@@ -172,13 +281,20 @@ private:
             ImGui_ImplSDL3_ProcessEvent(&event);
             if (event.type == SDL_EVENT_QUIT) {
                 running_ = false;
-            } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
-                handleKey(event.key.key);
+            } else if (event.type == SDL_EVENT_KEY_DOWN) {
+                handleKey(event.key.key, event.key.repeat);
+            } else if (event.type == SDL_EVENT_TEXT_INPUT) {
+                menu_.handleText(event.text.text);
             }
         }
     }
 
-    void handleKey(SDL_Keycode key) {
+    void handleKey(SDL_Keycode key, bool repeat) {
+        if (menu_.isOpen()) {
+            if (!ImGui::GetIO().WantCaptureKeyboard) handleMenuAction(menu_.handleKey(key, repeat));
+            return;
+        }
+        if (repeat) return;
         if (key == DebugOverlay::kToggleKey) debug_.toggle();
         if (ImGui::GetIO().WantCaptureKeyboard) return;  // typing in the debug panel
         if (key == SDLK_ESCAPE) {
@@ -186,7 +302,7 @@ private:
                 inventoryMenu_.close();
                 craftingMenu_.close();
             } else {
-                running_ = false;
+                menu_.openPause();
             }
             return;
         }
@@ -220,6 +336,18 @@ private:
     }
 
     void update(float dt) {
+        menu_.update(dt);
+        // SDL text input (and the IME) is only on while a menu text field is selected.
+        SDL_Window* window = window_.get();
+        if (menu_.wantsTextInput() != SDL_TextInputActive(window)) {
+            if (menu_.wantsTextInput()) SDL_StartTextInput(window);
+            else SDL_StopTextInput(window);
+        }
+        if (inWorld_ && !menu_.isOpen()) updateWorld(dt);  // not on the title screens, nor paused
+        updateView();
+    }
+
+    void updateWorld(float dt) {
         // While a menu is open or typing in the debug panel, keys must not move the player.
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
         const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || menuOpen();
@@ -243,12 +371,16 @@ private:
         if (player_.isDead()) respawn();
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
+    }
 
+    // Picks the render scale for the window size and points the camera at the player.
+    void updateView() {
         int outputWidth = 0;
         int outputHeight = 0;
         SDL_GetCurrentRenderOutputSize(renderer_.get(), &outputWidth, &outputHeight);
         scale_ = static_cast<float>(std::max(1, std::min(outputWidth / kViewWidth, outputHeight / kViewHeight)));
         camera_.setView(static_cast<float>(outputWidth) / scale_, static_cast<float>(outputHeight) / scale_, scale_);
+        if (!inWorld_) return;
         // Follow the position the player is actually drawn at (snapped), so the two never disagree by a pixel.
         const SDL_FRect bounds = player_.bounds();
         camera_.follow(camera_.snap(bounds.x) + bounds.w / 2.0f, camera_.snap(bounds.y) + bounds.h / 2.0f,
@@ -262,6 +394,25 @@ private:
 
         // World: drawn in world pixels, scaled up by a whole factor.
         SDL_SetRenderScale(renderer, scale_, scale_);
+        if (inWorld_) drawWorld(renderer);
+        menu_.draw(renderer, hud_, font_, camera_.width(), camera_.height());
+
+        // Debug overlay and UI: drawn in screen pixels so lines stay thin.
+        SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+        if (inWorld_) debug_.drawWorldOverlay(renderer, camera_, scale_, map_, player_, zombies_);
+
+        // ImGui runs every frame (even without the debug panel) so its keyboard capture state stays current.
+        ImGui_ImplSDLRenderer3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+        if (inWorld_) drawDebugPanel();
+        ImGui::Render();
+        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
+
+        SDL_RenderPresent(renderer);
+    }
+
+    void drawWorld(SDL_Renderer* renderer) {
         map_.draw(renderer, camera_, time_);
         droppedItems_.draw(renderer, camera_, itemIcons_);
         const float playerY = player_.center().y;
@@ -288,14 +439,9 @@ private:
         }
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
         craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
+    }
 
-        // Debug overlay and UI: drawn in screen pixels so lines stay thin.
-        SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-        debug_.drawWorldOverlay(renderer, camera_, scale_, map_, player_, zombies_);
-
-        ImGui_ImplSDLRenderer3_NewFrame();
-        ImGui_ImplSDL3_NewFrame();
-        ImGui::NewFrame();
+    void drawDebugPanel() {
         const auto actions =
             debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size(), zombies_, dayNight_);
         if (actions.regenerateSeed) newWorld(*actions.regenerateSeed);
@@ -306,10 +452,6 @@ private:
         }
         if (actions.clearZombies) zombies_.clear();
         if (actions.setTime) dayNight_.setTime(*actions.setTime);
-        ImGui::Render();
-        ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
-
-        SDL_RenderPresent(renderer);
     }
 
     struct SdlQuit {
@@ -361,6 +503,10 @@ private:
     ItemIcons itemIcons_;
     Camera camera_;
     DebugOverlay debug_;
+    GameMenu menu_;
+    WorldSaves saves_{savesDirectory()};
+    std::string worldName_;
+    bool inWorld_ = false;  // a world is loaded (playing or paused); false on the title screens
     float scale_ = 1.0f;
     float punchRepeatTimer_ = 0.0f;
     float time_ = 0.0f;

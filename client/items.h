@@ -8,7 +8,7 @@
 #include <vector>
 
 // The order matches the columns of items.png.
-enum class ItemType { Wood, Stone, Workbench, Cloth, Iron, Potato };
+enum class ItemType { Wood, Stone, Workbench, Cloth, Iron, Potato, Acorn, Apple };
 
 const char* itemName(ItemType type);
 // Furniture (Minicraft's FurnitureItem) can be placed in the world, doesn't stack and takes one slot per item.
@@ -44,7 +44,7 @@ private:
 // Minicraft's getDisplayName(): " <count> <name>" for stackable items, " <name>" for the rest.
 std::string displayName(const Inventory::Stack& stack);
 
-// The 8x8 item icons (items.png: wood, stone, workbench, cloth, iron, potato).
+// The 8x8 item icons (items.png: wood, stone, workbench, cloth, iron, potato, acorn, apple).
 class ItemIcons {
 public:
     static constexpr float kSize = 8.0f;

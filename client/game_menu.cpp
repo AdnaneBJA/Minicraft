@@ -1,0 +1,351 @@
+#include "game_menu.h"
+
+#include "font.h"
+#include "hud.h"
+#include "world_save.h"
+
+#include <algorithm>
+#include <array>
+#include <charconv>
+#include <cmath>
+#include <string_view>
+#include <utility>
+
+namespace {
+
+constexpr float kCell = 8.0f;
+constexpr float kRowHeight = 10.0f;  // 8 px line + 2 px spacing, like Minicraft+'s title menu
+constexpr float kTick = 1.0f / 60.0f;
+constexpr float kMessageSeconds = 2.0f;
+constexpr int kVisibleWorlds = 5;
+constexpr std::size_t kMaxSeedLength = 16;
+constexpr const char* kCursorLeft = "> ";
+constexpr const char* kCursorRight = " <";
+constexpr const char* kNamePrompt = "Name: ";
+constexpr const char* kSeedPrompt = "Seed: ";
+
+// Minicraft+ colours: selected entries are white, the rest grey; text fields go green when valid, red when not.
+constexpr SDL_Color kWhite{255, 255, 255, 255};
+constexpr SDL_Color kGray{153, 153, 153, 255};
+constexpr SDL_Color kDarkGray{102, 102, 102, 255};
+constexpr SDL_Color kGreen{0, 255, 0, 255};
+constexpr SDL_Color kRed{255, 0, 0, 255};
+constexpr SDL_Color kCyan{0, 255, 255, 255};
+
+constexpr std::array<std::string_view, 2> kTitleEntries{"Play", "Quit"};
+constexpr std::array<std::string_view, 2> kPlayEntries{"Load World", "New World"};
+constexpr std::array<std::string_view, 3> kPauseEntries{"Return to Game", "Save Game", "Save and Quit"};
+constexpr int kNameRow = 0;
+constexpr int kSeedRow = 1;
+constexpr int kCreateRow = 2;
+
+// A few of Minicraft's title splashes that fit this game.
+constexpr std::array<std::string_view, 16> kSplashes{
+    "Get him, Paul!",    "Keep calm!",          "Forty-Two!",       "Punch the Moon!",
+    "Notch is Awesome!", "Sleep at Night!",     "Grab your friends!", "Mouse not included!",
+    "2.5D FTW!",         "Zombies included!",   "Story? Uhh...",    "3rd dimension not included!",
+    "Awesome!",          "Radical!",            "...zzz...",        "Infinite terrain? What's that?"};
+
+float centeredX(std::string_view text, float viewWidth) {
+    return std::floor((viewWidth - Font::textWidth(text)) / 2.0f);
+}
+
+void drawCentered(SDL_Renderer* renderer, const Font& font, std::string_view text, float viewWidth, float y,
+                  SDL_Color color) {
+    font.draw(renderer, text, centeredX(text, viewWidth), std::floor(y), color);
+}
+
+// Minicraft+'s Menu.render: each entry centred on its row; the selected one white with "> <" around it.
+template <typename Entries>
+void drawEntries(SDL_Renderer* renderer, const Font& font, const Entries& entries, int first, int count, int selected,
+                 float viewWidth, float top) {
+    for (int i = 0; i < count; ++i) {
+        const int index = first + i;
+        const std::string_view text = entries[static_cast<std::size_t>(index)];
+        const float x = centeredX(text, viewWidth);
+        const float y = std::floor(top + static_cast<float>(i) * kRowHeight);
+        const bool isSelected = index == selected;
+        font.draw(renderer, text, x, y, isSelected ? kWhite : kGray);
+        if (isSelected) {
+            font.draw(renderer, kCursorLeft, x - Font::textWidth(kCursorLeft), y, kWhite);
+            font.draw(renderer, kCursorRight, x + Font::textWidth(text), y, kWhite);
+        }
+    }
+}
+
+// Minicraft+'s WorldGenDisplay.getSeed: a number is used as is, any other text is hashed, and an empty field
+// picks a random seed. Seeds here are 32-bit, so the result is truncated.
+std::uint32_t seedFromText(std::string_view text) {
+    if (text.empty()) return static_cast<std::uint32_t>(SDL_rand_bits());
+    std::int64_t number = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), number);
+    if (error == std::errc() && end == text.data() + text.size()) return static_cast<std::uint32_t>(number);
+    std::uint64_t hash = 1125899906842597ULL;  // Minicraft's "rather large prime number"
+    for (const char c : text) hash = 31 * hash + static_cast<unsigned char>(c);
+    return static_cast<std::uint32_t>(hash);
+}
+
+}  // namespace
+
+bool GameMenu::load(SDL_Renderer* renderer, const std::string& logoPath) {
+    logo_ = loadTexture(renderer, logoPath);
+    if (!logo_) return false;
+    SDL_GetTextureSize(logo_.get(), &logoWidth_, &logoHeight_);
+    return true;
+}
+
+void GameMenu::openTitle(std::vector<std::string> worlds) {
+    worlds_ = std::move(worlds);
+    splash_ = SDL_rand(static_cast<Sint32>(kSplashes.size()));
+    open(Screen::Title);
+}
+
+void GameMenu::openPause() { open(Screen::Pause); }
+
+void GameMenu::open(Screen screen) {
+    screen_ = screen;
+    selected_ = 0;
+    listOffset_ = 0;
+    message_.clear();
+    if (screen == Screen::NewWorld) {
+        name_.clear();
+        seed_.clear();
+    }
+}
+
+bool GameMenu::wantsTextInput() const {
+    return screen_ == Screen::NewWorld && (selected_ == kNameRow || selected_ == kSeedRow);
+}
+
+int GameMenu::entryCount() const {
+    switch (screen_) {
+        case Screen::Title: return static_cast<int>(kTitleEntries.size());
+        case Screen::Play: return static_cast<int>(kPlayEntries.size());
+        case Screen::NewWorld: return 3;
+        case Screen::LoadWorld: return static_cast<int>(worlds_.size());
+        case Screen::Pause: return static_cast<int>(kPauseEntries.size());
+        case Screen::None: return 0;
+    }
+    return 0;
+}
+
+GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
+    // W/S move the cursor too, except on the world creation screen where letters are typed.
+    const bool typing = screen_ == Screen::NewWorld;
+    const bool up = key == SDLK_UP || (!typing && key == SDLK_W);
+    const bool down = key == SDLK_DOWN || (!typing && key == SDLK_S);
+    const int count = entryCount();
+    if ((up || down) && count > 0) {
+        selected_ = (selected_ + (up ? count - 1 : 1)) % count;  // wraps, like Minicraft
+        if (screen_ == Screen::LoadWorld) {
+            listOffset_ = std::clamp(listOffset_, selected_ - kVisibleWorlds + 1, selected_);
+        }
+        return {};
+    }
+    if (key == SDLK_BACKSPACE && wantsTextInput()) {
+        std::string& field = selected_ == kNameRow ? name_ : seed_;
+        if (!field.empty()) field.pop_back();
+        return {};
+    }
+    if (repeat) return {};
+
+    if (key == SDLK_RETURN || key == SDLK_KP_ENTER) return select();
+    if (key == SDLK_ESCAPE) {
+        switch (screen_) {
+            case Screen::Play:
+            case Screen::NewWorld:
+                // Back to where this screen was opened from (Play is skipped when there are no worlds yet).
+                open(screen_ == Screen::NewWorld && !worlds_.empty() ? Screen::Play : Screen::Title);
+                break;
+            case Screen::LoadWorld: open(Screen::Play); break;
+            case Screen::Pause: return {.kind = Action::Kind::Resume};
+            case Screen::Title:
+            case Screen::None: break;
+        }
+    }
+    return {};
+}
+
+GameMenu::Action GameMenu::select() {
+    switch (screen_) {
+        case Screen::Title:
+            if (selected_ == 1) return {.kind = Action::Kind::Quit};
+            // Like Minicraft+: straight to world creation when there is nothing to load.
+            open(worlds_.empty() ? Screen::NewWorld : Screen::Play);
+            break;
+        case Screen::Play: open(selected_ == 0 ? Screen::LoadWorld : Screen::NewWorld); break;
+        case Screen::NewWorld:
+            // Enter creates the world from any row, so the name can be typed and confirmed right away.
+            if (!nameProblem().empty()) {
+                selected_ = kNameRow;
+                return {};
+            }
+            return {.kind = Action::Kind::CreateWorld, .worldName = name_, .seed = seedFromText(seed_)};
+        case Screen::LoadWorld:
+            if (worlds_.empty()) return {};
+            return {.kind = Action::Kind::LoadWorld, .worldName = worlds_[static_cast<std::size_t>(selected_)]};
+        case Screen::Pause: {
+            constexpr std::array<Action::Kind, 3> kPauseActions{Action::Kind::Resume, Action::Kind::Save,
+                                                                Action::Kind::SaveAndQuit};
+            return {.kind = kPauseActions[static_cast<std::size_t>(selected_)]};
+        }
+        case Screen::None: break;
+    }
+    return {};
+}
+
+void GameMenu::handleText(const char* text) {
+    if (!wantsTextInput()) return;
+    const bool isName = selected_ == kNameRow;
+    std::string& field = isName ? name_ : seed_;
+    const std::size_t maxLength = isName ? WorldSaves::kMaxNameLength : kMaxSeedLength;
+    for (const char* c = text; *c != '\0' && field.size() < maxLength; ++c) {
+        const char ch = *c;
+        const bool letter = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+        const bool digit = ch >= '0' && ch <= '9';
+        if (isName) {
+            // World names are lower case, like Minicraft+'s (they double as file names).
+            if (letter || digit || ch == ' ' || ch == '-' || ch == '_') {
+                field.push_back(static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch));
+            }
+        } else if (letter || digit || ch == '-') {
+            field.push_back(ch);
+        }
+    }
+}
+
+std::string GameMenu::nameProblem() const {
+    if (name_.empty()) return "Enter a world name";
+    if (!WorldSaves::isValidName(name_)) return "Invalid world name";
+    if (std::find(worlds_.begin(), worlds_.end(), name_) != worlds_.end()) return "Name already taken";
+    return {};
+}
+
+void GameMenu::showMessage(std::string message, SDL_Color color) {
+    message_ = std::move(message);
+    messageColor_ = color;
+    messageTimer_ = kMessageSeconds;
+}
+
+void GameMenu::update(float dt) {
+    tickAccumulator_ += dt;
+    while (tickAccumulator_ >= kTick) {
+        tickAccumulator_ -= kTick;
+        ++ticks_;
+    }
+    if (messageTimer_ > 0.0f) {
+        messageTimer_ -= dt;
+        if (messageTimer_ <= 0.0f) message_.clear();
+    }
+}
+
+void GameMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, float viewWidth,
+                    float viewHeight) const {
+    switch (screen_) {
+        case Screen::Title: drawTitle(renderer, font, viewWidth, viewHeight); break;
+        case Screen::Play:
+            drawEntries(renderer, font, kPlayEntries, 0, static_cast<int>(kPlayEntries.size()), selected_, viewWidth,
+                        viewHeight / 2.0f - kRowHeight);
+            drawCentered(renderer, font, "(ESCAPE to return)", viewWidth, viewHeight - 10.0f, kDarkGray);
+            break;
+        case Screen::NewWorld: drawNewWorld(renderer, font, viewWidth, viewHeight); break;
+        case Screen::LoadWorld: drawLoadWorld(renderer, font, viewWidth, viewHeight); break;
+        case Screen::Pause: drawPause(renderer, hud, font, viewWidth, viewHeight); break;
+        case Screen::None: break;
+    }
+}
+
+void GameMenu::drawTitle(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const {
+    // Layout from Minicraft+'s TitleDisplay: logo near the top, a pulsing splash under it, the menu at 3/5 height
+    // and the controls at the bottom.
+    const float middle = std::floor(viewHeight / 2.0f);
+    const SDL_FRect logo{std::floor((viewWidth - logoWidth_) / 2.0f), middle - 52.0f, logoWidth_, logoHeight_};
+    SDL_RenderTexture(renderer, logo_.get(), nullptr, &logo);
+
+    // The splash brightness swings over 50 ticks: count goes 0 -> 25 -> 0, colour level 5 -> 1 -> 5.
+    const int phase = ticks_ % 50;
+    const int count = phase <= 25 ? phase : 50 - phase;
+    const int level = 5 - count / 5;
+    const SDL_Color splashColor{static_cast<Uint8>(level * 51), static_cast<Uint8>(level * 51),
+                                static_cast<Uint8>(level * 25), 255};
+    drawCentered(renderer, font, kSplashes[splash_], viewWidth, middle - 30.0f, splashColor);
+
+    drawEntries(renderer, font, kTitleEntries, 0, static_cast<int>(kTitleEntries.size()), selected_, viewWidth,
+                std::floor(viewHeight * 3.0f / 5.0f) - kRowHeight);
+    drawCentered(renderer, font, "(UP, DOWN to select)", viewWidth, viewHeight - 20.0f, kDarkGray);
+    drawCentered(renderer, font, "(ENTER to accept)", viewWidth, viewHeight - 10.0f, kDarkGray);
+}
+
+void GameMenu::drawNewWorld(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const {
+    drawCentered(renderer, font, "World Gen Options", viewWidth, 8.0f, kWhite);
+
+    // Rows are left-aligned on a fixed column wide enough for a full name, so typing doesn't shift them.
+    const float columnWidth = Font::textWidth(kNamePrompt) + static_cast<float>(WorldSaves::kMaxNameLength + 1) * kCell;
+    const float left = std::floor((viewWidth - columnWidth) / 2.0f);
+    const float top = std::floor(viewHeight / 2.0f) - 20.0f;
+    const bool caretOn = (ticks_ / 30) % 2 == 0;
+    const std::string problem = nameProblem();
+
+    const auto drawRow = [&](int row, const std::string& text, SDL_Color color) {
+        const float y = top + static_cast<float>(row) * kRowHeight;
+        font.draw(renderer, text, left, y, color);
+        if (row != selected_) return;
+        const bool isField = row != kCreateRow;
+        if (isField && caretOn) font.draw(renderer, "_", left + Font::textWidth(text), y, color);
+        font.draw(renderer, kCursorLeft, left - Font::textWidth(kCursorLeft), y, kWhite);
+        font.draw(renderer, kCursorRight, left + Font::textWidth(text) + (isField ? kCell : 0.0f), y, kWhite);
+    };
+    const SDL_Color nameColor = !problem.empty() ? kRed : selected_ == kNameRow ? kGreen : kGray;
+    drawRow(kNameRow, kNamePrompt + name_, nameColor);
+    if (seed_.empty() && selected_ != kSeedRow) {
+        drawRow(kSeedRow, std::string(kSeedPrompt) + "random", kDarkGray);
+    } else {
+        drawRow(kSeedRow, kSeedPrompt + seed_, selected_ == kSeedRow ? kGreen : kGray);
+    }
+    drawRow(kCreateRow, "Create World", kCyan);
+
+    if (!problem.empty()) drawCentered(renderer, font, problem, viewWidth, top + 4.0f * kRowHeight, kRed);
+    drawCentered(renderer, font, "(ENTER to create)", viewWidth, viewHeight - 20.0f, kDarkGray);
+    drawCentered(renderer, font, "(ESCAPE to return)", viewWidth, viewHeight - 10.0f, kDarkGray);
+}
+
+void GameMenu::drawLoadWorld(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const {
+    drawCentered(renderer, font, "Select World", viewWidth, 8.0f, kWhite);
+    // Up to five worlds at a time, scrolled to keep the selection visible (WorldSelectDisplay).
+    const int shown = std::min(kVisibleWorlds, static_cast<int>(worlds_.size()));
+    const float top = std::floor(viewHeight / 2.0f - static_cast<float>(shown) * kRowHeight / 2.0f);
+    drawEntries(renderer, font, worlds_, listOffset_, shown, selected_, viewWidth, top);
+    if (listOffset_ > 0) drawCentered(renderer, font, "...", viewWidth, top - kRowHeight, kDarkGray);
+    if (listOffset_ + shown < static_cast<int>(worlds_.size())) {
+        drawCentered(renderer, font, "...", viewWidth, top + static_cast<float>(shown) * kRowHeight, kDarkGray);
+    }
+    if (!message_.empty()) drawCentered(renderer, font, message_, viewWidth, viewHeight - 34.0f, messageColor_);
+    drawCentered(renderer, font, "(ENTER to confirm)", viewWidth, viewHeight - 20.0f, kDarkGray);
+    drawCentered(renderer, font, "(ESCAPE to return)", viewWidth, viewHeight - 10.0f, kDarkGray);
+}
+
+void GameMenu::drawPause(SDL_Renderer* renderer, const Hud& hud, const Font& font, float viewWidth,
+                         float viewHeight) const {
+    // A framed list over the paused world, entries on every other row (blank rows above and below too), with the
+    // title set into the top edge.
+    std::size_t longest = 0;
+    for (const auto entry : kPauseEntries) longest = std::max(longest, entry.size());
+    const int columns = static_cast<int>(longest) + 4;  // room for "> " and " <"
+    const int rows = static_cast<int>(kPauseEntries.size()) * 2 + 1;
+    const float interiorLeft = std::floor((viewWidth - static_cast<float>(columns) * kCell) / 2.0f);
+    const float interiorTop = std::floor((viewHeight - static_cast<float>(rows) * kCell) / 2.0f);
+    hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
+
+    const std::string_view title = "Paused";
+    hud.drawTitle(renderer, font, title, centeredX(title, viewWidth), interiorTop - kCell);
+
+    for (int i = 0; i < static_cast<int>(kPauseEntries.size()); ++i) {
+        // drawEntries spaces rows by kRowHeight; the frame needs whole cells, so draw one entry at a time.
+        drawEntries(renderer, font, kPauseEntries, i, 1, selected_, viewWidth,
+                    interiorTop + static_cast<float>(i * 2 + 1) * kCell);
+    }
+    if (!message_.empty()) {
+        drawCentered(renderer, font, message_, viewWidth, interiorTop + static_cast<float>(rows + 2) * kCell,
+                     messageColor_);
+    }
+}

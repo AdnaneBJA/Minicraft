@@ -21,6 +21,9 @@ public:
     int tick() const { return tick_; }
     // Jumps to the start of a part of the day (Minicraft's F3+T shortcuts).
     void setTime(Time time);
+    bool pastDay1() const { return pastDay1_; }
+    // Restores a saved time of day.
+    void restore(int tick, bool pastDay1);
 
     // How dark the surface is, 0 (day) to 0.8 (night): Minicraft's darkFactor / 160.
     float darkness() const;
