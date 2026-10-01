@@ -11,7 +11,8 @@
 enum class ItemType { Wood, Stone, Workbench, Cloth, Iron, Potato, Acorn, Apple };
 
 const char* itemName(ItemType type);
-// Resources stack; furniture (like Minicraft's FurnitureItem) takes one slot per item.
+// Furniture (Minicraft's FurnitureItem) can be placed in the world, doesn't stack and takes one slot per item.
+bool isFurniture(ItemType type);
 bool isStackable(ItemType type);
 
 // Stacks of items the player carries, in the order they were first picked up. A non-stackable item is a stack of 1.
@@ -31,12 +32,17 @@ public:
     // Removes up to `count` items, emptying stacks from the last one; returns how many were removed.
     int remove(ItemType type, int count);
     int count(ItemType type) const;
+    // Takes the whole stack at `index` out of the inventory (Minicraft's Inventory.remove(int)).
+    Stack take(int index);
     const std::vector<Stack>& stacks() const { return stacks_; }
     void clear() { stacks_.clear(); }
 
 private:
     std::vector<Stack> stacks_;
 };
+
+// Minicraft's getDisplayName(): " <count> <name>" for stackable items, " <name>" for the rest.
+std::string displayName(const Inventory::Stack& stack);
 
 // The 8x8 item icons (items.png: wood, stone, workbench, cloth, iron, potato, acorn, apple).
 class ItemIcons {

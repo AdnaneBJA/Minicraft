@@ -112,14 +112,14 @@ SDL_Point Player::facing() const {
     return {0, 1};
 }
 
-void Player::tickKnockback(const TileMap& map) {
+void Player::tickKnockback(const TileMap& map, std::span<const SDL_FRect> obstacles) {
     // Mob.tick: move half the remaining knockback each tick, shrinking it by one step (6 -> 9 px over 6 ticks).
     if (knockbackX_ != 0) {
-        moveX(static_cast<float>(knockbackX_ / 2), map);
+        moveX(static_cast<float>(knockbackX_ / 2), map, obstacles);
         knockbackX_ -= knockbackX_ > 0 ? 1 : -1;
     }
     if (knockbackY_ != 0) {
-        moveY(static_cast<float>(knockbackY_ / 2), map);
+        moveY(static_cast<float>(knockbackY_ / 2), map, obstacles);
         knockbackY_ -= knockbackY_ > 0 ? 1 : -1;
     }
 }
@@ -165,7 +165,7 @@ void Player::setPosition(float x, float y) {
     y_ = y;
 }
 
-int Player::update(float dt, const bool* keys, const TileMap& map) {
+int Player::update(float dt, const bool* keys, const TileMap& map, std::span<const SDL_FRect> obstacles) {
     damageTaken_ = 0;
     attackTimer_ = std::max(0.0f, attackTimer_ - dt);
     punchPoseTimer_ = std::max(0.0f, punchPoseTimer_ - dt);
@@ -181,7 +181,7 @@ int Player::update(float dt, const bool* keys, const TileMap& map) {
         statTickAccumulator_ -= kStatTick;
         ++ticks_;
         if (hurtTime_ > 0) --hurtTime_;
-        tickKnockback(map);
+        tickKnockback(map, obstacles);
         tickEnergy();
         // Drowning, like Minicraft: once a second in water, pay a bolt, or a heart when out of energy.
         if (swimming_ && ticks_ % kSwimDrainTicks == 0) {
@@ -213,19 +213,23 @@ int Player::update(float dt, const bool* keys, const TileMap& map) {
     // Resolve each axis separately so pushing diagonally into a wall slides along it.
     const float startX = x_;
     const float startY = y_;
-    moveX(dx * step, map);
-    moveY(dy * step, map);
+    moveX(dx * step, map, obstacles);
+    moveY(dy * step, map, obstacles);
     // Advance the walk cycle by the larger axis only: summing both would make diagonals animate twice as fast.
     walkDistance_ += std::max(std::abs(x_ - startX), std::abs(y_ - startY));
     return damageTaken_;
 }
 
-void Player::moveX(float delta, const TileMap& map) {
-    x_ += collision::allowedMoveX(hitbox(), delta, [&](int tx, int ty) { return map.isSolidAt(tx, ty); });
+void Player::moveX(float delta, const TileMap& map, std::span<const SDL_FRect> obstacles) {
+    const auto solid = [&](int tx, int ty) { return map.isSolidAt(tx, ty); };
+    const float allowed = collision::allowedMoveX(hitbox(), delta, solid);
+    x_ += collision::clampMoveX(hitbox(), allowed, obstacles);
 }
 
-void Player::moveY(float delta, const TileMap& map) {
-    y_ += collision::allowedMoveY(hitbox(), delta, [&](int tx, int ty) { return map.isSolidAt(tx, ty); });
+void Player::moveY(float delta, const TileMap& map, std::span<const SDL_FRect> obstacles) {
+    const auto solid = [&](int tx, int ty) { return map.isSolidAt(tx, ty); };
+    const float allowed = collision::allowedMoveY(hitbox(), delta, solid);
+    y_ += collision::clampMoveY(hitbox(), allowed, obstacles);
 }
 
 void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
@@ -256,6 +260,8 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
             break;
     }
 
+    // Carrying furniture: the same frames from the second row, with both arms raised.
+    const float row = isCarryingFurniture() ? kSize : 0.0f;
     const float x = camera.snap(x_) - camera.x();
     float y = camera.snap(y_) - camera.y();
     const SDL_FlipMode flip = mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE;
@@ -272,11 +278,11 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
         SDL_RenderTexture(renderer, hudTexture_.get(), &rippleSource, &rippleLeft);
         SDL_RenderTextureRotated(renderer, hudTexture_.get(), &rippleSource, &rippleRight, 0.0, nullptr,
                                  SDL_FLIP_HORIZONTAL);
-        const SDL_FRect headSource{static_cast<float>(column) * kSize, 0.0f, kSize, kSize / 2.0f};
+        const SDL_FRect headSource{static_cast<float>(column) * kSize, row, kSize, kSize / 2.0f};
         const SDL_FRect headDestination{x, y, kSize, kSize / 2.0f};
         SDL_RenderTextureRotated(renderer, sprite, &headSource, &headDestination, 0.0, nullptr, flip);
     } else {
-        const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
+        const SDL_FRect source{static_cast<float>(column) * kSize, row, kSize, kSize};
         const SDL_FRect destination{x, y, kSize, kSize};
         SDL_RenderTextureRotated(renderer, sprite, &source, &destination, 0.0, nullptr, flip);
     }

@@ -19,12 +19,6 @@ constexpr float kFrameTop = 8.0f;
 constexpr SDL_Color kWhite{255, 255, 255, 255};
 constexpr SDL_Color kCapacityColor{153, 153, 153, 255};
 
-// Same text as Minicraft's getDisplayName(): " <count> <name>" for stackable items (StackableItem), " <name>"
-// otherwise (Item).
-std::string entryText(const Inventory::Stack& stack) {
-    if (!isStackable(stack.type)) return std::string(" ") + itemName(stack.type);
-    return " " + std::to_string(std::min(stack.count, 999)) + " " + itemName(stack.type);
-}
 
 // Minicraft's counter colour: green when empty, yellow at half, red when full (PlayerInvDisplay.colorByHeaviness).
 SDL_Color heavinessColor(int used, int capacity) {
@@ -43,11 +37,14 @@ bool InventoryMenu::load(SDL_Renderer* renderer, const std::string& counterPath)
     return counterTexture_ != nullptr;
 }
 
-void InventoryMenu::handleKey(SDL_Keycode key, const Inventory& inventory) {
+std::optional<int> InventoryMenu::handleKey(SDL_Keycode key, const Inventory& inventory) {
     const int count = static_cast<int>(inventory.stacks().size());
-    if (count == 0) return;
+    if (count == 0) return std::nullopt;
+    selected_ = std::min(selected_, count - 1);  // the inventory may have shrunk since the last key
     if (key == SDLK_W || key == SDLK_UP) selected_ = (selected_ + count - 1) % count;  // wraps, like Minicraft
     if (key == SDLK_S || key == SDLK_DOWN) selected_ = (selected_ + 1) % count;
+    if (key == SDLK_SPACE || key == SDLK_RETURN || key == SDLK_KP_ENTER) return selected_;
+    return std::nullopt;
 }
 
 void InventoryMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
@@ -60,7 +57,7 @@ void InventoryMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& fon
     // counter in the top-right corner don't overlap.
     int columns = static_cast<int>(std::string(kTitle).size()) + 4;
     for (const auto& stack : stacks) {
-        columns = std::max(columns, 2 + 1 + static_cast<int>(entryText(stack).size()) + 2);
+        columns = std::max(columns, 2 + 1 + static_cast<int>(displayName(stack).size()) + 2);
     }
     const int rows = std::max(1, static_cast<int>(stacks.size()));
     const float interiorLeft = kFrameLeft + kCell;
@@ -76,7 +73,7 @@ void InventoryMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& fon
     for (std::size_t i = 0; i < stacks.size(); ++i) {
         const float y = interiorTop + static_cast<float>(i) * kCell;
         const float entryX = interiorLeft + cursorWidth;
-        const std::string text = entryText(stacks[i]);
+        const std::string text = displayName(stacks[i]);
         icons.draw(renderer, stacks[i].type, entryX, y);
         font.draw(renderer, text, entryX + ItemIcons::kSize, y, kWhite);
         if (static_cast<int>(i) == selected) {

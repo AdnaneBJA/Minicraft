@@ -43,6 +43,18 @@ void Hud::drawStatus(SDL_Renderer* renderer, const Player& player, float viewHei
     }
 }
 
+void Hud::drawHeldItem(SDL_Renderer* renderer, const Font& font, const ItemIcons& icons, const Inventory::Stack& item,
+                       float viewHeight) const {
+    const float x = 10.0f * kCell;
+    const float y = viewHeight - kCell;
+    icons.draw(renderer, item.type, x, y);
+    const std::string name = displayName(item);
+    const SDL_FRect background{x + ItemIcons::kSize, y, Font::textWidth(name), kCell};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &background);
+    font.draw(renderer, name, background.x, y, SDL_Color{255, 255, 255, 255});
+}
+
 void Hud::drawTitle(SDL_Renderer* renderer, const Font& font, std::string_view title, float x, float y) const {
     for (std::size_t i = 0; i < title.size(); ++i) {
         const float letterX = x + static_cast<float>(i) * kCell;

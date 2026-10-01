@@ -19,6 +19,8 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Zombie drops | 3185 |
 | 2026-10-01 | Tree drops: acorns, apples | 3192 |
 | 2026-10-01 | Merge: game menu/saves + crafting/drops | 4078 |
+| 2026-10-01 | Held items, placeable workbench | 3450 |
+| 2026-10-01 | Merge: crafting (menu/saves/drops) + placeable workbench | 4349 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -196,5 +198,26 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - A broken tree drops 0-2 **acorns** along with its 1-3 wood.
   - New stackable items Acorn and Apple with Minicraft+'s icons. They can't be eaten or planted yet.
 
+- **2026-10-01: Held items and a placeable workbench.**
+  - **Holding items** (Minicraft's activeItem): Space or Enter on an inventory slot takes that whole stack out of
+    the inventory, puts it in the player's hand and closes the inventory. The held item shows on the energy row right
+    of the bolts (icon + name on black, Minicraft's `renderHUD`). Opening the inventory or crafting puts it back
+    (dropped at the feet if there's no room).
+  - **Carrying furniture:** while holding the workbench the player uses Minicraft's carry frames (second row of
+    `player.png`, arms raised) and the workbench sprite is drawn 12 px above the sprite, over the head (sinks with
+    the player in water).
+  - **Placing:** Space with furniture in hand places it centred on the tile in front (`interactionTile`), like
+    `FurnitureItem.interactOn`: only on grass, sand or dirt, not on a tile that already has furniture or a zombie.
+    The hand is then empty. Holding any other item, Space does nothing (Minicraft items that can't attack don't
+    punch); with an empty hand it punches as before.
+  - **`Furniture`** (`furniture.h/.cpp`): placed pieces with Minicraft's workbench box (6x4 at the tile centre).
+    They block the player (`collision::clampMoveX/Y`, which never traps a box already overlapping) and zombies, and
+    zombies don't spawn on them. Drawn behind or in front of the player by y.
+  - Assets: `player.png` now has the carry row; new `furniture.png` (workbench).
+  - Not yet: picking furniture back up (power glove), using the workbench (its recipe list), crafting sound.
+- **Known gap after merging the game menu/saves with the placeable workbench:** placed furniture isn't saved yet,
+  so a workbench placed in the world is gone after reloading (the held item is saved as part of the inventory).
+
 ## Next
-- Place the workbench in the world and open its recipe list (wooden tools) by using it.
+- Use a placed workbench (facing it + Space with an empty hand) to open its recipe list (wooden tools).
+- Pick furniture back up (Minicraft's power glove).

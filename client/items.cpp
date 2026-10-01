@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <string>
 
 const char* itemName(ItemType type) {
     switch (type) {
@@ -17,7 +18,14 @@ const char* itemName(ItemType type) {
     return "?";
 }
 
-bool isStackable(ItemType type) { return type != ItemType::Workbench; }
+bool isFurniture(ItemType type) { return type == ItemType::Workbench; }
+
+bool isStackable(ItemType type) { return !isFurniture(type); }
+
+std::string displayName(const Inventory::Stack& stack) {
+    if (!isStackable(stack.type)) return std::string(" ") + itemName(stack.type);
+    return " " + std::to_string(std::min(stack.count, 999)) + " " + itemName(stack.type);
+}
 
 bool Inventory::canAdd(ItemType type) const {
     return (isStackable(type) && this->count(type) > 0) || static_cast<int>(stacks_.size()) < kMaxSlots;
@@ -55,6 +63,12 @@ int Inventory::remove(ItemType type, int count) {
         }
     }
     return removed;
+}
+
+Inventory::Stack Inventory::take(int index) {
+    const Stack stack = stacks_.at(static_cast<std::size_t>(index));
+    stacks_.erase(stacks_.begin() + index);
+    return stack;
 }
 
 int Inventory::count(ItemType type) const {
