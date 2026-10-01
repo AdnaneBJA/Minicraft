@@ -8,7 +8,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Tile map, camera, debug mode, movement fixes | 722 |
 | 2026-10-01 | Collision | 829 |
 | 2026-10-01 | Tile borders/transitions | 902 |
-| 2026-10-01 | Diagonal movement tweaks | 901 |
+| 2026-10-01 | Diagonal movement tweaks | 902 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -52,5 +52,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 - **2026-10-01: Diagonal movement tweaks.**
   - When moving diagonally the player faces up or down (vertical wins), not left or right.
   - Diagonal movement is no longer normalised: each axis moves at full speed, so diagonals are sqrt(2)x faster, like Minicraft.
+  - The walk cycle advances by the larger axis only, so diagonals animate at the same rate as straight walking
+    (7 sprite changes/s instead of 14).
 
 ## Next

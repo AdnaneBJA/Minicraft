@@ -70,7 +70,8 @@ void Player::update(float dt, const bool* keys, const TileMap& map) {
     const float startY = y_;
     moveX(dx * step, map);
     moveY(dy * step, map);
-    walkDistance_ += std::abs(x_ - startX) + std::abs(y_ - startY);
+    // Advance the walk cycle by the larger axis only: summing both would make diagonals animate twice as fast.
+    walkDistance_ += std::max(std::abs(x_ - startX), std::abs(y_ - startY));
 }
 
 void Player::moveX(float delta, const TileMap& map) {
