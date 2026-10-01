@@ -7,7 +7,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 |---|---|---|
 | 2026-10-01 | Tile map, camera, debug mode, movement fixes | 722 |
 | 2026-10-01 | Collision | 829 |
-| 2026-10-01 | Tile borders/transitions | 920 |
+| 2026-10-01 | Tile borders/transitions | 921 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -46,5 +46,6 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - The transparent rims show dirt between different tile types.
   - Grass connects to trees; rock has dedicated inner-corner art.
   - Trees merge into a forest canopy (`oak_full`) where trees touch.
+  - Tile interiors use the full speckled texture (and animated water) instead of the plain border centre, so large areas don't look flat.
 
 ## Next

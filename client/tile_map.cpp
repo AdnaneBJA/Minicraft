@@ -62,14 +62,15 @@ void drawConnected(SDL_Renderer* renderer, SDL_Texture* atlas, const TileMap& ma
             const float qx = x + (h < 0 ? 0.0f : kHalf);
             const float qy = y + (v < 0 ? 0.0f : kHalf);
             if (vertical && horizontal) {
-                if (connected(tx + h, ty + v)) {
-                    drawPiece(renderer, atlas, texture.border.x + kHalf, texture.border.y + kHalf, kHalf, qx, qy);
-                } else if (texture.corner) {
+                if (!connected(tx + h, ty + v) && texture.corner) {
                     // Inner corner: matching quadrant of the corner sheet, flipped both ways (as Minicraft+ does).
                     drawPiece(renderer, atlas, texture.corner->x + (h < 0 ? 0.0f : kHalf),
                               texture.corner->y + (v < 0 ? 0.0f : kHalf), kHalf, qx, qy,
                               static_cast<SDL_FlipMode>(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL));
                 } else {
+                    // Interior: use the full tile texture, which has the speckles (and water's animation), rather
+                    // than the plain centre of the border sheet. Minicraft+ calls this "singleton with connective".
+                    // It takes the opposite quadrant of the full texture, as Minicraft+ does.
                     drawPiece(renderer, atlas, texture.full.x + (h < 0 ? kHalf : 0.0f),
                               texture.full.y + (v < 0 ? kHalf : 0.0f), kHalf, qx, qy);
                 }
