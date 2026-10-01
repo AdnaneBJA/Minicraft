@@ -449,6 +449,13 @@ private:
             debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size(), mobs_, dayNight_);
         if (actions.regenerateSeed) newWorld(*actions.regenerateSeed);
         if (actions.refillStats) player_.refillStats();
+        if (actions.clearInventory) inventory_.clear();
+        for (const Inventory::Stack& stack : actions.giveItems) {
+            if (const int leftover = inventory_.add(stack.type, stack.count); leftover > 0) {
+                const SDL_FPoint middle = player_.center();
+                droppedItems_.spawn(stack.type, leftover, middle.x, middle.y);
+            }
+        }
         if (actions.spawnZombie) {
             const SDL_FPoint p = player_.center();
             mobs_.spawnNear(MobKind::Zombie, map_, furniture_.hitboxes(), p.x, p.y, 3, 6);
