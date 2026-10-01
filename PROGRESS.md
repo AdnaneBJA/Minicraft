@@ -15,6 +15,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Swimming, drowning, hold-to-punch | 2014 |
 | 2026-10-01 | Classic world generation, zombies, day/night | 2886 |
 | 2026-10-01 | Crafting menu, workbench recipe | 3165 |
+| 2026-10-01 | Zombie drops | 3185 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -158,6 +159,12 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     and show as " Workbench" without a count. `items.png` gains the workbench icon.
   - `Hud::drawTitle` now draws menu titles for both menus.
   - Not yet: placing the workbench, workbench recipes (tools), crafting sound.
+- **2026-10-01: Zombie drops.**
+  - A zombie that dies drops Minicraft's normal-difficulty loot: 1-3 **cloth**, a 1 in 60 chance of **iron** and a
+    4% chance of a **potato**. Loot is tossed out like other drops and picked up by walking over it.
+  - New stackable items Cloth, Iron and Potato (`items.png` gains Minicraft+'s `cloth`, `iron_ingot` and `potato`
+    icons).
+  - Not yet: Minicraft's 1 in 40 coloured clothes (armour isn't in the game yet).
 
 ## Next
 - Place the workbench in the world and open its recipe list (wooden tools) by using it.

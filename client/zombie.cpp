@@ -2,6 +2,7 @@
 
 #include "camera.h"
 #include "collision.h"
+#include "dropped_items.h"
 #include "effects.h"
 #include "player.h"
 #include "tile_map.h"
@@ -33,6 +34,14 @@ bool blocksZombie(const TileMap& map, int tx, int ty) {
 }
 
 int sign(int value) { return (value > 0) - (value < 0); }
+
+// Zombie.die() on normal difficulty: 1-3 cloth, a 1 in 60 chance of iron and a 4% chance of a potato.
+// (Minicraft also has a 1 in 40 chance of coloured clothes, which are armour and don't exist here yet.)
+void dropLoot(DroppedItems& drops, SDL_FPoint at) {
+    drops.spawn(ItemType::Cloth, 1 + static_cast<int>(SDL_rand(3)), at.x, at.y);
+    if (SDL_rand(60) == 2) drops.spawn(ItemType::Iron, 1, at.x, at.y);
+    if (SDL_rand(100) < 4) drops.spawn(ItemType::Potato, 1, at.x, at.y);
+}
 
 }  // namespace
 
@@ -158,15 +167,16 @@ bool Zombies::load(SDL_Renderer* renderer, const std::string& spritePath) {
     return sprite_ && flash_;
 }
 
-void Zombies::update(float dt, const TileMap& map, Player& player, Effects& effects, bool night) {
+void Zombies::update(float dt, const TileMap& map, Player& player, Effects& effects, DroppedItems& drops,
+                     bool night) {
     tickAccumulator_ += dt;
     while (tickAccumulator_ >= kTick) {
         tickAccumulator_ -= kTick;
-        tick(map, player, effects, night);
+        tick(map, player, effects, drops, night);
     }
 }
 
-void Zombies::tick(const TileMap& map, Player& player, Effects& effects, bool night) {
+void Zombies::tick(const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night) {
     const auto blocked = [&](const SDL_FRect& box, const Zombie* self) {
         for (const Zombie& other : zombies_) {
             if (&other == self) continue;
@@ -183,8 +193,12 @@ void Zombies::tick(const TileMap& map, Player& player, Effects& effects, bool ni
     const SDL_FPoint p = player.center();
     std::erase_if(zombies_, [&](const Zombie& zombie) {
         const SDL_FPoint c = zombie.center();
+        if (zombie.isDead()) {
+            dropLoot(drops, c);
+            return true;
+        }
         const float distance = std::hypot(c.x - p.x, c.y - p.y);
-        return zombie.isDead() || distance > kDespawnDistance || (!night && distance > kDaytimeDespawnDistance);
+        return distance > kDespawnDistance || (!night && distance > kDaytimeDespawnDistance);
     });
 
     if (spawningEnabled && night && ++spawnTimer_ >= kSpawnIntervalTicks) {

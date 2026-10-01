@@ -200,7 +200,7 @@ private:
             }
         }
         dayNight_.update(dt);
-        zombies_.update(dt, map_, player_, effects_, dayNight_.time() == DayNight::Time::Night);
+        zombies_.update(dt, map_, player_, effects_, droppedItems_, dayNight_.time() == DayNight::Time::Night);
         if (player_.isDead()) respawn();
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
