@@ -6,30 +6,46 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
+class Audio;
 class Font;
 class Hud;
 
-// The menus around the game, modelled on Minicraft+'s displays: the title screen (Play / Quit), the Play choice
-// (Load World / New World), world creation (name + seed), world selection, and the in-game pause menu.
-// The menu only collects choices; the game acts on the returned Action.
+// The menus around the game, modelled on Minicraft+'s displays: the title screen (Play / Options / Quit), the Play
+// choice (Load World / New World), world creation (name + seed), world selection, the options (sound and volume),
+// the in-game pause menu, and the death and victory screens. The menu only collects choices; the game acts on the
+// returned Action.
 class GameMenu {
 public:
-    enum class Screen { None, Title, Play, NewWorld, LoadWorld, Pause };
+    enum class Screen { None, Title, Play, NewWorld, LoadWorld, Pause, Options, Dead, Won };
 
     struct Action {
-        enum class Kind { None, CreateWorld, LoadWorld, Resume, Save, SaveAndQuit, Quit };
+        enum class Kind {
+            None, CreateWorld, LoadWorld, Resume, Save, SaveAndQuit, Quit, ToggleSound, VolumeDown, VolumeUp, Respawn
+        };
         Kind kind = Kind::None;
         std::string worldName;   // CreateWorld, LoadWorld
         std::uint32_t seed = 0;  // CreateWorld
     };
 
     bool load(SDL_Renderer* renderer, const std::string& logoPath);
+    // Moving the cursor plays Minicraft's select sound and choosing an entry its confirm sound.
+    void setAudio(Audio* audio) { audio_ = audio; }
+    // What the options screen shows.
+    void setSoundSettings(bool muted, int volume) {
+        muted_ = muted;
+        volume_ = volume;
+    }
 
     // Opens the title screen. `worlds` are the saved world names, most recent first.
     void openTitle(std::vector<std::string> worlds);
     void openPause();
+    // "You died! Aww :(" with the time survived (PlayerDeathDisplay).
+    void openDeath(int secondsPlayed);
+    // "You won! Yay :)" after beating the Air Wizard, with the time it took (EndGameDisplay).
+    void openWon(int secondsPlayed);
     void close() { open(Screen::None); }
     bool isOpen() const { return screen_ != Screen::None; }
     // True while a text field (world name or seed) is selected, so the game turns on SDL text input.
@@ -57,7 +73,18 @@ private:
     void drawNewWorld(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
     void drawLoadWorld(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
     void drawPause(SDL_Renderer* renderer, const Hud& hud, const Font& font, float viewWidth, float viewHeight) const;
+    // A framed list of entries with a title in the top edge (the pause menu, options, death and victory screens).
+    void drawFramedList(SDL_Renderer* renderer, const Hud& hud, const Font& font, std::string_view title,
+                        const std::vector<std::string>& entries, const std::vector<std::string>& lines,
+                        float viewWidth, float viewHeight) const;
+    std::vector<std::string> entries() const;
+    void play(bool confirm) const;
 
+    Audio* audio_ = nullptr;
+    bool muted_ = false;
+    int volume_ = 0;
+    Screen optionsReturn_ = Screen::Title;  // where Escape leaves the options screen to
+    int secondsPlayed_ = 0;
     TexturePtr logo_;
     float logoWidth_ = 0.0f;
     float logoHeight_ = 0.0f;

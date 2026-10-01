@@ -25,8 +25,9 @@ public:
 
     // What the player can craft by hand (Z), without a workbench (Minicraft's Recipes.craftRecipes).
     static std::vector<Recipe> personalRecipes();
-    // What a placed workbench offers (Minicraft's Recipes.workbenchRecipes: the wood and rock tools and arrows).
-    static std::vector<Recipe> workbenchRecipes();
+    // What a crafting station offers (Minicraft+'s Recipes): the workbench, furnace, oven, anvil and loom. Empty for
+    // other furniture.
+    static std::vector<Recipe> stationRecipes(ItemType station);
 
 private:
     ItemType product_;

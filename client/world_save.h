@@ -12,17 +12,41 @@
 
 // Everything a saved world remembers. Mobs, dropped items and effects are not saved (they respawn or vanish).
 struct WorldSaveData {
+    struct Furniture {
+        ItemType type;
+        float x;  // centre, world pixels
+        float y;
+        bool deathChest = false;
+        std::vector<Inventory::Stack> contents;  // what a chest holds
+    };
+    struct Level {
+        std::vector<Tile> tiles;
+        std::vector<std::uint8_t> data;  // per-tile data (damage, age, a torch's base tile, a door's state)
+        std::vector<Furniture> furniture;
+    };
+
     std::uint32_t seed = 0;
     int width = 0;  // tiles
     int height = 0;
-    std::vector<Tile> tiles;
-    std::vector<std::uint8_t> damage;  // accumulated damage per tile
-    float playerX = 0.0f;              // world pixels (sprite top-left)
+    // Every level, sky first (World order). Saves from before the caves existed hold only the surface: then this
+    // has one entry and the other levels are generated from the seed.
+    std::vector<Level> levels;
+    int currentLevel = 1;  // World index the player is on
+    float playerX = 0.0f;  // world pixels (sprite top-left)
     float playerY = 0.0f;
     int health = 0;
     int energy = 0;
+    int hunger = 10;
+    std::optional<ItemType> armor;
+    int armorPoints = 0;
+    // Where the player respawns after dying: a bed they slept in, or (level -1) the surface spawn point.
+    int spawnLevel = -1;
+    float spawnX = 0.0f;
+    float spawnY = 0.0f;
     int dayTick = 0;
     bool pastDay1 = false;
+    bool airWizardBeaten = false;
+    int secondsPlayed = 0;
     std::vector<Inventory::Stack> inventory;
 };
 

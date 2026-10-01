@@ -5,32 +5,51 @@
 
 #include <SDL3/SDL.h>
 
-class DroppedItems;
+#include <optional>
+#include <string>
+#include <vector>
+
+class Audio;
 class Effects;
-class Mobs;
+class Level;
 class Player;
 
-// What a swing does (Minicraft's Player.attack): punching bare-handed, or swinging a tool, which first tries the
-// tool's use on the tile in front (axe on trees, pickaxe on rock or grass, shovel and hoe on soil) and otherwise
-// attacks with it. Works on the game's world objects; holds no state of its own.
+// What a swing or a use does (Minicraft's Player.attack / Item.interactOn): punching bare-handed, swinging a tool
+// (its use on the tile in front, or an attack), shooting a bow, eating, putting on armour, placing tiles and
+// furniture, and picking furniture up with the power glove. Works on the game's objects; holds no state of its own
+// beyond the messages it wants shown.
 class PlayerActions {
 public:
-    PlayerActions(TileMap& map, Player& player, Mobs& mobs, Effects& effects, DroppedItems& drops)
-        : map_(map), player_(player), mobs_(mobs), effects_(effects), drops_(drops) {}
+    PlayerActions(Level& level, Player& player, Inventory& inventory, Effects& effects, Audio& audio)
+        : level_(level), player_(player), inventory_(inventory), effects_(effects), audio_(audio) {}
 
+    // Space: punch with an empty hand, otherwise use or swing the held item.
+    void useOrPunch();
+
+    // Short notes for the player ("Gem pickaxe required!"), shown by the game.
+    const std::vector<std::string>& messages() const { return messages_; }
+
+private:
     // Bare hands: 1 energy; mobs in reach take 1-2, the tile in front 1-3.
     void punch();
     // The held tool: 1 energy, then its tile use or an attack with it. The tool breaks at 0 durability.
     void swingTool();
-
-private:
+    // A bow: shoots one arrow from the inventory in the facing direction.
+    bool shootBow(Inventory::Stack& bow);
     void attack(Inventory::Stack* tool);
     bool useToolOnTile(Inventory::Stack& tool);
+    // Food, armour, tiles, furniture and the power glove.
+    void useItem();
+    // TileItem.interactOn: the tile the held item turns `target` into, if it can be placed there.
+    std::optional<Tile> placedTile(ItemType item, Tile target) const;
     void onTileHit(SDL_Point target, int damage, const TileMap::TileHit& hit, bool withPickaxe);
+    // Takes one of the held stackable item; empties the hand when it runs out.
+    void consumeHeld();
 
-    TileMap& map_;
+    Level& level_;
     Player& player_;
-    Mobs& mobs_;
+    Inventory& inventory_;
     Effects& effects_;
-    DroppedItems& drops_;
+    Audio& audio_;
+    std::vector<std::string> messages_;
 };

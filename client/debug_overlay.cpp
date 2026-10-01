@@ -5,6 +5,7 @@
 #include "player.h"
 #include "tile_map.h"
 #include "mobs.h"
+#include "world.h"
 
 #include <imgui.h>
 
@@ -113,7 +114,8 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
 DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
                                                    const Player& player, const Inventory& inventory,
                                                    std::size_t droppedItemCount, Mobs& mobs,
-                                                   const DayNight& dayNight) {
+                                                   const DayNight& dayNight, const std::string& levelName,
+                                                   int levelIndex) {
     if (!enabled_) return {};
     if (!seedInputInitialised_) {
         seedInput_ = map.seed();
@@ -160,10 +162,13 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
                         static_cast<double>(camera.y()), static_cast<double>(camera.width()),
                         static_cast<double>(camera.height()));
             ImGui::Text("Scale: %.0fx  Map: %dx%d tiles", static_cast<double>(scale), map.width(), map.height());
+            ImGui::Text("Level: %s", levelName.c_str());
 
             ImGui::SeparatorText("Player");
             ImGui::Text("Health: %d/%d  Energy: %d/%d", player.health(), Player::kMaxHealth, player.energy(),
                         Player::kMaxEnergy);
+            ImGui::Text("Hunger: %d/%d  Armor: %s (%d)", player.hunger(), Player::kMaxHunger,
+                        player.armor() ? itemName(*player.armor()) : "none", player.armorPoints());
             ImGui::Text("Swimming: %s", player.isSwimming() ? "yes" : "no");
             if (player.energyRechargeDelay() > 0) {
                 ImGui::Text("Exhausted: %d ticks", player.energyRechargeDelay());
@@ -191,12 +196,30 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             actions.giveItems.push_back({ItemType::Wood, 50});
             actions.giveItems.push_back({ItemType::Stone, 50});
         }
-        if (ImGui::Button("All tools")) {
+        if (ImGui::Button("Wood & rock tools")) {
             for (int i = static_cast<int>(ItemType::WoodSword); i <= static_cast<int>(ItemType::RockBow); ++i) {
                 actions.giveItems.push_back({static_cast<ItemType>(i), 1});
             }
         }
         ImGui::SameLine();
+        if (ImGui::Button("Cave kit")) {
+            // What a trip underground needs: torches, food, a lantern and an iron pickaxe and sword.
+            for (const ItemType item : {ItemType::IronPickaxe, ItemType::IronSword, ItemType::Lantern}) {
+                actions.giveItems.push_back({item, 1});
+            }
+            actions.giveItems.push_back({ItemType::Torch, 20});
+            actions.giveItems.push_back({ItemType::Bread, 10});
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Boss kit")) {
+            // Gem gear for the sky: the pickaxe breaks the hard rock around the stairs up.
+            for (const ItemType item : {ItemType::GemPickaxe, ItemType::GemSword, ItemType::GemBow,
+                                        ItemType::GemArmor}) {
+                actions.giveItems.push_back({item, 1});
+            }
+            actions.giveItems.push_back({ItemType::Arrow, 100});
+            actions.giveItems.push_back({ItemType::Steak, 20});
+        }
         if (ImGui::Button("Clear inventory")) actions.clearInventory = true;
 
         ImGui::SeparatorText("Time");
@@ -209,17 +232,35 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
         }
 
         ImGui::SeparatorText("Mobs");
-        ImGui::Text("Zombies: %d / %d  Animals: %d / %d (cows %d, pigs %d, sheep %d)", mobs.count(MobKind::Zombie),
-                    Mobs::kMaxZombies, mobs.animalCount(), Mobs::kMaxAnimals, mobs.count(MobKind::Cow),
-                    mobs.count(MobKind::Pig), mobs.count(MobKind::Sheep));
-        ImGui::Checkbox("Spawn zombies (at night)", &mobs.zombieSpawning);
+        ImGui::Text("Enemies: %d / %d  Animals: %d / %d", mobs.enemyCount(), Mobs::kMaxEnemies, mobs.animalCount(),
+                    Mobs::kMaxAnimals);
+        ImGui::Text("Zombies %d  Slimes %d  Skeletons %d  Creepers %d  Snakes %d", mobs.count(MobKind::Zombie),
+                    mobs.count(MobKind::Slime), mobs.count(MobKind::Skeleton), mobs.count(MobKind::Creeper),
+                    mobs.count(MobKind::Snake));
+        if (const Mob* boss = mobs.boss()) ImGui::Text("Air Wizard: %d / %d", boss->health(), boss->maxHealth());
+        ImGui::Checkbox("Spawn enemies", &mobs.enemySpawning);
         ImGui::SameLine();
         ImGui::Checkbox("Spawn animals", &mobs.animalSpawning);
-        if (ImGui::Button("Spawn zombie nearby")) actions.spawnZombie = true;
-        ImGui::SameLine();
-        if (ImGui::Button("Spawn animal nearby")) actions.spawnAnimal = true;
+        if (ImGui::BeginCombo("Mob", mobName(static_cast<MobKind>(spawnKind_)))) {
+            for (int i = 0; i < kMobKinds; ++i) {
+                if (ImGui::Selectable(mobName(static_cast<MobKind>(i)), i == spawnKind_)) spawnKind_ = i;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SliderInt("Mob level", &spawnLevel_, 1, 4);
+        if (ImGui::Button("Spawn nearby")) actions.spawnMob = std::pair{static_cast<MobKind>(spawnKind_), spawnLevel_};
         ImGui::SameLine();
         if (ImGui::Button("Remove all mobs")) actions.clearMobs = true;
+
+        ImGui::SeparatorText("Levels");
+        ImGui::Checkbox("Full bright (no darkness)", &fullBright_);
+        for (int i = 0; i < World::kLevelCount; ++i) {
+            static constexpr const char* kNames[] = {"Sky", "Surface", "B1", "B2", "B3"};
+            if (i > 0) ImGui::SameLine();
+            ImGui::BeginDisabled(i == levelIndex);
+            if (ImGui::Button(kNames[i])) actions.gotoLevel = i;
+            ImGui::EndDisabled();
+        }
 
         ImGui::SeparatorText("World");
         ImGui::InputScalar("Seed", ImGuiDataType_U32, &seedInput_);

@@ -34,15 +34,18 @@ void DroppedItems::spawn(ItemType type, int count, float centerX, float centerY,
     }
 }
 
-void DroppedItems::update(float dt, const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory) {
+int DroppedItems::update(float dt, const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory) {
+    int pickedUp = 0;
     tickAccumulator_ += dt;
     while (tickAccumulator_ >= Bounce::kTick) {
         tickAccumulator_ -= Bounce::kTick;
-        tick(map, pickupBox, inventory);
+        pickedUp += tick(map, pickupBox, inventory);
     }
+    return pickedUp;
 }
 
-void DroppedItems::tick(const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory) {
+int DroppedItems::tick(const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory) {
+    int pickedUp = 0;
     for (Item& item : items_) {
         ++item.age;
         // Move, but don't slide into solid tiles (the player couldn't reach the item there).
@@ -59,10 +62,12 @@ void DroppedItems::tick(const TileMap& map, const SDL_FRect& pickupBox, Inventor
         const SDL_FRect box{item.motion.x - kRadius, item.motion.y - kRadius, kRadius * 2.0f, kRadius * 2.0f};
         if (SDL_HasRectIntersectionFloat(&box, &pickupBox) && inventory.canAdd(item.type)) {
             inventory.add(Inventory::Stack{item.type, 1, item.durability});
+            ++pickedUp;
             return true;
         }
         return false;
     });
+    return pickedUp;
 }
 
 void DroppedItems::draw(SDL_Renderer* renderer, const Camera& camera, const ItemIcons& icons) const {

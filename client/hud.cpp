@@ -3,6 +3,10 @@
 #include "font.h"
 #include "player.h"
 
+#include <algorithm>
+#include <cmath>
+#include <string>
+
 namespace {
 
 constexpr float kCell = 8.0f;
@@ -10,6 +14,10 @@ constexpr float kCell = 8.0f;
 // hud.png cells (column, row).
 constexpr int kHeartColumn = 0;  // row 0 = full, row 1 = empty
 constexpr int kBoltColumn = 1;   // row 0 = full, row 1 = empty, row 2 = white (blink when exhausted)
+constexpr int kHungerColumn = 2; // row 0 = full, row 1 = empty
+constexpr int kBossBarInactiveRow = 4;
+constexpr int kBossBarActiveRow = 5;
+constexpr float kRightBlock = 80.0f;  // hunger: the last 10 cells of the hearts row
 constexpr int kFrameRow = 6;     // columns: 0 = corner, 1 = top/bottom edge, 2 = left/right edge, 3 = fill
 constexpr SDL_Color kTitleColor{255, 255, 0, 255};
 
@@ -27,7 +35,8 @@ void Hud::drawCell(SDL_Renderer* renderer, int cx, int cy, float x, float y, int
                              static_cast<SDL_FlipMode>(flip));
 }
 
-void Hud::drawStatus(SDL_Renderer* renderer, const Player& player, float viewHeight) const {
+void Hud::drawStatus(SDL_Renderer* renderer, const ItemIcons& icons, const Player& player, float viewWidth,
+                     float viewHeight) const {
     const float heartsY = viewHeight - 2.0f * kCell;
     const float boltsY = viewHeight - kCell;
     // While exhausted, every bolt blinks white/grey (Minicraft: staminaRechargeDelay / 4 % 2).
@@ -41,16 +50,56 @@ void Hud::drawStatus(SDL_Renderer* renderer, const Player& player, float viewHei
         if (exhausted) row = blinkWhite ? 2 : 1;
         drawCell(renderer, kBoltColumn, row, static_cast<float>(i) * kCell, boltsY);
     }
+    const float hungerX = viewWidth - kRightBlock;
+    for (int i = 0; i < Player::kMaxHunger; ++i) {
+        drawCell(renderer, kHungerColumn, i < player.hunger() ? 0 : 1, hungerX + static_cast<float>(i) * kCell,
+                 heartsY);
+    }
+    // One armour icon per 10 points left.
+    if (const auto& armor = player.armor()) {
+        const int pieces = (player.armorPoints() * 10 + Player::kMaxArmor - 1) / Player::kMaxArmor;
+        for (int i = 0; i < pieces; ++i) icons.draw(renderer, *armor, static_cast<float>(i) * kCell, heartsY - kCell);
+    }
+}
+
+void Hud::drawArrowCount(SDL_Renderer* renderer, const Font& font, const ItemIcons& icons, int arrows,
+                         float viewHeight) const {
+    const float x = 10.0f * kCell + 4.0f;
+    const float y = viewHeight - 2.0f * kCell;
+    const std::string text = "x" + std::to_string(std::min(arrows, 999));
+    const SDL_FRect background{x, y, kCell + Font::textWidth(text), kCell};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &background);
+    icons.draw(renderer, ItemType::Arrow, x, y);
+    font.draw(renderer, text, x + kCell, y, SDL_Color{255, 255, 255, 255});
+}
+
+void Hud::drawBossBar(SDL_Renderer* renderer, const Font& font, int percent, std::string_view name,
+                      float viewWidth) const {
+    // Renderer.renderBossbar: 100 two-pixel slices, grey behind and red for the health left.
+    constexpr int kSlices = 100;
+    const float x = std::floor((viewWidth - kSlices * 2.0f) / 2.0f);
+    const float y = 4.0f;
+    const auto slice = [&](int row, int index) {
+        const SDL_FRect source{3.0f * kCell, static_cast<float>(row) * kCell, 2.0f, kCell};
+        const SDL_FRect destination{x + static_cast<float>(index) * 2.0f, y, 2.0f, kCell};
+        SDL_RenderTexture(renderer, texture_.get(), &source, &destination);
+    };
+    for (int i = 0; i < kSlices; ++i) slice(kBossBarInactiveRow, i);
+    for (int i = 0; i < std::clamp(percent, 0, kSlices); ++i) slice(kBossBarActiveRow, i);
+    font.drawShadowed(renderer, name, std::floor((viewWidth - Font::textWidth(name)) / 2.0f), y + kCell + 1.0f,
+                      SDL_Color{255, 255, 255, 255});
 }
 
 void Hud::drawToolDurability(SDL_Renderer* renderer, const Font& font, const Inventory::Stack& tool,
-                             float viewHeight) const {
+                             float viewWidth, float viewHeight) const {
     const int max = maxDurability(tool.type);
     if (max <= 0) return;
     const int percent = tool.durability * 100 / max;
     const auto green = static_cast<Uint8>(static_cast<float>(percent) * 2.55f);
     const std::string text = std::to_string(percent) + "%";
-    const float x = 164.0f;  // Minicraft draws it at (164, h - 16)
+    // Minicraft draws it at (164, h - 16); here it sits just left of the hunger bar so narrow views fit both.
+    const float x = viewWidth - kRightBlock - kCell - Font::textWidth(text);
     const float y = viewHeight - 2.0f * kCell;
     const SDL_FRect background{x, y, Font::textWidth(text), kCell};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);

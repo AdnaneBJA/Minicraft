@@ -19,18 +19,18 @@ class CraftingMenu {
 public:
     static constexpr SDL_Keycode kToggleKey = SDLK_Z;
 
-    // `title` is set into the top edge of the recipe frame ("Crafting" by hand, "Workbench" at a workbench).
-    CraftingMenu(std::vector<Recipe> recipes, std::string title);
-
+    // Opens on a list of recipes; `title` is set into the top edge of the recipe frame ("Crafting" by hand, or
+    // the station's name).
+    void open(std::vector<Recipe> recipes, std::string title);
     bool isOpen() const { return open_; }
-    void toggle() { open_ = !open_; }
     void close() { open_ = false; }
 
     // W/S or the arrows move the cursor. Space or Enter returns the selected recipe if the inventory can pay for
     // it (the caller crafts it); otherwise nullptr.
     const Recipe* handleKey(SDL_Keycode key, const Inventory& inventory);
+    // Long lists scroll to keep the cursor in view within `viewHeight`.
     void draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
-              const Inventory& inventory) const;
+              const Inventory& inventory, float viewHeight) const;
 
 private:
     std::vector<Recipe> recipes_;

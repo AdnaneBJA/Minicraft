@@ -88,21 +88,25 @@ void Lighting::draw(SDL_Renderer* renderer, const Camera& camera, float darkness
     }
     // Lit pixels, only inside each light's bounding box. Light level falls off as 1 - (d / r)^4 (Minicraft's
     // radial gradient), and the ordered dither turns the falloff into the classic speckled edge.
+    // (d / r)^4 is (d^2 / r^2)^2, so no square roots are needed; pixels already fully lit are skipped (lava lakes
+    // put a light on every tile).
     for (const Light& light : lights) {
         const int x0 = std::max(0, static_cast<int>(std::floor(light.x - light.radius)) - originX);
         const int x1 = std::min(width - 1, static_cast<int>(std::ceil(light.x + light.radius)) - originX);
         const int y0 = std::max(0, static_cast<int>(std::floor(light.y - light.radius)) - originY);
         const int y1 = std::min(height - 1, static_cast<int>(std::ceil(light.y + light.radius)) - originY);
+        const float inverseRadiusSquared = 1.0f / (light.radius * light.radius);
         for (int y = y0; y <= y1; ++y) {
+            const int worldY = originY + y;
+            const float dy = static_cast<float>(worldY) - light.y;
             for (int x = x0; x <= x1; ++x) {
-                const int worldX = originX + x;
-                const int worldY = originY + y;
-                const float dx = static_cast<float>(worldX) - light.x;
-                const float dy = static_cast<float>(worldY) - light.y;
-                const float fraction = std::sqrt(dx * dx + dy * dy) / light.radius;
-                if (fraction >= 1.0f) continue;
-                const int level = static_cast<int>(255.0f * (1.0f - fraction * fraction * fraction * fraction));
                 Uint8& alpha = pixels_[static_cast<std::size_t>((x + y * width) * 4 + 3)];
+                if (alpha == 0) continue;
+                const int worldX = originX + x;
+                const float dx = static_cast<float>(worldX) - light.x;
+                const float squared = (dx * dx + dy * dy) * inverseRadiusSquared;  // (d / r)^2
+                if (squared >= 1.0f) continue;
+                const int level = static_cast<int>(255.0f * (1.0f - squared * squared));
                 // Pattern anchored to the world (like Minicraft's (x + xScroll) & 3), so it doesn't crawl as you move.
                 const bool dark = level / 10 <= kDither[(worldX & 3) + (worldY & 3) * 4];
                 const Uint8 shade = dark ? static_cast<Uint8>(255 - level) : 0;

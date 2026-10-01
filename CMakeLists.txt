@@ -54,7 +54,11 @@ add_executable(Minicraft
     client/player_actions.cpp
     client/day_night.cpp
     client/world_save.cpp
-    client/game_menu.cpp)
+    client/game_menu.cpp
+    client/audio.cpp
+    client/world.cpp
+    client/projectiles.cpp
+    client/container_menu.cpp)
 target_link_libraries(Minicraft PRIVATE SDL3::SDL3 imgui)
 
 # Copy assets next to the executable; the game finds them via SDL_GetBasePath().

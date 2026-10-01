@@ -18,7 +18,8 @@ public:
     void spawn(ItemType type, int count, float centerX, float centerY, int durability = -1);
 
     // Advances physics in 60 Hz ticks. Items touching `pickupBox` (the player's hitbox) go into `inventory`.
-    void update(float dt, const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory);
+    // Returns how many were picked up.
+    int update(float dt, const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory);
     void draw(SDL_Renderer* renderer, const Camera& camera, const ItemIcons& icons) const;
 
     void clear() { items_.clear(); }
@@ -33,7 +34,7 @@ private:
         int lifetime;  // ticks before it despawns
     };
 
-    void tick(const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory);
+    int tick(const TileMap& map, const SDL_FRect& pickupBox, Inventory& inventory);
 
     std::vector<Item> items_;
     float tickAccumulator_ = 0.0f;

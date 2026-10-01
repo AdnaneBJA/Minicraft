@@ -28,8 +28,9 @@ public:
     // W/S or the arrows move the cursor. Space or Enter returns the selected slot, which the caller puts in the
     // player's hand (Minicraft's PlayerInvDisplay); otherwise nullopt.
     std::optional<int> handleKey(SDL_Keycode key, const Inventory& inventory);
+    // Long inventories scroll to keep the cursor in view within `viewHeight`.
     void draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
-              const Inventory& inventory) const;
+              const Inventory& inventory, float viewHeight) const;
 
 private:
     // Minicraft's slots counter, anchored to the frame's top-right corner.

@@ -1,5 +1,6 @@
 #include "game_menu.h"
 
+#include "audio.h"
 #include "font.h"
 #include "hud.h"
 #include "world_save.h"
@@ -32,9 +33,11 @@ constexpr SDL_Color kGreen{0, 255, 0, 255};
 constexpr SDL_Color kRed{255, 0, 0, 255};
 constexpr SDL_Color kCyan{0, 255, 255, 255};
 
-constexpr std::array<std::string_view, 2> kTitleEntries{"Play", "Quit"};
+constexpr std::array<std::string_view, 3> kTitleEntries{"Play", "Options", "Quit"};
 constexpr std::array<std::string_view, 2> kPlayEntries{"Load World", "New World"};
-constexpr std::array<std::string_view, 3> kPauseEntries{"Return to Game", "Save Game", "Save and Quit"};
+constexpr std::array<std::string_view, 4> kPauseEntries{"Return to Game", "Options", "Save Game", "Save and Quit"};
+constexpr int kSoundRow = 0;   // options screen rows
+constexpr int kVolumeRow = 1;
 constexpr int kNameRow = 0;
 constexpr int kSeedRow = 1;
 constexpr int kCreateRow = 2;
@@ -102,6 +105,32 @@ void GameMenu::openTitle(std::vector<std::string> worlds) {
 
 void GameMenu::openPause() { open(Screen::Pause); }
 
+void GameMenu::openDeath(int secondsPlayed) {
+    secondsPlayed_ = secondsPlayed;
+    open(Screen::Dead);
+}
+
+void GameMenu::openWon(int secondsPlayed) {
+    secondsPlayed_ = secondsPlayed;
+    open(Screen::Won);
+}
+
+void GameMenu::play(bool confirm) const {
+    if (audio_) audio_->play(confirm ? Sound::Confirm : Sound::Select);
+}
+
+std::vector<std::string> GameMenu::entries() const {
+    switch (screen_) {
+        case Screen::Pause: return {kPauseEntries.begin(), kPauseEntries.end()};
+        case Screen::Options:
+            return {std::string("Sound: ") + (muted_ ? "Off" : "On"),
+                    "Volume: < " + std::to_string(volume_ * 100 / Audio::kVolumeSteps) + "% >"};
+        case Screen::Dead: return {"Respawn", "Save and Quit"};
+        case Screen::Won: return {"Continue", "Save and Quit"};
+        default: return {};
+    }
+}
+
 void GameMenu::open(Screen screen) {
     screen_ = screen;
     selected_ = 0;
@@ -123,7 +152,10 @@ int GameMenu::entryCount() const {
         case Screen::Play: return static_cast<int>(kPlayEntries.size());
         case Screen::NewWorld: return 3;
         case Screen::LoadWorld: return static_cast<int>(worlds_.size());
-        case Screen::Pause: return static_cast<int>(kPauseEntries.size());
+        case Screen::Pause:
+        case Screen::Options:
+        case Screen::Dead:
+        case Screen::Won: return static_cast<int>(entries().size());
         case Screen::None: return 0;
     }
     return 0;
@@ -137,6 +169,7 @@ GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
     const int count = entryCount();
     if ((up || down) && count > 0) {
         selected_ = (selected_ + (up ? count - 1 : 1)) % count;  // wraps, like Minicraft
+        play(false);
         if (screen_ == Screen::LoadWorld) {
             listOffset_ = std::clamp(listOffset_, selected_ - kVisibleWorlds + 1, selected_);
         }
@@ -147,9 +180,19 @@ GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
         if (!field.empty()) field.pop_back();
         return {};
     }
+    // Left and right change the volume on the options screen (repeats included, so holding scrolls).
+    if (screen_ == Screen::Options && selected_ == kVolumeRow && (key == SDLK_LEFT || key == SDLK_A ||
+                                                                  key == SDLK_RIGHT || key == SDLK_D)) {
+        play(false);
+        const bool louder = key == SDLK_RIGHT || key == SDLK_D;
+        return {.kind = louder ? Action::Kind::VolumeUp : Action::Kind::VolumeDown};
+    }
     if (repeat) return {};
 
-    if (key == SDLK_RETURN || key == SDLK_KP_ENTER) return select();
+    if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+        play(true);
+        return select();
+    }
     if (key == SDLK_ESCAPE) {
         switch (screen_) {
             case Screen::Play:
@@ -159,7 +202,10 @@ GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
                 break;
             case Screen::LoadWorld: open(Screen::Play); break;
             case Screen::Pause: return {.kind = Action::Kind::Resume};
+            case Screen::Options: open(optionsReturn_); break;
             case Screen::Title:
+            case Screen::Dead:
+            case Screen::Won:
             case Screen::None: break;
         }
     }
@@ -169,7 +215,12 @@ GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
 GameMenu::Action GameMenu::select() {
     switch (screen_) {
         case Screen::Title:
-            if (selected_ == 1) return {.kind = Action::Kind::Quit};
+            if (selected_ == 2) return {.kind = Action::Kind::Quit};
+            if (selected_ == 1) {
+                optionsReturn_ = Screen::Title;
+                open(Screen::Options);
+                break;
+            }
             // Like Minicraft+: straight to world creation when there is nothing to load.
             open(worlds_.empty() ? Screen::NewWorld : Screen::Play);
             break;
@@ -184,11 +235,19 @@ GameMenu::Action GameMenu::select() {
         case Screen::LoadWorld:
             if (worlds_.empty()) return {};
             return {.kind = Action::Kind::LoadWorld, .worldName = worlds_[static_cast<std::size_t>(selected_)]};
-        case Screen::Pause: {
-            constexpr std::array<Action::Kind, 3> kPauseActions{Action::Kind::Resume, Action::Kind::Save,
-                                                                Action::Kind::SaveAndQuit};
-            return {.kind = kPauseActions[static_cast<std::size_t>(selected_)]};
-        }
+        case Screen::Pause:
+            if (selected_ == 1) {
+                optionsReturn_ = Screen::Pause;
+                open(Screen::Options);
+                return {};
+            }
+            if (selected_ == 0) return {.kind = Action::Kind::Resume};
+            return {.kind = selected_ == 2 ? Action::Kind::Save : Action::Kind::SaveAndQuit};
+        case Screen::Options:
+            if (selected_ == kSoundRow) return {.kind = Action::Kind::ToggleSound};
+            return {};
+        case Screen::Dead: return {.kind = selected_ == 0 ? Action::Kind::Respawn : Action::Kind::SaveAndQuit};
+        case Screen::Won: return {.kind = selected_ == 0 ? Action::Kind::Resume : Action::Kind::SaveAndQuit};
         case Screen::None: break;
     }
     return {};
@@ -251,6 +310,23 @@ void GameMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, fl
         case Screen::NewWorld: drawNewWorld(renderer, font, viewWidth, viewHeight); break;
         case Screen::LoadWorld: drawLoadWorld(renderer, font, viewWidth, viewHeight); break;
         case Screen::Pause: drawPause(renderer, hud, font, viewWidth, viewHeight); break;
+        case Screen::Options:
+            drawFramedList(renderer, hud, font, "Options", entries(), {}, viewWidth, viewHeight);
+            if (optionsReturn_ == Screen::Title) {  // in game, the status bar is down there
+                drawCentered(renderer, font, "(M mutes in game)", viewWidth, viewHeight - 20.0f, kDarkGray);
+                drawCentered(renderer, font, "(ESCAPE to return)", viewWidth, viewHeight - 10.0f, kDarkGray);
+            }
+            break;
+        case Screen::Dead:
+        case Screen::Won: {
+            const bool won = screen_ == Screen::Won;
+            const std::string time = std::to_string(secondsPlayed_ / 3600) + "h " +
+                                     std::to_string(secondsPlayed_ / 60 % 60) + "m " +
+                                     std::to_string(secondsPlayed_ % 60) + "s";
+            drawFramedList(renderer, hud, font, won ? "You won! Yay :)" : "You died! Aww :(", entries(),
+                           {(won ? "Time: " : "Time survived: ") + time}, viewWidth, viewHeight);
+            break;
+        }
         case Screen::None: break;
     }
 }
@@ -322,6 +398,29 @@ void GameMenu::drawLoadWorld(SDL_Renderer* renderer, const Font& font, float vie
     if (!message_.empty()) drawCentered(renderer, font, message_, viewWidth, viewHeight - 34.0f, messageColor_);
     drawCentered(renderer, font, "(ENTER to confirm)", viewWidth, viewHeight - 20.0f, kDarkGray);
     drawCentered(renderer, font, "(ESCAPE to return)", viewWidth, viewHeight - 10.0f, kDarkGray);
+}
+
+void GameMenu::drawFramedList(SDL_Renderer* renderer, const Hud& hud, const Font& font, std::string_view title,
+                              const std::vector<std::string>& list, const std::vector<std::string>& lines,
+                              float viewWidth, float viewHeight) const {
+    // Info lines first, then a blank row, then the entries on every other row.
+    std::size_t longest = title.size();
+    for (const auto& entry : list) longest = std::max(longest, entry.size() + 4);
+    for (const auto& line : lines) longest = std::max(longest, line.size() + 2);
+    const int columns = static_cast<int>(longest);
+    const int infoRows = lines.empty() ? 0 : static_cast<int>(lines.size()) + 1;
+    const int rows = infoRows + static_cast<int>(list.size()) * 2 + 1;
+    const float interiorLeft = std::floor((viewWidth - static_cast<float>(columns) * kCell) / 2.0f);
+    const float interiorTop = std::floor((viewHeight - static_cast<float>(rows) * kCell) / 2.0f);
+    hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
+    hud.drawTitle(renderer, font, title, centeredX(title, viewWidth), interiorTop - kCell);
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        drawCentered(renderer, font, lines[i], viewWidth, interiorTop + static_cast<float>(i + 1) * kCell, kWhite);
+    }
+    for (int i = 0; i < static_cast<int>(list.size()); ++i) {
+        drawEntries(renderer, font, list, i, 1, selected_, viewWidth,
+                    interiorTop + static_cast<float>(infoRows + i * 2 + 1) * kCell);
+    }
 }
 
 void GameMenu::drawPause(SDL_Renderer* renderer, const Hud& hud, const Font& font, float viewWidth,

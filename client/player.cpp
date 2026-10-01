@@ -1,7 +1,9 @@
 #include "player.h"
 
+#include "audio.h"
 #include "camera.h"
 #include "collision.h"
+#include "effects.h"
 #include "tile_map.h"
 
 #include <algorithm>
@@ -26,6 +28,20 @@ constexpr int kHurtTicks = 30;             // Minicraft's playerHurtTime: no fur
 constexpr int kHurtFlashTicks = 10;        // the sprite shows white for the first 10 ticks of that
 
 constexpr int kKnockback = 6;              // Minicraft: a hit pushes 6 "steps" away from the attacker
+constexpr int kLavaDamage = 4;             // Mob.tick: standing in lava
+
+// Minicraft+'s hunger on normal difficulty.
+constexpr int kMaxHungerTicks = 400;   // stamHungerTicks: one "bite" every 400 points
+constexpr int kBitesPerHunger = 7;     // maxHungerStams[normal]
+constexpr int kHungerTickPeriod = 30;  // hungerTickCount[normal]: time wears 1 point off every 30 ticks
+constexpr int kHungerStepCount = 3;    // hungerStepCount[normal]: and walking 1 point every 3 px
+constexpr int kMinStarveHealth = 3;    // minStarveHealth[normal]: starving never takes the last 3 hearts
+constexpr int kStarveTicks = 120;
+constexpr int kFoodEnergyCost = 2;     // FoodItem.staminaCost
+constexpr int kArmorEnergyCost = 9;    // ArmorItem.staminaCost
+
+constexpr SDL_Color kPlayerDamageColor{255, 0, 204, 255};   // Minicraft: Color.get(-1, 504)
+constexpr SDL_Color kArmorDamageColor{153, 153, 153, 255};  // Color.GRAY
 constexpr float kAttackRange = 20.0f;      // Minicraft's ATTACK_DIST: how far a punch reaches for mobs
 
 using collision::tileIndex;
@@ -63,6 +79,11 @@ void Player::showSlash() { attackTimer_ = kAttackDuration; }
 void Player::refillStats() {
     health_ = kMaxHealth;
     energy_ = kMaxEnergy;
+    hunger_ = kMaxHunger;
+    hungerStamCount_ = kBitesPerHunger;
+    stamHungerTicks_ = kMaxHungerTicks;
+    hungerChargeDelay_ = 0;
+    hungerStarveDelay_ = 0;
     energyRecharge_ = 0;
     energyRechargeDelay_ = 0;
     hurtTime_ = 0;
@@ -77,12 +98,103 @@ void Player::hurt(int damage) {
     hurtTime_ = kHurtTicks;
 }
 
-bool Player::takeHit(int damage, int directionX, int directionY) {
-    if (hurtTime_ > 0) return false;
-    hurt(damage);
+bool Player::takeHit(int damage, int directionX, int directionY, Effects& effects, Audio& audio) {
+    if (hurtTime_ > 0 || damage <= 0) return false;
+    const SDL_FPoint c = center();
+    int healthDamage = damage;
+    if (armor_) {
+        // Player.doHurt: armour takes the whole hit, and every (level + 1) points of it also cost a heart.
+        healthDamage = 0;
+        armorDamageBuffer_ += damage;
+        const int perHeart = armorLevel(*armor_) + 1;
+        while (armorDamageBuffer_ >= perHeart) {
+            armorDamageBuffer_ -= perHeart;
+            ++healthDamage;
+        }
+        effects.addDamageNumber(damage, c.x, c.y, kArmorDamageColor);
+        armorPoints_ -= damage;
+        if (armorPoints_ <= 0) {
+            healthDamage -= armorPoints_;  // what the armour could not take
+            removeArmor();
+        }
+    }
+    if (healthDamage > 0) {
+        effects.addDamageNumber(healthDamage, c.x, c.y - (armor_ ? 6.0f : 0.0f), kPlayerDamageColor);
+        health_ = std::max(0, health_ - healthDamage);
+    }
+    audio.play(Sound::PlayerHurt);
+    hurtTime_ = kHurtTicks;
     knockbackX_ = directionX * kKnockback;
     knockbackY_ = directionY * kKnockback;
     return true;
+}
+
+bool Player::eat(int value) {
+    if (value <= 0 || hunger_ >= kMaxHunger || !payEnergy(kFoodEnergyCost)) return false;
+    hunger_ = std::min(kMaxHunger, hunger_ + value);
+    return true;
+}
+
+bool Player::wearArmor(ItemType armor) {
+    if (armor_ || armorLevel(armor) == 0 || !payEnergy(kArmorEnergyCost)) return false;
+    armor_ = armor;
+    armorPoints_ = ::armorPoints(armor);
+    armorDamageBuffer_ = 0;
+    return true;
+}
+
+void Player::removeArmor() {
+    armor_.reset();
+    armorPoints_ = 0;
+    armorDamageBuffer_ = 0;
+}
+
+float Player::lightRadius() const {
+    const float held = heldItem_ ? static_cast<float>(::lightRadius(heldItem_->type) * 8) : 0.0f;
+    return std::max(kLightRadius, held);
+}
+
+void Player::tickHunger() {
+    // Player.tick (normal difficulty): low energy, healing, time and walking all wear the stomach down.
+    if (energy_ < kMaxEnergy) {
+        stamHungerTicks_ -= 1;
+        if (energy_ == 0) stamHungerTicks_ -= 1;
+    }
+    if (hungerChargeDelay_ > 0) {
+        stamHungerTicks_ -= 3;
+        if (hunger_ == 0) stamHungerTicks_ -= 1;
+    }
+    if (ticks_ % kHungerTickPeriod == 0) --stamHungerTicks_;
+    if (stepCount_ >= kHungerStepCount) {
+        --stamHungerTicks_;
+        stepCount_ = 0;
+    }
+    if (stamHungerTicks_ <= 0) {
+        stamHungerTicks_ += kMaxHungerTicks;
+        --hungerStamCount_;
+    }
+    while (hungerStamCount_ <= 0) {
+        hunger_ = std::max(0, hunger_ - 1);
+        hungerStamCount_ += kBitesPerHunger;
+    }
+    // A stomach more than half full slowly heals: faster the fuller it is.
+    if (health_ < kMaxHealth && hunger_ > kMaxHunger / 2) {
+        const int missing = kMaxHunger - hunger_ + 2;
+        if (++hungerChargeDelay_ > 20 * missing * missing) {
+            ++health_;
+            hungerChargeDelay_ = 0;
+        }
+    } else {
+        hungerChargeDelay_ = 0;
+    }
+    // An empty one hurts every 2 seconds, down to 3 hearts.
+    if (hunger_ == 0 && health_ > kMinStarveHealth) {
+        if (hungerStarveDelay_ == 0) hungerStarveDelay_ = kStarveTicks;
+        if (--hungerStarveDelay_ == 0) {
+            health_ -= 1;
+            damageTaken_ += 1;
+        }
+    }
 }
 
 SDL_FRect Player::attackBox() const {
@@ -160,10 +272,14 @@ SDL_Point Player::interactionTile() const {
     return {tileIndex(px), tileIndex(py)};
 }
 
-void Player::restoreStats(int health, int energy) {
+void Player::restoreStats(int health, int energy, int hunger, std::optional<ItemType> armor, int armorPoints) {
     refillStats();
     health_ = health;
     energy_ = energy;
+    hunger_ = hunger;
+    armor_ = armor;
+    armorPoints_ = armor ? armorPoints : 0;
+    armorDamageBuffer_ = 0;
 }
 
 void Player::setPosition(float x, float y) {
@@ -180,7 +296,9 @@ int Player::update(float dt, const bool* keys, const TileMap& map, std::span<con
     const SDL_FPoint middle = center();
     const int centerTileX = tileIndex(middle.x);
     const int centerTileY = tileIndex(middle.y);
-    swimming_ = map.inBounds(centerTileX, centerTileY) && map.tileAt(centerTileX, centerTileY) == Tile::Water;
+    const Tile under = map.inBounds(centerTileX, centerTileY) ? map.tileAt(centerTileX, centerTileY) : Tile::Rock;
+    inLava_ = under == Tile::Lava;
+    swimming_ = under == Tile::Water || inLava_;
 
     statTickAccumulator_ += dt;
     while (statTickAccumulator_ >= kStatTick) {
@@ -189,8 +307,10 @@ int Player::update(float dt, const bool* keys, const TileMap& map, std::span<con
         if (hurtTime_ > 0) --hurtTime_;
         tickKnockback(map, obstacles);
         tickEnergy();
+        tickHunger();
+        if (inLava_) hurt(kLavaDamage);  // Mob.tick: lava burns
         // Drowning, like Minicraft: once a second in water, pay a bolt, or a heart when out of energy.
-        if (swimming_ && ticks_ % kSwimDrainTicks == 0) {
+        if (swimming_ && !inLava_ && ticks_ % kSwimDrainTicks == 0) {
             if (energy_ > 0) --energy_;
             else hurt(1);
         }
@@ -222,7 +342,13 @@ int Player::update(float dt, const bool* keys, const TileMap& map, std::span<con
     moveX(dx * step, map, obstacles);
     moveY(dy * step, map, obstacles);
     // Advance the walk cycle by the larger axis only: summing both would make diagonals animate twice as fast.
-    walkDistance_ += std::max(std::abs(x_ - startX), std::abs(y_ - startY));
+    const float walked = std::max(std::abs(x_ - startX), std::abs(y_ - startY));
+    walkDistance_ += walked;
+    stepAccumulator_ += walked;
+    while (stepAccumulator_ >= 1.0f) {  // whole pixels walked count towards hunger
+        stepAccumulator_ -= 1.0f;
+        ++stepCount_;
+    }
     return damageTaken_;
 }
 
