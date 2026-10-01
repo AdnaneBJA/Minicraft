@@ -68,7 +68,7 @@ Minicraft/
 ├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
-│   └── sprites/       # player.png, zombie.png, tiles.png (atlas), hud.png, font.png, items.png, inventory_counter.png, smash.png
+│   └── sprites/       # player.png, zombie.png, tiles.png (atlas), hud.png, font.png, items.png, inventory_counter.png, smash.png, title.png
 └── client/
     ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
     ├── player.h/.cpp  # Player: sprite, movement, walk animation
@@ -86,7 +86,9 @@ Minicraft/
     ├── world_gen.h/.cpp  # original-Minicraft-style island generation (+ beaches, few lakes)
     ├── day_night.h/.cpp  # day/night cycle and the night lighting overlay
     ├── collision.h     # tile collision shared by the player and mobs
-    └── zombie.h/.cpp   # Zombie AI (chase + contact punch) and the Zombies spawner
+    ├── zombie.h/.cpp   # Zombie AI (chase + contact punch) and the Zombies spawner
+    ├── game_menu.h/.cpp  # title screen, new/load world screens, pause menu
+    └── world_save.h/.cpp  # one binary save file per world (validated on load)
 ```
 
 **Target layout** (eventual destination; create each folder only when its phase starts):
@@ -231,5 +233,6 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
+- The game opens on a Minicraft-style title screen: Play -> Load World / New World (name + optional seed). Esc in game pauses (Return to Game / Save Game / Save and Quit). Worlds are saved to `%APPDATA%/Minicraft/Minicraft/saves/<name>.sav`.
 - `client/` shows a 256x256 island generated like the original Minicraft, with a day/night cycle (zombies spawn at night and chase the player) with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory. 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.
