@@ -9,6 +9,8 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Collision | 829 |
 | 2026-10-01 | Tile borders/transitions | 902 |
 | 2026-10-01 | Diagonal movement tweaks | 902 |
+| 2026-10-01 | Punch animation | 965 |
+| 2026-10-01 | Punching breaks trees | 1127 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -54,5 +56,16 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - Diagonal movement is no longer normalised: each axis moves at full speed, so diagonals are sqrt(2)x faster, like Minicraft.
   - The walk cycle advances by the larger axis only, so diagonals animate at the same rate as straight walking
     (7 sprite changes/s instead of 14).
+- **2026-10-01: Punch animation (player interaction, step 1).**
+  - **Space** punches in the facing direction and shows Minicraft's slash for 5 ticks (~83 ms).
+  - The slash is two 8x8 halves from Minicraft+'s `hud.png`, placed and mirrored as in `Player.render`.
+- **2026-10-01: Punching breaks trees (player interaction, step 2).**
+  - A punch hits the tile 12 px in front of the player's centre (Minicraft's `INTERACT_DIST`) for 1-3 damage.
+  - Trees break at 20 damage (about 10 punches) and become grass, which can then be walked on.
+  - A hit shows Minicraft's X-shaped smash effect (`smash.png`, 10 ticks) instead of the slash; a miss still shows the slash.
+  - New `Effects` class for short-lived world effects.
+  - F3 debug: a "Punch target" outline, plus the target tile and tree damage in the Info section.
+  - Not yet: wood drops, tree damage regenerating over time, damage numbers, sound.
 
 ## Next
+- Item drops (wood) and an inventory.

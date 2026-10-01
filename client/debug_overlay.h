@@ -30,6 +30,7 @@ private:
     bool showPlayerOutline_ = true;
     bool showHitbox_ = true;
     bool showSolidTiles_ = false;
+    bool showPunchTarget_ = true;
     bool showTileGrid_ = true;
     bool showTileUnderPlayer_ = true;
     bool showInfo_ = true;

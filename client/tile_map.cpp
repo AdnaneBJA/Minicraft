@@ -159,6 +159,7 @@ void TileMap::generate(std::uint32_t seed, int width, int height) {
     width_ = width;
     height_ = height;
     tiles_.assign(static_cast<std::size_t>(width * height), Tile::Grass);
+    damage_.assign(static_cast<std::size_t>(width * height), 0);
 
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
@@ -182,6 +183,20 @@ void TileMap::generate(std::uint32_t seed, int width, int height) {
             tiles_[static_cast<std::size_t>(y * width + x)] = tile;
         }
     }
+}
+
+bool TileMap::hurtTile(int tx, int ty, int damage) {
+    if (!inBounds(tx, ty) || tileAt(tx, ty) != Tile::Tree) {
+        return false;
+    }
+    const int total = damageAt(tx, ty) + damage;
+    if (total >= kTreeHealth) {
+        tiles_[index(tx, ty)] = Tile::Grass;
+        damage_[index(tx, ty)] = 0;
+    } else {
+        damage_[index(tx, ty)] = static_cast<std::uint8_t>(total);
+    }
+    return true;
 }
 
 SDL_FPoint TileMap::findSpawnPoint() const {
