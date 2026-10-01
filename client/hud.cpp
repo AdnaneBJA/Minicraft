@@ -1,5 +1,6 @@
 #include "hud.h"
 
+#include "font.h"
 #include "player.h"
 
 namespace {
@@ -10,6 +11,7 @@ constexpr float kCell = 8.0f;
 constexpr int kHeartColumn = 0;  // row 0 = full, row 1 = empty
 constexpr int kBoltColumn = 1;   // row 0 = full, row 1 = empty, row 2 = white (blink when exhausted)
 constexpr int kFrameRow = 6;     // columns: 0 = corner, 1 = top/bottom edge, 2 = left/right edge, 3 = fill
+constexpr SDL_Color kTitleColor{255, 255, 0, 255};
 
 }  // namespace
 
@@ -41,7 +43,13 @@ void Hud::drawStatus(SDL_Renderer* renderer, const Player& player, float viewHei
     }
 }
 
-void Hud::drawFillCell(SDL_Renderer* renderer, float x, float y) const { drawCell(renderer, 3, kFrameRow, x, y); }
+void Hud::drawTitle(SDL_Renderer* renderer, const Font& font, std::string_view title, float x, float y) const {
+    for (std::size_t i = 0; i < title.size(); ++i) {
+        const float letterX = x + static_cast<float>(i) * kCell;
+        drawCell(renderer, 3, kFrameRow, letterX, y);
+        font.draw(renderer, title.substr(i, 1), letterX, y, kTitleColor);
+    }
+}
 
 void Hud::drawFrame(SDL_Renderer* renderer, float x, float y, int columns, int rows) const {
     constexpr int flipX = SDL_FLIP_HORIZONTAL;

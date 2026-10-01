@@ -15,6 +15,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Swimming, drowning, hold-to-punch | 2014 |
 | 2026-10-01 | Classic world generation, zombies, day/night | 2886 |
 | 2026-10-01 | Game menu, world saves | 3779 |
+| 2026-10-01 | Crafting menu, workbench recipe | 3165 |
+| 2026-10-01 | Zombie drops | 3185 |
+| 2026-10-01 | Tree drops: acorns, apples | 3192 |
+| 2026-10-01 | Merge: game menu/saves + crafting/drops | 4078 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -166,5 +170,31 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
       bytes) and refuses the file otherwise. World names are restricted so they can't escape the saves folder.
   - Not yet: deleting/renaming worlds from the menu, autosave, an options screen.
 
+- **2026-10-01: Crafting (personal crafting menu).**
+  - **Z** opens the crafting screen (`CraftingMenu`, Minicraft's CraftingDisplay); Z or Esc closes it. Only one
+    menu is open at a time (E does nothing while crafting is open, and vice versa).
+  - Recipe list in the same frame as the inventory, titled "Crafting": " Workbench" with its icon, white when the
+    player can afford it and grey otherwise, with the `> <` cursor (W/S or arrows).
+  - Right of the list: a **Have:** box (product icon + how many the player owns) and a **Cost:** box (icon +
+    "owned/needed" per ingredient), titles at the top left like Minicraft. The Cost box sits under Have (Minicraft
+    bottom-aligns it with the recipe list, which would overlap Have while the list has one entry).
+  - Space or Enter crafts the selected recipe if affordable: takes the costs and adds the product; products that
+    don't fit are dropped at the player's feet.
+  - `Recipe` (`recipe.h/.cpp`): product, amount and costs; one recipe so far, **Workbench = 10 wood**.
+  - Inventory: `remove()`, and non-stackable items (the workbench, like Minicraft's furniture) take one slot each
+    and show as " Workbench" without a count. `items.png` gains the workbench icon.
+  - `Hud::drawTitle` now draws menu titles for both menus.
+  - Not yet: placing the workbench, workbench recipes (tools), crafting sound.
+- **2026-10-01: Zombie drops.**
+  - A zombie that dies drops Minicraft's normal-difficulty loot: 1-3 **cloth**, a 1 in 60 chance of **iron** and a
+    4% chance of a **potato**. Loot is tossed out like other drops and picked up by walking over it.
+  - New stackable items Cloth, Iron and Potato (`items.png` gains Minicraft+'s `cloth`, `iron_ingot` and `potato`
+    icons).
+  - Not yet: Minicraft's 1 in 40 coloured clothes (armour isn't in the game yet).
+- **2026-10-01: Tree drops: acorns and apples** (Minicraft's `TreeTile.hurt`).
+  - Every punch on a tree has a 1 in 100 chance to drop an **apple**.
+  - A broken tree drops 0-2 **acorns** along with its 1-3 wood.
+  - New stackable items Acorn and Apple with Minicraft+'s icons. They can't be eaten or planted yet.
+
 ## Next
-- Crafting (workbench, wooden tools) using the gathered wood/stone.
+- Place the workbench in the world and open its recipe list (wooden tools) by using it.

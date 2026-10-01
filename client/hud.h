@@ -5,7 +5,9 @@
 #include <SDL3/SDL.h>
 
 #include <string>
+#include <string_view>
 
+class Font;
 class Player;
 
 // On-screen UI drawn from Minicraft's hud.png: health hearts, energy bolts, and the menu frame.
@@ -19,8 +21,9 @@ public:
 
     // Minicraft's menu frame around an interior of `columns` x `rows` 8x8 cells whose top-left is (x, y).
     void drawFrame(SDL_Renderer* renderer, float x, float y, int columns, int rows) const;
-    // One 8x8 cell of the frame's fill colour (Minicraft puts one behind each title letter).
-    void drawFillCell(SDL_Renderer* renderer, float x, float y) const;
+    // A title set into a frame's top edge at (x, y): each letter on a fill cell so the border doesn't run through it
+    // (Minicraft's Menu.render).
+    void drawTitle(SDL_Renderer* renderer, const Font& font, std::string_view title, float x, float y) const;
 
 private:
     // Draws the 8x8 cell (cx, cy) of hud.png at (x, y).

@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "crafting_menu.h"
 #include "day_night.h"
 #include "debug_overlay.h"
 #include "dropped_items.h"
@@ -215,12 +216,27 @@ private:
         const float centerY = static_cast<float>(target.y * TileMap::kTileSize + TileMap::kTileSize / 2);
         effects_.addSmash(target.x, target.y);
         effects_.addDamageNumber(damage, centerX, centerY);
+        // Minicraft's TreeTile.hurt: every hit on a tree has a 1 in 100 chance to shake an apple loose.
+        if (hit->tile == Tile::Tree && SDL_rand(100) == 0) droppedItems_.spawn(ItemType::Apple, 1, centerX, centerY);
         if (hit->broken) {
-            // Minicraft drops: a tree gives 1-3 wood, a rock punched by hand gives 1 stone.
-            if (hit->tile == Tile::Tree) droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
+            // Minicraft drops: a tree gives 1-3 wood and 0-2 acorns, a rock punched by hand gives 1 stone.
+            if (hit->tile == Tile::Tree) {
+                droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
+                droppedItems_.spawn(ItemType::Acorn, static_cast<int>(SDL_rand(3)), centerX, centerY);
+            }
             if (hit->tile == Tile::Rock) droppedItems_.spawn(ItemType::Stone, 1, centerX, centerY);
         }
     }
+
+    // Products that don't fit in the inventory are dropped at the player's feet, like Minicraft.
+    void craft(const Recipe& recipe) {
+        const int leftover = recipe.craft(inventory_);
+        if (leftover <= 0) return;
+        const SDL_FPoint middle = player_.center();
+        droppedItems_.spawn(recipe.product(), leftover, middle.x, middle.y);
+    }
+
+    bool menuOpen() const { return inventoryMenu_.isOpen() || craftingMenu_.isOpen(); }
 
     void handleEvents() {
         SDL_Event event;
@@ -245,16 +261,29 @@ private:
         if (key == DebugOverlay::kToggleKey) debug_.toggle();
         if (ImGui::GetIO().WantCaptureKeyboard) return;  // typing in the debug panel
         if (key == SDLK_ESCAPE) {
-            if (inventoryMenu_.isOpen()) inventoryMenu_.close();
-            else menu_.openPause();
+            if (menuOpen()) {
+                inventoryMenu_.close();
+                craftingMenu_.close();
+            } else {
+                menu_.openPause();
+            }
             return;
         }
-        if (key == InventoryMenu::kToggleKey) {
+        // Each menu's key opens it or closes it, but doesn't open one menu on top of the other.
+        if (key == InventoryMenu::kToggleKey && !craftingMenu_.isOpen()) {
             inventoryMenu_.toggle();
+            return;
+        }
+        if (key == CraftingMenu::kToggleKey && !inventoryMenu_.isOpen()) {
+            craftingMenu_.toggle();
             return;
         }
         if (inventoryMenu_.isOpen()) {
             inventoryMenu_.handleKey(key, inventory_);
+            return;
+        }
+        if (craftingMenu_.isOpen()) {
+            if (const Recipe* recipe = craftingMenu_.handleKey(key, inventory_)) craft(*recipe);
             return;
         }
         if (key == SDLK_SPACE) {
@@ -278,7 +307,7 @@ private:
     void updateWorld(float dt) {
         // While a menu is open or typing in the debug panel, keys must not move the player.
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
-        const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || inventoryMenu_.isOpen();
+        const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || menuOpen();
         const bool* keys = blockKeys ? noKeys.data() : SDL_GetKeyboardState(nullptr);
         if (const int damageTaken = player_.update(dt, keys, map_); damageTaken > 0) {
             const SDL_FPoint middle = player_.center();
@@ -293,7 +322,7 @@ private:
             }
         }
         dayNight_.update(dt);
-        zombies_.update(dt, map_, player_, effects_, dayNight_.time() == DayNight::Time::Night);
+        zombies_.update(dt, map_, player_, effects_, droppedItems_, dayNight_.time() == DayNight::Time::Night);
         if (player_.isDead()) respawn();
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
@@ -355,6 +384,7 @@ private:
         // UI in view pixels (same scale, not moved by the camera).
         hud_.drawStatus(renderer, player_, std::floor(camera_.height()));
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
+        craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
     }
 
     void drawDebugPanel() {
@@ -412,6 +442,7 @@ private:
     DroppedItems droppedItems_;
     Inventory inventory_;
     InventoryMenu inventoryMenu_;
+    CraftingMenu craftingMenu_{Recipe::personalRecipes()};
     Hud hud_;
     Font font_;
     ItemIcons itemIcons_;

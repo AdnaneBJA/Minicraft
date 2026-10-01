@@ -17,11 +17,12 @@ constexpr float kCell = 8.0f;
 constexpr float kFrameLeft = 8.0f;  // outer top-left of the frame, in view pixels
 constexpr float kFrameTop = 8.0f;
 constexpr SDL_Color kWhite{255, 255, 255, 255};
-constexpr SDL_Color kTitleColor{255, 255, 0, 255};
 constexpr SDL_Color kCapacityColor{153, 153, 153, 255};
 
-// Same text as Minicraft's StackableItem.getDisplayName(): " <count> <name>".
+// Same text as Minicraft's getDisplayName(): " <count> <name>" for stackable items (StackableItem), " <name>"
+// otherwise (Item).
 std::string entryText(const Inventory::Stack& stack) {
+    if (!isStackable(stack.type)) return std::string(" ") + itemName(stack.type);
     return " " + std::to_string(std::min(stack.count, 999)) + " " + itemName(stack.type);
 }
 
@@ -67,15 +68,9 @@ void InventoryMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& fon
     hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
     const float frameWidth = static_cast<float>(columns + 2) * kCell;
 
-    // Title set into the top edge, centred on the whole frame, each letter on a fill cell so the border lines
-    // don't run through it (Menu.render).
-    const float titleX = std::floor(kFrameLeft + (frameWidth - Font::textWidth(kTitle)) / 2.0f);
-    const std::string title = kTitle;
-    for (std::size_t i = 0; i < title.size(); ++i) {
-        const float x = titleX + static_cast<float>(i) * kCell;
-        hud.drawFillCell(renderer, x, kFrameTop);
-        font.draw(renderer, title.substr(i, 1), x, kFrameTop, kTitleColor);
-    }
+    // Title set into the top edge, centred on the whole frame.
+    hud.drawTitle(renderer, font, kTitle, std::floor(kFrameLeft + (frameWidth - Font::textWidth(kTitle)) / 2.0f),
+                  kFrameTop);
 
     const int selected = std::min(selected_, static_cast<int>(stacks.size()) - 1);
     for (std::size_t i = 0; i < stacks.size(); ++i) {

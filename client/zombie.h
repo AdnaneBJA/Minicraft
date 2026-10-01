@@ -8,6 +8,7 @@
 #include <vector>
 
 class Camera;
+class DroppedItems;
 class Effects;
 class Player;
 class TileMap;
@@ -66,7 +67,8 @@ public:
 
     // `night`: zombies only spawn at night (Minicraft spawns surface enemies only at night); during the day the
     // ones out of view despawn.
-    void update(float dt, const TileMap& map, Player& player, Effects& effects, bool night);
+    // Zombies that die drop their loot into `drops`.
+    void update(float dt, const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night);
     // Draws the zombies standing behind (`behind` = true: higher on screen than `playerY`) or in front of the player,
     // so they overlap the player sprite in the right order.
     void draw(SDL_Renderer* renderer, const Camera& camera, float playerY, bool behind) const;
@@ -82,7 +84,7 @@ public:
     bool spawningEnabled = true;
 
 private:
-    void tick(const TileMap& map, Player& player, Effects& effects, bool night);
+    void tick(const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night);
 
     TexturePtr sprite_;
     TexturePtr flash_;

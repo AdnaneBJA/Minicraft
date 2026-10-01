@@ -7,11 +7,14 @@
 #include <string>
 #include <vector>
 
-enum class ItemType { Wood, Stone };
+// The order matches the columns of items.png.
+enum class ItemType { Wood, Stone, Workbench, Cloth, Iron, Potato, Acorn, Apple };
 
 const char* itemName(ItemType type);
+// Resources stack; furniture (like Minicraft's FurnitureItem) takes one slot per item.
+bool isStackable(ItemType type);
 
-// Stacks of items the player carries, in the order they were first picked up.
+// Stacks of items the player carries, in the order they were first picked up. A non-stackable item is a stack of 1.
 class Inventory {
 public:
     static constexpr int kMaxSlots = 27;  // Minicraft's inventory size; each stack takes one slot
@@ -23,7 +26,10 @@ public:
 
     // True if the item stacks onto an existing stack or a free slot is left.
     bool canAdd(ItemType type) const;
-    void add(ItemType type, int count = 1);
+    // Adds as many as fit and returns how many didn't (only non-stackable items can run out of slots here).
+    int add(ItemType type, int count = 1);
+    // Removes up to `count` items, emptying stacks from the last one; returns how many were removed.
+    int remove(ItemType type, int count);
     int count(ItemType type) const;
     const std::vector<Stack>& stacks() const { return stacks_; }
     void clear() { stacks_.clear(); }
@@ -32,7 +38,7 @@ private:
     std::vector<Stack> stacks_;
 };
 
-// The 8x8 item icons (items.png: wood, stone).
+// The 8x8 item icons (items.png: wood, stone, workbench, cloth, iron, potato, acorn, apple).
 class ItemIcons {
 public:
     static constexpr float kSize = 8.0f;

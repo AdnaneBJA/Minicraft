@@ -1,31 +1,68 @@
 #include "items.h"
 
 #include <algorithm>
+#include <iterator>
 
 const char* itemName(ItemType type) {
     switch (type) {
         case ItemType::Wood: return "Wood";
         case ItemType::Stone: return "Stone";
+        case ItemType::Workbench: return "Workbench";
+        case ItemType::Cloth: return "Cloth";
+        case ItemType::Iron: return "Iron";
+        case ItemType::Potato: return "Potato";
+        case ItemType::Acorn: return "Acorn";
+        case ItemType::Apple: return "Apple";
     }
     return "?";
 }
 
+bool isStackable(ItemType type) { return type != ItemType::Workbench; }
+
 bool Inventory::canAdd(ItemType type) const {
-    return this->count(type) > 0 || static_cast<int>(stacks_.size()) < kMaxSlots;
+    return (isStackable(type) && this->count(type) > 0) || static_cast<int>(stacks_.size()) < kMaxSlots;
 }
 
-void Inventory::add(ItemType type, int count) {
-    const auto it = std::find_if(stacks_.begin(), stacks_.end(), [&](const Stack& s) { return s.type == type; });
-    if (it != stacks_.end()) {
-        it->count += count;
-    } else {
+int Inventory::add(ItemType type, int count) {
+    if (isStackable(type)) {
+        const auto it = std::find_if(stacks_.begin(), stacks_.end(), [&](const Stack& s) { return s.type == type; });
+        if (it != stacks_.end()) {
+            it->count += count;
+            return 0;
+        }
+        if (!canAdd(type)) return count;
         stacks_.push_back({type, count});
+        return 0;
     }
+    for (; count > 0 && canAdd(type); --count) stacks_.push_back({type, 1});
+    return count;
+}
+
+int Inventory::remove(ItemType type, int count) {
+    int removed = 0;
+    for (auto it = stacks_.rbegin(); it != stacks_.rend() && removed < count;) {
+        if (it->type != type) {
+            ++it;
+            continue;
+        }
+        const int taken = std::min(it->count, count - removed);
+        it->count -= taken;
+        removed += taken;
+        if (it->count == 0) {
+            it = std::make_reverse_iterator(stacks_.erase(std::next(it).base()));
+        } else {
+            ++it;
+        }
+    }
+    return removed;
 }
 
 int Inventory::count(ItemType type) const {
-    const auto it = std::find_if(stacks_.begin(), stacks_.end(), [&](const Stack& s) { return s.type == type; });
-    return it != stacks_.end() ? it->count : 0;
+    int total = 0;
+    for (const auto& stack : stacks_) {
+        if (stack.type == type) total += stack.count;
+    }
+    return total;
 }
 
 bool ItemIcons::load(SDL_Renderer* renderer, const std::string& path) {

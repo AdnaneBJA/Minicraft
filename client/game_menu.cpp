@@ -28,7 +28,6 @@ constexpr const char* kSeedPrompt = "Seed: ";
 constexpr SDL_Color kWhite{255, 255, 255, 255};
 constexpr SDL_Color kGray{153, 153, 153, 255};
 constexpr SDL_Color kDarkGray{102, 102, 102, 255};
-constexpr SDL_Color kYellow{255, 255, 0, 255};
 constexpr SDL_Color kGreen{0, 255, 0, 255};
 constexpr SDL_Color kRed{255, 0, 0, 255};
 constexpr SDL_Color kCyan{0, 255, 255, 255};
@@ -338,12 +337,7 @@ void GameMenu::drawPause(SDL_Renderer* renderer, const Hud& hud, const Font& fon
     hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
 
     const std::string_view title = "Paused";
-    const float titleX = centeredX(title, viewWidth);
-    for (std::size_t i = 0; i < title.size(); ++i) {
-        const float x = titleX + static_cast<float>(i) * kCell;
-        hud.drawFillCell(renderer, x, interiorTop - kCell);
-        font.draw(renderer, title.substr(i, 1), x, interiorTop - kCell, kYellow);
-    }
+    hud.drawTitle(renderer, font, title, centeredX(title, viewWidth), interiorTop - kCell);
 
     for (int i = 0; i < static_cast<int>(kPauseEntries.size()); ++i) {
         // drawEntries spaces rows by kRowHeight; the frame needs whole cells, so draw one entry at a time.
