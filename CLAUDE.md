@@ -88,6 +88,7 @@ Minicraft/
     ├── crafting_menu.h/.cpp  # crafting screen (Z): recipe list + Have/Cost boxes
     ├── furniture.h/.cpp  # placed furniture (stations, chests, lanterns, beds, death chests)
     ├── container_menu.h/.cpp  # chest screen (move stacks between a chest and the inventory)
+    ├── map_screen.h/.cpp  # Tab map of the current level: player, stairs, the way to the boss
     ├── world.h/.cpp    # World: the 5 levels (sky, surface, 3 caves) and their stairs; Level = map + mobs + drops + furniture
     ├── projectiles.h/.cpp  # arrows and the Air Wizard's sparks
     ├── audio.h/.cpp    # SDL3 sound effects, mute and volume
@@ -245,6 +246,6 @@ Rules:
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
 - The game opens on a Minicraft-style title screen: Play (Load World / New World with name + optional seed), Options (sound on/off, volume), Quit. Esc in game pauses (Return to Game / Options / Save Game / Save and Quit). Worlds are saved to `%APPDATA%/Minicraft/Minicraft/saves/<name>.sav` (format v3; v1/v2 still load).
 - The full original-Minicraft loop is in: a 256x256 island surface with day/night, three caves below (iron, gold, gems; water then lava; pitch black except light from the player, torches, lanterns and lava) and the sky above, all linked by stairs (the sky stairs sit in hard rock: gem pickaxe needed). The Air Wizard boss in the sky ends the game ("You won!").
-- Controls: WASD/arrows move; Space punches/uses the held item (hold to repeat); E opens the inventory, or uses the furniture in front (workbench/furnace/oven/anvil/loom recipes, chest contents, bed); Z crafts by hand; M mutes; F3 debug panel.
+- Controls: WASD/arrows move; Space punches/uses the held item (hold to repeat); E opens the inventory, or uses the furniture in front (workbench/furnace/oven/anvil/loom recipes, chest contents, bed); Z crafts by hand; Tab shows the map; M mutes; F3 debug panel.
 - Systems: tools with durability (wood to gem), ores and smelting, food and hunger, armour, bows and arrows, farming (seeds, wheat), saplings, placeable tiles (dirt, sand, torches, floors, walls, doors), chests, lanterns, beds (respawn point), the power glove, death chests, mobs by level (zombie, skeleton, slime, creeper, snake, cow, pig, sheep), Minicraft+ sound effects. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

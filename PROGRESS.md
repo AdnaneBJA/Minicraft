@@ -26,6 +26,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Debug panel item giver | 5022 |
 | 2026-10-01 | Gameplay loop: caves, sky, boss, audio, stations, farming, saves v3 | 7880 |
 | 2026-10-01 | Hit and menu sounds; no gem pickaxe hint while tired | 7917 |
+| 2026-10-01 | World map (Tab) | 8131 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -319,6 +320,11 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     "Cave kit" / "Boss kit" item shortcuts.
   - Not ported: the dungeon (obsidian knight, keys), potions and the enchanter, dyes and coloured wool/beds, boats,
     fishing, TNT, signs, quests and achievements, knights.
+
+- **2026-10-01: World map** (`map_screen.h/.cpp`). Tab shows the whole level the player is on, one pixel per tile
+  (shrunk to fit the view), with markers: the player (blinking), stairs down, and on the surface the stairs up to the
+  sky where the Air Wizard waits (stairs up in the caves; the Air Wizard himself in the sky), plus a legend. Tab or
+  Esc closes it; the world keeps running behind it like the other screens.
 
 ## Next
 - Phase 1 leftovers: move the simulation into `game-core`, recipes/tiles/mobs as data, a WASM build.

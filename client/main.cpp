@@ -11,6 +11,7 @@
 #include "hud.h"
 #include "inventory_menu.h"
 #include "items.h"
+#include "map_screen.h"
 #include "player.h"
 #include "player_actions.h"
 #include "world.h"
@@ -355,12 +356,15 @@ private:
         level().drops.spawn(recipe.product(), leftover, middle.x, middle.y);
     }
 
-    bool menuOpen() const { return inventoryMenu_.isOpen() || craftingMenu_.isOpen() || containerMenu_.isOpen(); }
+    bool menuOpen() const {
+        return inventoryMenu_.isOpen() || craftingMenu_.isOpen() || containerMenu_.isOpen() || mapScreen_.isOpen();
+    }
 
     void closeMenus() {
         inventoryMenu_.close();
         craftingMenu_.close();
         containerMenu_.close();
+        mapScreen_.close();
     }
 
     // The player leaving a screen: Minicraft plays the craft sound whenever a display exits (Game.exitDisplay).
@@ -469,6 +473,15 @@ private:
         if (key == SDLK_ESCAPE) {
             if (menuOpen()) exitMenus();
             else menu_.openPause();
+            return;
+        }
+        if (mapScreen_.isOpen()) {
+            if (key == MapScreen::kToggleKey) exitMenus();
+            return;
+        }
+        if (key == MapScreen::kToggleKey && !menuOpen()) {
+            mapScreen_.open(renderer_.get(), level());
+            audio_.play(Sound::Select);
             return;
         }
         if (containerMenu_.isOpen()) {
@@ -717,6 +730,8 @@ private:
             }
         }
 
+        mapScreen_.draw(renderer, hud_, font_, here, player_, viewWidth, viewHeight);
+
         // The fade after changing level or sleeping.
         if (fadeTimer_ > 0.0f) {
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -822,6 +837,7 @@ private:
     InventoryMenu inventoryMenu_;
     CraftingMenu craftingMenu_;
     ContainerMenu containerMenu_;
+    MapScreen mapScreen_;
     Hud hud_;
     Font font_;
     ItemIcons itemIcons_;
