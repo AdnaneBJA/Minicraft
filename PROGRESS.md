@@ -120,7 +120,8 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
       - Lakes come from a separate noise with a strict threshold: only a few small ones inland.
     - 256x256, ~15 ms to generate. (The earlier Minicraft+ biome port and its simplex noise were removed.)
   - **Zombies** (`zombie.h/.cpp`, port of Minicraft's Zombie/EnemyMob/MobAi, level 1 on normal difficulty):
-    - 10 health; walks at 30 px/s; chases the player within 100 px, otherwise random walks.
+    - 10 health; walks at 20 px/s (1 px every 3 ticks; slower than Minicraft's 30); chases the player within
+      100 px, otherwise random walks.
     - Can't swim (water blocks it) and doesn't overlap other zombies.
     - Bumping into the player is its punch: 1 damage plus knockback, magenta number, white flash, 0.5 s cooldown.
     - Punches hit zombies in Minicraft's attack box (20 px reach) for 1-2 damage: red number, white flash,

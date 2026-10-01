@@ -17,6 +17,7 @@ constexpr int kDetectDistance = 100;    // EnemyMob detectDist for zombies: chas
 constexpr int kRandomWalkTicks = 60;    // EnemyMob default rwTime
 constexpr int kRandomWalkChance = 200;  // 1 in 200 ticks starts a random walk
 constexpr int kHurtTicks = 10;          // Mob.doHurt: hurtTime = 10
+constexpr int kTicksPerStep = 3;        // 1 px every 3 ticks = 20 px/s (Minicraft's walkTime 2 gives 30 px/s)
 constexpr int kKnockback = 6;
 constexpr int kContactDamage = 1;  // EnemyMob.touchedBy: lvl * 1 on normal difficulty
 constexpr int kSpawnIntervalTicks = 60;
@@ -97,8 +98,8 @@ void Zombie::tick(const TileMap& map, Player& player, Effects& effects, Blocked 
         knockbackY_ -= sign(knockbackY_);
     }
 
-    // MobAi.tick: walk every other tick (walkTime 2 -> 30 px/s); no walking while hurt. Stop if blocked.
-    if (ticks_ % 2 != 0 && hurtTime_ == 0 && (moveX_ != 0 || moveY_ != 0)) {
+    // MobAi.tick: walk 1 px every kTicksPerStep ticks; no walking while hurt. Stop if blocked.
+    if (ticks_ % kTicksPerStep == 0 && hurtTime_ == 0 && (moveX_ != 0 || moveY_ != 0)) {
         if (!move(static_cast<float>(moveX_), static_cast<float>(moveY_), map, player, effects, blocked, true)) {
             moveX_ = 0;
             moveY_ = 0;
