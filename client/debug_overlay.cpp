@@ -4,6 +4,7 @@
 #include "items.h"
 #include "player.h"
 #include "tile_map.h"
+#include "zombie.h"
 
 #include <imgui.h>
 
@@ -11,7 +12,7 @@
 #include <cmath>
 
 void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera, float scale, const TileMap& map,
-                                    const Player& player) const {
+                                    const Player& player, const Zombies& zombies) const {
     if (!enabled_) return;
 
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -92,11 +93,27 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
         SDL_SetRenderDrawColor(renderer, 255, 70, 200, 255);
         SDL_RenderRect(renderer, &hitboxRect);
     }
+
+    if (showHitbox_) {
+        // Zombie hitboxes, and the area the next punch reaches for mobs.
+        const auto worldRect = [&](const SDL_FRect& r) {
+            return SDL_FRect{toScreenX(r.x), toScreenY(r.y), r.w * scale, r.h * scale};
+        };
+        SDL_SetRenderDrawColor(renderer, 255, 70, 200, 255);
+        for (const Zombie& zombie : zombies.all()) {
+            const SDL_FRect rect = worldRect(zombie.hitbox());
+            SDL_RenderRect(renderer, &rect);
+        }
+        SDL_SetRenderDrawColor(renderer, 255, 140, 0, 120);
+        const SDL_FRect attack = worldRect(player.attackBox());
+        SDL_RenderRect(renderer, &attack);
+    }
 }
 
 DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
                                                    const Player& player, const Inventory& inventory,
-                                                   std::size_t droppedItemCount) {
+                                                   std::size_t droppedItemCount, Zombies& zombies,
+                                                   const DayNight& dayNight) {
     if (!enabled_) return {};
     if (!seedInputInitialised_) {
         seedInput_ = map.seed();
@@ -157,6 +174,22 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
                 actions.refillStats = true;
             }
         }
+
+        ImGui::SeparatorText("Time");
+        ImGui::Text("%s  (tick %d / %d, darkness %.0f%%)", timeName(dayNight.time()), dayNight.tick(),
+                    DayNight::kDayLength, static_cast<double>(dayNight.darkness() * 100.0f));
+        for (const DayNight::Time time :
+             {DayNight::Time::Morning, DayNight::Time::Day, DayNight::Time::Evening, DayNight::Time::Night}) {
+            if (time != DayNight::Time::Morning) ImGui::SameLine();
+            if (ImGui::Button(timeName(time))) actions.setTime = time;
+        }
+
+        ImGui::SeparatorText("Zombies");
+        ImGui::Text("Alive: %zu / %d", zombies.all().size(), Zombies::kMaxAlive);
+        ImGui::Checkbox("Spawn automatically (at night)", &zombies.spawningEnabled);
+        if (ImGui::Button("Spawn one nearby")) actions.spawnZombie = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Remove all")) actions.clearZombies = true;
 
         ImGui::SeparatorText("World");
         ImGui::InputScalar("Seed", ImGuiDataType_U32, &seedInput_);

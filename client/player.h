@@ -36,6 +36,14 @@ public:
     bool isSwimming() const { return swimming_; }
     // The tile a punch would hit: 12 px in front of the player's centre (Minicraft's INTERACT_DIST).
     SDL_Point interactionTile() const;
+    // The area a punch reaches for mobs (Minicraft's interaction box with ATTACK_DIST = 20 px).
+    SDL_FRect attackBox() const;
+    // Unit vector of the facing direction (e.g. right = {1, 0}).
+    SDL_Point facing() const;
+
+    // Hit by a mob: loses health and is knocked back along (directionX, directionY), unless still in the hurt
+    // cooldown. Returns true if the hit landed.
+    bool takeHit(int damage, int directionX, int directionY);
 
     int health() const { return health_; }
     int energy() const { return energy_; }
@@ -61,6 +69,7 @@ private:
     void tickEnergy();
     // Loses health unless still in the hurt cooldown; starts the cooldown and the white flash.
     void hurt(int damage);
+    void tickKnockback(const TileMap& map);
     void drawSlash(SDL_Renderer* renderer, float x, float y) const;
 
     TexturePtr texture_;
@@ -82,6 +91,8 @@ private:
     float statTickAccumulator_ = 0.0f;
     bool swimming_ = false;
     int hurtTime_ = 0;     // ticks of hurt cooldown left (no more damage meanwhile)
+    int knockbackX_ = 0;   // remaining knockback "steps" (Minicraft's xKnockback / yKnockback)
+    int knockbackY_ = 0;
     int damageTaken_ = 0;  // health lost since the start of the current update()
     int ticks_ = 0;  // 60 Hz ticks since start; drives the swimming ripple animation
 };

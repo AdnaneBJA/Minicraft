@@ -1,5 +1,7 @@
 #pragma once
 
+#include "day_night.h"
+
 #include <SDL3/SDL.h>
 
 #include <cstdint>
@@ -7,6 +9,7 @@
 
 class Camera;
 class Inventory;
+class Zombies;
 class Player;
 class TileMap;
 
@@ -20,16 +23,20 @@ public:
 
     // Draws outlines in screen pixels. `scale` is how many screen pixels one world pixel covers.
     void drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera, float scale, const TileMap& map,
-                          const Player& player) const;
+                          const Player& player, const Zombies& zombies) const;
 
     // What the panel asked the game to do this frame.
     struct PanelActions {
         std::optional<std::uint32_t> regenerateSeed;
         bool refillStats = false;
+        bool spawnZombie = false;
+        bool clearZombies = false;
+        std::optional<DayNight::Time> setTime;
     };
     // Draws the ImGui panel.
     PanelActions drawPanel(const Camera& camera, float scale, const TileMap& map, const Player& player,
-                           const Inventory& inventory, std::size_t droppedItemCount);
+                           const Inventory& inventory, std::size_t droppedItemCount, Zombies& zombies,
+                           const DayNight& dayNight);
 
 private:
     bool enabled_ = false;
