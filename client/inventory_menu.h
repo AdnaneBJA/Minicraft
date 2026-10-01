@@ -1,0 +1,41 @@
+#pragma once
+
+#include "texture.h"
+
+#include <SDL3/SDL.h>
+
+#include <string>
+
+class Font;
+class Hud;
+class Inventory;
+class ItemIcons;
+
+// The inventory screen (E), drawn like Minicraft's: a framed list of "icon count Name" entries with a "> <" cursor
+// on the selected one, the title set into the top edge, and a slots-used / capacity counter at the top right.
+class InventoryMenu {
+public:
+    static constexpr SDL_Keycode kToggleKey = SDLK_E;
+
+    // Loads inventory_counter.png (counter box and its digits).
+    bool load(SDL_Renderer* renderer, const std::string& counterPath);
+
+    bool isOpen() const { return open_; }
+    void toggle() { open_ = !open_; }
+    void close() { open_ = false; }
+
+    void handleKey(SDL_Keycode key, const Inventory& inventory);
+    void draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
+              const Inventory& inventory) const;
+
+private:
+    // Minicraft's slots counter, anchored to the frame's top-right corner.
+    void drawCounter(SDL_Renderer* renderer, float frameRight, float frameTop, int used, int capacity) const;
+    // Draws a number with the digit strip at row `sourceY` of inventory_counter.png (each digit w x h).
+    void drawCounterNumber(SDL_Renderer* renderer, float x, float y, float sourceY, float w, float h, int number,
+                           SDL_Color color) const;
+
+    TexturePtr counterTexture_;
+    bool open_ = false;
+    int selected_ = 0;
+};

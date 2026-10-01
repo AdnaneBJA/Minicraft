@@ -1,25 +1,30 @@
 #pragma once
 
+#include "texture.h"
+
 #include <SDL3/SDL.h>
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 class Camera;
 
-enum class Tile : std::uint8_t { Grass, Sand, Water, Rock, Tree };
+enum class Tile : std::uint8_t { Grass, Sand, Water, Rock, Tree, Dirt };
 
 const char* tileName(Tile tile);
 
 // Whether a tile blocks movement.
 bool isSolid(Tile tile);
 
+// Damage needed to break a tile with punches; 0 = can't be damaged. Minicraft values: tree 20, rock 50.
+int maxHealth(Tile tile);
+
 class TileMap {
 public:
     static constexpr int kTileSize = 16;
-    static constexpr int kTreeHealth = 20;  // damage needed to break a tree (Minicraft value)
 
     bool load(SDL_Renderer* renderer, const std::string& atlasPath);
 
@@ -31,9 +36,12 @@ public:
 
     void draw(SDL_Renderer* renderer, const Camera& camera, float timeSeconds) const;
 
-    // Applies damage to a tile. Returns true if the tile reacts to being hit (currently only trees).
-    // A tree that reaches kTreeHealth damage breaks and becomes grass.
-    bool hurtTile(int tx, int ty, int damage);
+    struct TileHit {
+        Tile tile;    // the tile that was hit (before it broke)
+        bool broken;  // reached maxHealth: a tree became grass, a rock became dirt
+    };
+    // Applies damage to a tile. Returns nothing if the tile can't be damaged (see maxHealth).
+    std::optional<TileHit> hurtTile(int tx, int ty, int damage);
     int damageAt(int tx, int ty) const { return damage_[index(tx, ty)]; }
 
     Tile tileAt(int tx, int ty) const { return tiles_[index(tx, ty)]; }
@@ -47,15 +55,11 @@ public:
     std::uint32_t seed() const { return seed_; }
 
 private:
-    struct TextureDeleter {
-        void operator()(SDL_Texture* texture) const { SDL_DestroyTexture(texture); }
-    };
-
     std::size_t index(int tx, int ty) const { return static_cast<std::size_t>(ty * width_ + tx); }
 
-    std::unique_ptr<SDL_Texture, TextureDeleter> atlas_;
+    TexturePtr atlas_;
     std::vector<Tile> tiles_;
-    std::vector<std::uint8_t> damage_;  // accumulated damage per tile (trees only, for now)
+    std::vector<std::uint8_t> damage_;  // accumulated damage per tile (trees and rocks)
     int width_ = 0;
     int height_ = 0;
     std::uint32_t seed_ = 0;
