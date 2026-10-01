@@ -45,8 +45,6 @@ private:
         void operator()(SDL_Texture* texture) const { SDL_DestroyTexture(texture); }
     };
 
-    void drawSprite(SDL_Renderer* renderer, int column, int row, float x, float y) const;
-
     std::unique_ptr<SDL_Texture, TextureDeleter> atlas_;
     std::vector<Tile> tiles_;
     int width_ = 0;

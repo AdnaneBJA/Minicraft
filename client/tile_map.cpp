@@ -7,9 +7,99 @@
 
 namespace {
 
-// Atlas layout (16x16 cells): row 0 = grass, sand, rock, tree (transparent); row 1 = 8 water animation frames.
 constexpr int kWaterFrames = 8;
 constexpr float kWaterFramesPerSecond = 3.0f;
+constexpr float kHalf = 8.0f;  // tiles are drawn as four 8x8 quadrants
+
+// Positions (in pixels) of each texture in assets/sprites/tiles.png.
+struct AtlasPos {
+    float x;
+    float y;
+};
+constexpr AtlasPos kGrass{0, 0}, kSand{16, 0}, kRock{32, 0}, kDirt{48, 0};
+constexpr AtlasPos kOak{64, 0};         // lone tree (transparent background)
+constexpr AtlasPos kOakFull{80, 0};     // tree canopy used where trees touch
+constexpr AtlasPos kRockCorner{96, 0};  // 2x2 quadrants for rock's inner corners
+constexpr AtlasPos kWaterFrame0{0, 16};
+// Border sheets: 3x3 grid of 8x8 pieces. Row/column 0 = top/left edge, 1 = no edge, 2 = bottom/right edge.
+constexpr AtlasPos kGrassBorder{0, 32}, kSandBorder{24, 32}, kWaterBorder{48, 32}, kRockBorder{72, 32};
+
+// A tile type drawn with Minicraft's connected-texture scheme.
+struct ConnectedTexture {
+    AtlasPos full;
+    AtlasPos border;
+    const AtlasPos* corner;  // optional inner-corner sheet
+};
+
+// Which neighbouring tiles blend seamlessly with a tile of the given kind (no border between them).
+bool connects(Tile kind, Tile other) {
+    switch (kind) {
+        case Tile::Grass:
+        case Tile::Tree: return other == Tile::Grass || other == Tile::Tree;
+        case Tile::Sand: return other == Tile::Sand;
+        case Tile::Water: return other == Tile::Water;
+        case Tile::Rock: return other == Tile::Rock;
+    }
+    return false;
+}
+
+void drawPiece(SDL_Renderer* renderer, SDL_Texture* atlas, float srcX, float srcY, float size, float x, float y,
+               SDL_FlipMode flip = SDL_FLIP_NONE) {
+    const SDL_FRect source{srcX, srcY, size, size};
+    const SDL_FRect destination{x, y, size, size};
+    SDL_RenderTextureRotated(renderer, atlas, &source, &destination, 0.0, nullptr, flip);
+}
+
+// Port of the Minicraft+ border rendering (SpriteAnimation.render). Each quadrant looks at the two neighbours it
+// touches and the diagonal between them, then picks an edge piece, the plain centre, or an inner corner.
+void drawConnected(SDL_Renderer* renderer, SDL_Texture* atlas, const TileMap& map, int tx, int ty, float x, float y,
+                   Tile kind, const ConnectedTexture& texture) {
+    const auto connected = [&](int nx, int ny) { return !map.inBounds(nx, ny) || connects(kind, map.tileAt(nx, ny)); };
+    for (const int v : {-1, 1}) {      // -1 = top half, 1 = bottom half
+        for (const int h : {-1, 1}) {  // -1 = left half, 1 = right half
+            const bool vertical = connected(tx, ty + v);
+            const bool horizontal = connected(tx + h, ty);
+            const float qx = x + (h < 0 ? 0.0f : kHalf);
+            const float qy = y + (v < 0 ? 0.0f : kHalf);
+            if (vertical && horizontal) {
+                if (connected(tx + h, ty + v)) {
+                    drawPiece(renderer, atlas, texture.border.x + kHalf, texture.border.y + kHalf, kHalf, qx, qy);
+                } else if (texture.corner) {
+                    // Inner corner: matching quadrant of the corner sheet, flipped both ways (as Minicraft+ does).
+                    drawPiece(renderer, atlas, texture.corner->x + (h < 0 ? 0.0f : kHalf),
+                              texture.corner->y + (v < 0 ? 0.0f : kHalf), kHalf, qx, qy,
+                              static_cast<SDL_FlipMode>(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL));
+                } else {
+                    drawPiece(renderer, atlas, texture.full.x + (h < 0 ? kHalf : 0.0f),
+                              texture.full.y + (v < 0 ? kHalf : 0.0f), kHalf, qx, qy);
+                }
+            } else {
+                const float row = vertical ? 1.0f : (v < 0 ? 0.0f : 2.0f);
+                const float column = horizontal ? 1.0f : (h < 0 ? 0.0f : 2.0f);
+                drawPiece(renderer, atlas, texture.border.x + column * kHalf, texture.border.y + row * kHalf, kHalf,
+                          qx, qy);
+            }
+        }
+    }
+}
+
+// Port of the Minicraft+ TreeTile rendering: a quadrant uses the canopy texture when the three trees around that
+// corner are present, so groups of trees merge into a forest.
+void drawTree(SDL_Renderer* renderer, SDL_Texture* atlas, const TileMap& map, int tx, int ty, float x, float y) {
+    const auto isTree = [&](int nx, int ny) { return map.inBounds(nx, ny) && map.tileAt(nx, ny) == Tile::Tree; };
+    for (const int v : {-1, 1}) {
+        for (const int h : {-1, 1}) {
+            const float qx = x + (h < 0 ? 0.0f : kHalf);
+            const float qy = y + (v < 0 ? 0.0f : kHalf);
+            const float row = v < 0 ? 0.0f : kHalf;
+            if (isTree(tx, ty + v) && isTree(tx + h, ty) && isTree(tx + h, ty + v)) {
+                drawPiece(renderer, atlas, kOakFull.x + (h < 0 ? kHalf : 0.0f), kOakFull.y + row, kHalf, qx, qy);
+            } else {
+                drawPiece(renderer, atlas, kOak.x + (h < 0 ? 0.0f : kHalf), kOak.y + row, kHalf, qx, qy);
+            }
+        }
+    }
+}
 
 // Deterministic hash of (seed, x, y) to [0, 1].
 float hash01(std::uint32_t seed, int x, int y) {
@@ -130,6 +220,13 @@ SDL_FPoint TileMap::findSpawnPoint() const {
 
 void TileMap::draw(SDL_Renderer* renderer, const Camera& camera, float timeSeconds) const {
     const int waterFrame = static_cast<int>(timeSeconds * kWaterFramesPerSecond) % kWaterFrames;
+    SDL_Texture* atlas = atlas_.get();
+    constexpr float size = static_cast<float>(kTileSize);
+    const ConnectedTexture grass{kGrass, kGrassBorder, nullptr};
+    const ConnectedTexture sand{kSand, kSandBorder, nullptr};
+    const ConnectedTexture rock{kRock, kRockBorder, &kRockCorner};
+    const ConnectedTexture water{{kWaterFrame0.x + static_cast<float>(waterFrame) * size, kWaterFrame0.y},
+                                 kWaterBorder, nullptr};
 
     // Only draw the tiles the camera can see.
     const int firstX = std::max(0, static_cast<int>(camera.x()) / kTileSize);
@@ -141,23 +238,19 @@ void TileMap::draw(SDL_Renderer* renderer, const Camera& camera, float timeSecon
         for (int tx = firstX; tx <= lastX; ++tx) {
             const float x = static_cast<float>(tx * kTileSize) - camera.x();
             const float y = static_cast<float>(ty * kTileSize) - camera.y();
-            switch (tileAt(tx, ty)) {
-                case Tile::Grass: drawSprite(renderer, 0, 0, x, y); break;
-                case Tile::Sand: drawSprite(renderer, 1, 0, x, y); break;
-                case Tile::Rock: drawSprite(renderer, 2, 0, x, y); break;
-                case Tile::Water: drawSprite(renderer, waterFrame, 1, x, y); break;
+            // Everything sits on dirt, which shows through the transparent rims of the border pieces.
+            drawPiece(renderer, atlas, kDirt.x, kDirt.y, size, x, y);
+            const Tile tile = tileAt(tx, ty);
+            switch (tile) {
+                case Tile::Grass: drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, grass); break;
+                case Tile::Sand: drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, sand); break;
+                case Tile::Rock: drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, rock); break;
+                case Tile::Water: drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, water); break;
                 case Tile::Tree:
-                    drawSprite(renderer, 0, 0, x, y);  // grass underneath
-                    drawSprite(renderer, 3, 0, x, y);
+                    drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, grass);  // grass underneath
+                    drawTree(renderer, atlas, *this, tx, ty, x, y);
                     break;
             }
         }
     }
-}
-
-void TileMap::drawSprite(SDL_Renderer* renderer, int column, int row, float x, float y) const {
-    constexpr float size = static_cast<float>(kTileSize);
-    const SDL_FRect source{static_cast<float>(column) * size, static_cast<float>(row) * size, size, size};
-    const SDL_FRect destination{x, y, size, size};
-    SDL_RenderTexture(renderer, atlas_.get(), &source, &destination);
 }
