@@ -27,6 +27,8 @@ public:
     static constexpr int kViewHeight = 135;
     static constexpr int kMapSize = 128;  // tiles
     static constexpr std::uint32_t kDefaultSeed = 1337;
+    // Holding Space keeps punching at this interval (10 ticks, ~6 punches/s) until energy runs out.
+    static constexpr float kPunchRepeatInterval = 10.0f / 60.0f;
 
     bool init() {
         if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -131,7 +133,10 @@ private:
             inventoryMenu_.handleKey(key, inventory_);
             return;
         }
-        if (key == SDLK_SPACE) punch();
+        if (key == SDLK_SPACE) {
+            punch();  // a fresh press always punches right away
+            punchRepeatTimer_ = kPunchRepeatInterval;
+        }
     }
 
     void update(float dt) {
@@ -140,6 +145,14 @@ private:
         const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || inventoryMenu_.isOpen();
         const bool* keys = blockKeys ? noKeys.data() : SDL_GetKeyboardState(nullptr);
         player_.update(dt, keys, map_);
+        // Held Space: repeat the punch every kPunchRepeatInterval (the first one came from the key press).
+        if (keys[SDL_SCANCODE_SPACE]) {
+            punchRepeatTimer_ -= dt;
+            if (punchRepeatTimer_ <= 0.0f) {
+                punch();
+                punchRepeatTimer_ += kPunchRepeatInterval;
+            }
+        }
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
 
@@ -231,6 +244,7 @@ private:
     Camera camera_;
     DebugOverlay debug_;
     float scale_ = 1.0f;
+    float punchRepeatTimer_ = 0.0f;
     float time_ = 0.0f;
     bool running_ = true;
 };

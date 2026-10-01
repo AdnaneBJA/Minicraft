@@ -9,6 +9,9 @@
 namespace {
 
 constexpr float kSpeed = 60.0f;              // pixels per second (1 px per tick at 60 Hz, like Minicraft)
+constexpr float kSwimSpeedFactor = 0.5f;     // Minicraft skips every other movement tick in water
+constexpr float kSwimOffsetY = 4.0f;         // the body sinks 4 px into the water
+constexpr float kRippleX = 40.0f;            // hud.png cells (5,0) / (5,1): the two water ripple frames
 constexpr float kPixelsPerWalkFrame = 8.0f;  // switch walk frame every 8 pixels walked
 constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
 constexpr float kAttackDuration = 5.0f / 60.0f;  // a bare-hand punch lasts 5 ticks in Minicraft
@@ -93,7 +96,13 @@ void Player::update(float dt, const bool* keys, const TileMap& map) {
     while (statTickAccumulator_ >= kStatTick) {
         statTickAccumulator_ -= kStatTick;
         tickEnergy();
+        ++ticks_;
     }
+
+    // Swimming when the tile under the player's centre is water (Mob.isSwimming: Minicraft's centre is (8, 11)).
+    const int centerTileX = tileIndex(x_ + 8.0f);
+    const int centerTileY = tileIndex(y_ + 11.0f);
+    swimming_ = map.inBounds(centerTileX, centerTileY) && map.tileAt(centerTileX, centerTileY) == Tile::Water;
 
     float dx = 0.0f;
     float dy = 0.0f;
@@ -114,7 +123,7 @@ void Player::update(float dt, const bool* keys, const TileMap& map) {
     else direction_ = Direction::Right;
 
     // Each axis moves at full speed, so diagonal movement is intentionally faster (sqrt(2)x), like Minicraft.
-    const float step = kSpeed * dt;
+    const float step = kSpeed * (swimming_ ? kSwimSpeedFactor : 1.0f) * dt;
     // Resolve each axis separately so pushing diagonally into a wall slides along it.
     const float startX = x_;
     const float startY = y_;
@@ -190,11 +199,27 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
     }
 
     const float x = camera.snap(x_) - camera.x();
-    const float y = camera.snap(y_) - camera.y();
-    const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
-    const SDL_FRect destination{x, y, kSize, kSize};
-    SDL_RenderTextureRotated(renderer, texture_.get(), &source, &destination, 0.0, nullptr,
-                             mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
+    float y = camera.snap(y_) - camera.y();
+    const SDL_FlipMode flip = mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE;
+    if (swimming_) {
+        // Like Minicraft's Player.render: sink 4 px, draw the water ripple (alternating every 8 ticks, right half
+        // mirrored) and then only the top half of the sprite, so just the head shows above the water.
+        y += kSwimOffsetY;
+        const float rippleY = (ticks_ / 8) % 2 == 0 ? 0.0f : 8.0f;
+        const SDL_FRect rippleSource{kRippleX, rippleY, 8.0f, 8.0f};
+        const SDL_FRect rippleLeft{x, y + 3.0f, 8.0f, 8.0f};
+        const SDL_FRect rippleRight{x + 8.0f, y + 3.0f, 8.0f, 8.0f};
+        SDL_RenderTexture(renderer, hudTexture_.get(), &rippleSource, &rippleLeft);
+        SDL_RenderTextureRotated(renderer, hudTexture_.get(), &rippleSource, &rippleRight, 0.0, nullptr,
+                                 SDL_FLIP_HORIZONTAL);
+        const SDL_FRect headSource{static_cast<float>(column) * kSize, 0.0f, kSize, kSize / 2.0f};
+        const SDL_FRect headDestination{x, y, kSize, kSize / 2.0f};
+        SDL_RenderTextureRotated(renderer, texture_.get(), &headSource, &headDestination, 0.0, nullptr, flip);
+    } else {
+        const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
+        const SDL_FRect destination{x, y, kSize, kSize};
+        SDL_RenderTextureRotated(renderer, texture_.get(), &source, &destination, 0.0, nullptr, flip);
+    }
 
     if (isAttacking()) {
         drawSlash(renderer, x, y);

@@ -31,6 +31,8 @@ public:
     // Shows the slash animation (a punch that didn't hit anything).
     void showSlash();
     bool isAttacking() const { return attackTimer_ > 0.0f; }
+    // In water (the tile under the player's centre): half speed, and only the head is drawn.
+    bool isSwimming() const { return swimming_; }
     // The tile a punch would hit: 12 px in front of the player's centre (Minicraft's INTERACT_DIST).
     SDL_Point interactionTile() const;
 
@@ -69,4 +71,6 @@ private:
     int energyRecharge_ = 0;       // ticks accumulated towards the next bolt
     int energyRechargeDelay_ = 0;  // exhaustion pause in ticks
     float statTickAccumulator_ = 0.0f;
+    bool swimming_ = false;
+    int ticks_ = 0;  // 60 Hz ticks since start; drives the swimming ripple animation
 };

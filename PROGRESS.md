@@ -12,6 +12,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Punch animation | 965 |
 | 2026-10-01 | Punching breaks trees | 1127 |
 | 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
+| 2026-10-01 | Swimming, hold-to-punch | 1936 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -88,6 +89,15 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - Debug panel: health, energy, inventory counts, items on the ground, damage/max for any punchable target, and a
     "Refill health/energy" button.
   - Not yet: nothing damages the player (health is display-only), tile damage doesn't regenerate, no sound.
+- **2026-10-01: Swimming and hold-to-punch.**
+  - Water is no longer solid. When the tile under the player's centre is water, the player swims at half speed
+    (30 px/s).
+  - While swimming, the sprite sinks 4 px and only its top half (the head) is drawn, over Minicraft's water ripple
+    (`hud.png` cells (5,0)/(5,1), alternating every 8 ticks, right half mirrored). The slash follows the head.
+  - Holding **Space** keeps punching every 10 ticks (~6/s) until energy runs out; a fresh press always punches
+    immediately.
+  - Debug panel shows whether the player is swimming.
+  - Not done (Minicraft has it): swimming draining energy / drowning, and no energy recharge while swimming.
 
 ## Next
 - Crafting (workbench, wooden tools) using the gathered wood/stone.

@@ -147,6 +147,7 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             ImGui::SeparatorText("Player");
             ImGui::Text("Health: %d/%d  Energy: %d/%d", player.health(), Player::kMaxHealth, player.energy(),
                         Player::kMaxEnergy);
+            ImGui::Text("Swimming: %s", player.isSwimming() ? "yes" : "no");
             if (player.energyRechargeDelay() > 0) {
                 ImGui::Text("Exhausted: %d ticks", player.energyRechargeDelay());
             }
