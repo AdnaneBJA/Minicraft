@@ -25,7 +25,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Tools: durability and uses | 4984 |
 | 2026-10-01 | Debug panel item giver | 5022 |
 | 2026-10-01 | Gameplay loop: caves, sky, boss, audio, stations, farming, saves v3 | 7880 |
-| 2026-10-01 | Hit and menu sounds | 7915 |
+| 2026-10-01 | Hit and menu sounds; no gem pickaxe hint while tired | 7917 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.

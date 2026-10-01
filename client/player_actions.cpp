@@ -79,7 +79,9 @@ void PlayerActions::attack(Inventory::Stack* tool) {
         const SDL_FPoint c = tileCenter(target);
         effects_.addDamageNumber(0, c.x, c.y);
         audio_.play(Sound::MonsterHurt);
-        if (tile == Tile::HardRock) messages_.push_back("Gem pickaxe required!");
+        // A gem pickaxe ends up here only when the player is too tired to dig (2 energy): no hint then.
+        const bool gemPickaxe = info.type == ToolType::Pickaxe && info.level >= 4;
+        if (tile == Tile::HardRock && !gemPickaxe) messages_.push_back("Gem pickaxe required!");
         return;
     }
     const int damage = static_cast<int>(SDL_rand(3)) + 1;  // bare-hand punch: 1-3, like Minicraft
