@@ -65,14 +65,16 @@ Minicraft/
 ├── CLAUDE.md
 ├── README.md
 ├── PROGRESS.md        # after each task, record progress here so multiple agents can sync
-├── CMakeLists.txt     # single top-level CMake file; fetches SDL3, copies assets/ next to the exe
+├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
-│   └── sprites/player.png
+│   └── sprites/       # player.png, tiles.png (atlas)
 └── client/
     ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
-    ├── player.h
-    └── player.cpp     # Player: sprite, movement, walk animation
+    ├── player.h/.cpp  # Player: sprite, movement, walk animation
+    ├── tile_map.h/.cpp  # TileMap: seeded island generation + tile rendering
+    ├── camera.h/.cpp  # Camera: follows the player, clamped to the map
+    └── debug_overlay.h/.cpp  # F3 debug mode: outlines + ImGui panel
 ```
 
 **Target layout** (eventual destination; create each folder only when its phase starts):
@@ -198,9 +200,12 @@ Rules:
 7. Prefer simple, readable solutions first. Note performance ideas as TODOs with measurements needed.
 8. After each milestone, report: what works, how to run it, what is next, and known gaps.
 9. After each task, commit and push the code (under my name only, do not put yourself as co-author)
+9. PR descriptions list only the changes made: no "Generated with Claude Code" footer and no mention of Claude/AI.
+9. After each task, update the LOC table in `PROGRESS.md` (`.cpp` + `.h` files).
 9. Flag anything that looks like a security issue (unvalidated packet fields, token handling, SQL, deserialization).
 10. Use header and cpp files (don't use hpp files I don't really like them)
-11. F
+11. When creating a PR don't put
+    🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 ## 10. Definition of done (recruiter-ready)
 
@@ -214,5 +219,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` opens an SDL3 window with a player you can walk around with WASD/arrows (no map yet). Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). No collision yet. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.
