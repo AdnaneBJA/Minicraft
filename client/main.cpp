@@ -1,6 +1,11 @@
 #include "camera.h"
 #include "debug_overlay.h"
+#include "dropped_items.h"
 #include "effects.h"
+#include "font.h"
+#include "hud.h"
+#include "inventory_menu.h"
+#include "items.h"
 #include "player.h"
 #include "tile_map.h"
 
@@ -42,8 +47,11 @@ public:
 
         const char* basePath = SDL_GetBasePath();
         const std::string assets = std::string(basePath ? basePath : "") + "assets/";
-        if (!player_.load(renderer, assets + "sprites/player.png", assets + "sprites/slash.png") ||
-            !map_.load(renderer, assets + "sprites/tiles.png") || !effects_.load(renderer, assets + "sprites/smash.png")) {
+        const std::string sprites = assets + "sprites/";
+        if (!player_.load(renderer, sprites + "player.png", sprites + "hud.png") ||
+            !map_.load(renderer, sprites + "tiles.png") || !effects_.load(renderer, sprites + "smash.png") ||
+            !hud_.load(renderer, sprites + "hud.png") || !font_.load(renderer, sprites + "font.png") ||
+            !itemIcons_.load(renderer, sprites + "items.png")) {
             return false;
         }
         newWorld(kDefaultSeed);
@@ -69,13 +77,28 @@ private:
     void newWorld(std::uint32_t seed) {
         map_.generate(seed, kMapSize, kMapSize);
         effects_.clear();
+        droppedItems_.clear();
         const SDL_FPoint spawn = map_.findSpawnPoint();
         player_.setPosition(spawn.x, spawn.y);
     }
 
     void punch() {
-        if (const auto hitTile = player_.attack(map_)) {
-            effects_.addSmash(hitTile->x, hitTile->y);
+        if (!player_.tryPunch()) return;  // out of energy
+        const SDL_Point target = player_.interactionTile();
+        const int damage = static_cast<int>(SDL_rand(3)) + 1;  // bare-hand punch: 1-3, like Minicraft
+        const auto hit = map_.hurtTile(target.x, target.y, damage);
+        if (!hit) {
+            player_.showSlash();  // nothing to hit: just the slash
+            return;
+        }
+        const float centerX = static_cast<float>(target.x * TileMap::kTileSize + TileMap::kTileSize / 2);
+        const float centerY = static_cast<float>(target.y * TileMap::kTileSize + TileMap::kTileSize / 2);
+        effects_.addSmash(target.x, target.y);
+        effects_.addDamageNumber(damage, centerX, centerY);
+        if (hit->broken) {
+            // Minicraft drops: a tree gives 1-3 wood, a rock punched by hand gives 1 stone.
+            if (hit->tile == Tile::Tree) droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
+            if (hit->tile == Tile::Rock) droppedItems_.spawn(ItemType::Stone, 1, centerX, centerY);
         }
     }
 
@@ -86,18 +109,37 @@ private:
             if (event.type == SDL_EVENT_QUIT) {
                 running_ = false;
             } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
-                if (event.key.key == SDLK_ESCAPE) running_ = false;
-                if (event.key.key == DebugOverlay::kToggleKey) debug_.toggle();
-                if (event.key.key == SDLK_SPACE && !ImGui::GetIO().WantCaptureKeyboard) punch();
+                handleKey(event.key.key);
             }
         }
     }
 
+    void handleKey(SDL_Keycode key) {
+        if (key == DebugOverlay::kToggleKey) debug_.toggle();
+        if (ImGui::GetIO().WantCaptureKeyboard) return;  // typing in the debug panel
+        if (key == SDLK_ESCAPE) {
+            if (inventoryMenu_.isOpen()) inventoryMenu_.close();
+            else running_ = false;
+            return;
+        }
+        if (key == InventoryMenu::kToggleKey) {
+            inventoryMenu_.toggle();
+            return;
+        }
+        if (inventoryMenu_.isOpen()) {
+            inventoryMenu_.handleKey(key, inventory_);
+            return;
+        }
+        if (key == SDLK_SPACE) punch();
+    }
+
     void update(float dt) {
-        // While typing in the debug panel, keys must not move the player.
+        // While a menu is open or typing in the debug panel, keys must not move the player.
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
-        const bool* keys = ImGui::GetIO().WantCaptureKeyboard ? noKeys.data() : SDL_GetKeyboardState(nullptr);
+        const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || inventoryMenu_.isOpen();
+        const bool* keys = blockKeys ? noKeys.data() : SDL_GetKeyboardState(nullptr);
         player_.update(dt, keys, map_);
+        droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
 
         int outputWidth = 0;
@@ -119,8 +161,13 @@ private:
         // World: drawn in world pixels, scaled up by a whole factor.
         SDL_SetRenderScale(renderer, scale_, scale_);
         map_.draw(renderer, camera_, time_);
+        droppedItems_.draw(renderer, camera_, itemIcons_);
         player_.draw(renderer, camera_);
-        effects_.draw(renderer, camera_);
+        effects_.draw(renderer, camera_, font_);
+
+        // UI in view pixels (same scale, not moved by the camera).
+        hud_.drawStatus(renderer, player_, std::floor(camera_.height()));
+        inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
 
         // Debug overlay and UI: drawn in screen pixels so lines stay thin.
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
@@ -129,9 +176,9 @@ private:
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        if (const auto seed = debug_.drawPanel(camera_, scale_, map_, player_)) {
-            newWorld(*seed);
-        }
+        const auto actions = debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size());
+        if (actions.regenerateSeed) newWorld(*actions.regenerateSeed);
+        if (actions.refillStats) player_.refillStats();
         ImGui::Render();
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
 
@@ -174,6 +221,12 @@ private:
     TileMap map_;
     Player player_;
     Effects effects_;
+    DroppedItems droppedItems_;
+    Inventory inventory_;
+    InventoryMenu inventoryMenu_;
+    Hud hud_;
+    Font font_;
+    ItemIcons itemIcons_;
     Camera camera_;
     DebugOverlay debug_;
     float scale_ = 1.0f;

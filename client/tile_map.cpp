@@ -1,6 +1,7 @@
 #include "tile_map.h"
 
 #include "camera.h"
+#include "texture.h"
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +39,7 @@ bool connects(Tile kind, Tile other) {
         case Tile::Sand: return other == Tile::Sand;
         case Tile::Water: return other == Tile::Water;
         case Tile::Rock: return other == Tile::Rock;
+        case Tile::Dirt: return other == Tile::Dirt;
     }
     return false;
 }
@@ -130,6 +132,7 @@ const char* tileName(Tile tile) {
         case Tile::Water: return "Water";
         case Tile::Rock: return "Rock";
         case Tile::Tree: return "Tree";
+        case Tile::Dirt: return "Dirt";
     }
     return "?";
 }
@@ -138,20 +141,17 @@ bool isSolid(Tile tile) {
     return tile == Tile::Water || tile == Tile::Rock || tile == Tile::Tree;
 }
 
+int maxHealth(Tile tile) {
+    switch (tile) {
+        case Tile::Tree: return 20;
+        case Tile::Rock: return 50;
+        default: return 0;
+    }
+}
+
 bool TileMap::load(SDL_Renderer* renderer, const std::string& atlasPath) {
-    SDL_Surface* surface = SDL_LoadPNG(atlasPath.c_str());
-    if (!surface) {
-        SDL_Log("Failed to load %s: %s", atlasPath.c_str(), SDL_GetError());
-        return false;
-    }
-    atlas_.reset(SDL_CreateTextureFromSurface(renderer, surface));
-    SDL_DestroySurface(surface);
-    if (!atlas_) {
-        SDL_Log("Failed to create tile texture: %s", SDL_GetError());
-        return false;
-    }
-    SDL_SetTextureScaleMode(atlas_.get(), SDL_SCALEMODE_NEAREST);
-    return true;
+    atlas_ = loadTexture(renderer, atlasPath);
+    return atlas_ != nullptr;
 }
 
 void TileMap::generate(std::uint32_t seed, int width, int height) {
@@ -185,18 +185,19 @@ void TileMap::generate(std::uint32_t seed, int width, int height) {
     }
 }
 
-bool TileMap::hurtTile(int tx, int ty, int damage) {
-    if (!inBounds(tx, ty) || tileAt(tx, ty) != Tile::Tree) {
-        return false;
-    }
+std::optional<TileMap::TileHit> TileMap::hurtTile(int tx, int ty, int damage) {
+    if (!inBounds(tx, ty)) return std::nullopt;
+    const Tile tile = tileAt(tx, ty);
+    const int health = maxHealth(tile);
+    if (health == 0) return std::nullopt;
     const int total = damageAt(tx, ty) + damage;
-    if (total >= kTreeHealth) {
-        tiles_[index(tx, ty)] = Tile::Grass;
+    if (total >= health) {
+        tiles_[index(tx, ty)] = tile == Tile::Rock ? Tile::Dirt : Tile::Grass;  // as in Minicraft
         damage_[index(tx, ty)] = 0;
-    } else {
-        damage_[index(tx, ty)] = static_cast<std::uint8_t>(total);
+        return TileHit{tile, true};
     }
-    return true;
+    damage_[index(tx, ty)] = static_cast<std::uint8_t>(total);
+    return TileHit{tile, false};
 }
 
 SDL_FPoint TileMap::findSpawnPoint() const {
@@ -247,6 +248,7 @@ void TileMap::draw(SDL_Renderer* renderer, const Camera& camera, float timeSecon
                     drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, grass);  // grass underneath
                     drawPiece(renderer, atlas, kOak.x, kOak.y, size, x, y);
                     break;
+                case Tile::Dirt: break;  // just the dirt base
             }
         }
     }

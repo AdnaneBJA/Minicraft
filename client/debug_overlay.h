@@ -6,6 +6,7 @@
 #include <optional>
 
 class Camera;
+class Inventory;
 class Player;
 class TileMap;
 
@@ -21,9 +22,14 @@ public:
     void drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera, float scale, const TileMap& map,
                           const Player& player) const;
 
-    // Draws the ImGui panel. Returns a seed when the user asks to regenerate the world.
-    std::optional<std::uint32_t> drawPanel(const Camera& camera, float scale, const TileMap& map,
-                                           const Player& player);
+    // What the panel asked the game to do this frame.
+    struct PanelActions {
+        std::optional<std::uint32_t> regenerateSeed;
+        bool refillStats = false;
+    };
+    // Draws the ImGui panel.
+    PanelActions drawPanel(const Camera& camera, float scale, const TileMap& map, const Player& player,
+                           const Inventory& inventory, std::size_t droppedItemCount);
 
 private:
     bool enabled_ = false;

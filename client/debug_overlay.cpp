@@ -1,6 +1,7 @@
 #include "debug_overlay.h"
 
 #include "camera.h"
+#include "items.h"
 #include "player.h"
 #include "tile_map.h"
 
@@ -93,15 +94,16 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
     }
 }
 
-std::optional<std::uint32_t> DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
-                                                     const Player& player) {
-    if (!enabled_) return std::nullopt;
+DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
+                                                   const Player& player, const Inventory& inventory,
+                                                   std::size_t droppedItemCount) {
+    if (!enabled_) return {};
     if (!seedInputInitialised_) {
         seedInput_ = map.seed();
         seedInputInitialised_ = true;
     }
 
-    std::optional<std::uint32_t> regenerateSeed;
+    PanelActions actions;
     ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.85f);
     if (ImGui::Begin("Debug (F3)", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -130,9 +132,9 @@ std::optional<std::uint32_t> DebugOverlay::drawPanel(const Camera& camera, float
             const SDL_Point target = player.interactionTile();
             if (map.inBounds(target.x, target.y)) {
                 const Tile targetTile = map.tileAt(target.x, target.y);
-                if (targetTile == Tile::Tree) {
-                    ImGui::Text("Punch target: %d, %d (Tree, %d/%d damage)", target.x, target.y,
-                                map.damageAt(target.x, target.y), TileMap::kTreeHealth);
+                if (maxHealth(targetTile) > 0) {
+                    ImGui::Text("Punch target: %d, %d (%s, %d/%d damage)", target.x, target.y, tileName(targetTile),
+                                map.damageAt(target.x, target.y), maxHealth(targetTile));
                 } else {
                     ImGui::Text("Punch target: %d, %d (%s)", target.x, target.y, tileName(targetTile));
                 }
@@ -141,19 +143,31 @@ std::optional<std::uint32_t> DebugOverlay::drawPanel(const Camera& camera, float
                         static_cast<double>(camera.y()), static_cast<double>(camera.width()),
                         static_cast<double>(camera.height()));
             ImGui::Text("Scale: %.0fx  Map: %dx%d tiles", static_cast<double>(scale), map.width(), map.height());
+
+            ImGui::SeparatorText("Player");
+            ImGui::Text("Health: %d/%d  Energy: %d/%d", player.health(), Player::kMaxHealth, player.energy(),
+                        Player::kMaxEnergy);
+            if (player.energyRechargeDelay() > 0) {
+                ImGui::Text("Exhausted: %d ticks", player.energyRechargeDelay());
+            }
+            ImGui::Text("Wood: %d  Stone: %d  (on ground: %zu)", inventory.count(ItemType::Wood),
+                        inventory.count(ItemType::Stone), droppedItemCount);
+            if (ImGui::Button("Refill health/energy")) {
+                actions.refillStats = true;
+            }
         }
 
         ImGui::SeparatorText("World");
         ImGui::InputScalar("Seed", ImGuiDataType_U32, &seedInput_);
         if (ImGui::Button("Regenerate")) {
-            regenerateSeed = seedInput_;
+            actions.regenerateSeed = seedInput_;
         }
         ImGui::SameLine();
         if (ImGui::Button("Random seed")) {
             seedInput_ = static_cast<std::uint32_t>(SDL_rand_bits());
-            regenerateSeed = seedInput_;
+            actions.regenerateSeed = seedInput_;
         }
     }
     ImGui::End();
-    return regenerateSeed;
+    return actions;
 }

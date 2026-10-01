@@ -11,6 +11,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Diagonal movement tweaks | 902 |
 | 2026-10-01 | Punch animation | 965 |
 | 2026-10-01 | Punching breaks trees | 1127 |
+| 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1794 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -67,5 +68,22 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - F3 debug: a "Punch target" outline, plus the target tile and tree damage in the Info section.
   - Not yet: wood drops, tree damage regenerating over time, damage numbers, sound.
 
+- **2026-10-01: Resource gathering, inventory, health/energy HUD.**
+  - Trees (20 health) and rocks (50 health) take 1-3 damage per punch. Each hit shows the smash X and a red damage
+    number that pops out and bounces (Minicraft's TextParticle).
+  - A broken tree drops 1-3 wood and becomes grass; a broken rock drops 1 stone and becomes the new **Dirt** tile.
+  - Dropped items (`DroppedItems`, Minicraft's ItemEntity): tossed with a bounce and drawn with a shadow, picked up
+    by touching the player's hitbox after 30 ticks, and they blink then despawn after ~10 s.
+  - **Inventory** (`Inventory`) and inventory screen (**E**, `InventoryMenu`): Minicraft's frame, font and
+    " count Name" entries; W/S or the arrows select; E or Esc closes. The player can't move or punch while it's open.
+  - **HUD** (`Hud`): 10 hearts and 10 energy bolts at the bottom left from Minicraft's `hud.png`.
+  - **Energy:** a punch needs and spends 1 bolt. It recharges like Minicraft: ~5.5 bolts/s, with a 40-tick blinking
+    pause after running out.
+  - Assets: `hud.png` (also the slash; `slash.png` removed), `font.png`, `items.png`. `texture.h/.cpp` is a shared
+    PNG-to-texture loader.
+  - Debug panel: health, energy, inventory counts, items on the ground, damage/max for any punchable target, and a
+    "Refill health/energy" button.
+  - Not yet: nothing damages the player (health is display-only), tile damage doesn't regenerate, no sound.
+
 ## Next
-- Item drops (wood) and an inventory.
+- Crafting (workbench, wooden tools) using the gathered wood/stone.

@@ -12,24 +12,12 @@ constexpr float kSpeed = 60.0f;              // pixels per second (1 px per tick
 constexpr float kPixelsPerWalkFrame = 8.0f;  // switch walk frame every 8 pixels walked
 constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
 constexpr float kAttackDuration = 5.0f / 60.0f;  // a bare-hand punch lasts 5 ticks in Minicraft
-constexpr float kSlashPiece = 8.0f;              // slash.png: [0] half of a horizontal arc, [1] half of a vertical arc
+constexpr float kSlashPiece = 8.0f;              // hud.png cells (3,0) / (4,0): halves of a horizontal / vertical arc
+constexpr float kSlashX = 24.0f;                 // x of cell (3,0) in hud.png
 constexpr float kInteractDistance = 12.0f;       // Minicraft's INTERACT_DIST
-
-SDL_Texture* loadTexture(SDL_Renderer* renderer, const std::string& path) {
-    SDL_Surface* surface = SDL_LoadPNG(path.c_str());
-    if (!surface) {
-        SDL_Log("Failed to load %s: %s", path.c_str(), SDL_GetError());
-        return nullptr;
-    }
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_DestroySurface(surface);
-    if (!texture) {
-        SDL_Log("Failed to create texture for %s: %s", path.c_str(), SDL_GetError());
-        return nullptr;
-    }
-    SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
-    return texture;
-}
+constexpr float kStatTick = 1.0f / 60.0f;
+constexpr int kTicksPerBolt = 10;          // Minicraft: a bolt recharges each time staminaRecharge passes 10
+constexpr int kExhaustedDelayTicks = 40;   // pause before recharging after running out
 
 // Index of the tile containing a world coordinate.
 int tileIndex(float worldValue) { return static_cast<int>(std::floor(worldValue / kTileSize)); }
@@ -42,22 +30,43 @@ int lastTileIndex(float start, float end) {
 
 }  // namespace
 
-bool Player::load(SDL_Renderer* renderer, const std::string& spritePath, const std::string& slashPath) {
-    texture_.reset(loadTexture(renderer, spritePath));
-    slashTexture_.reset(loadTexture(renderer, slashPath));
-    return texture_ && slashTexture_;
+bool Player::load(SDL_Renderer* renderer, const std::string& spritePath, const std::string& hudPath) {
+    texture_ = loadTexture(renderer, spritePath);
+    hudTexture_ = loadTexture(renderer, hudPath);
+    return texture_ && hudTexture_;
 }
 
-std::optional<SDL_Point> Player::attack(TileMap& map) {
+bool Player::tryPunch() {
+    if (energy_ <= 0) return false;  // Minicraft only allows attacking with stamina left
+    --energy_;
     attackDirection_ = direction_;
-    const SDL_Point target = interactionTile();
-    const int damage = static_cast<int>(SDL_rand(3)) + 1;  // bare-hand punch: 1-3, like Minicraft
-    if (map.hurtTile(target.x, target.y, damage)) {
-        attackTimer_ = 0.0f;  // a hit shows the smash effect instead of the slash
-        return target;
+    attackTimer_ = 0.0f;
+    return true;
+}
+
+void Player::showSlash() { attackTimer_ = kAttackDuration; }
+
+void Player::refillStats() {
+    health_ = kMaxHealth;
+    energy_ = kMaxEnergy;
+    energyRecharge_ = 0;
+    energyRechargeDelay_ = 0;
+}
+
+void Player::tickEnergy() {
+    // Port of Minicraft's stamina recharge: running out triggers a 40-tick pause, then one bolt comes back
+    // every ~11 ticks (about 5.5 per second).
+    if (energy_ <= 0 && energyRechargeDelay_ == 0 && energyRecharge_ == 0) {
+        energyRechargeDelay_ = kExhaustedDelayTicks;
     }
-    attackTimer_ = kAttackDuration;
-    return std::nullopt;
+    if (energyRechargeDelay_ > 0 && energy_ < kMaxEnergy) --energyRechargeDelay_;
+    if (energyRechargeDelay_ == 0) {
+        ++energyRecharge_;
+        while (energyRecharge_ > kTicksPerBolt) {
+            energyRecharge_ -= kTicksPerBolt;
+            if (energy_ < kMaxEnergy) ++energy_;
+        }
+    }
 }
 
 SDL_Point Player::interactionTile() const {
@@ -80,6 +89,11 @@ void Player::setPosition(float x, float y) {
 
 void Player::update(float dt, const bool* keys, const TileMap& map) {
     attackTimer_ = std::max(0.0f, attackTimer_ - dt);
+    statTickAccumulator_ += dt;
+    while (statTickAccumulator_ >= kStatTick) {
+        statTickAccumulator_ -= kStatTick;
+        tickEnergy();
+    }
 
     float dx = 0.0f;
     float dy = 0.0f;
@@ -191,9 +205,9 @@ void Player::drawSlash(SDL_Renderer* renderer, float x, float y) const {
     // Same placement and mirroring as Minicraft+ (Player.render): two 8x8 halves form an arc just outside the
     // sprite, on the side the player is facing.
     const auto piece = [&](int index, float px, float py, int flip) {
-        const SDL_FRect source{static_cast<float>(index) * kSlashPiece, 0.0f, kSlashPiece, kSlashPiece};
+        const SDL_FRect source{kSlashX + static_cast<float>(index) * kSlashPiece, 0.0f, kSlashPiece, kSlashPiece};
         const SDL_FRect destination{px, py, kSlashPiece, kSlashPiece};
-        SDL_RenderTextureRotated(renderer, slashTexture_.get(), &source, &destination, 0.0, nullptr,
+        SDL_RenderTextureRotated(renderer, hudTexture_.get(), &source, &destination, 0.0, nullptr,
                                  static_cast<SDL_FlipMode>(flip));
     };
     constexpr int none = SDL_FLIP_NONE;
