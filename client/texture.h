@@ -13,4 +13,5 @@ struct TextureDeleter {
 using TexturePtr = std::unique_ptr<SDL_Texture, TextureDeleter>;
 
 // Loads a PNG as a texture with nearest-neighbour scaling (pixel art). Logs and returns null on failure.
-TexturePtr loadTexture(SDL_Renderer* renderer, const std::string& path);
+// With `whiteSilhouette`, every non-transparent pixel becomes white (Minicraft's hurt flash).
+TexturePtr loadTexture(SDL_Renderer* renderer, const std::string& path, bool whiteSilhouette = false);
