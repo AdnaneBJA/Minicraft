@@ -16,7 +16,7 @@ constexpr float kSlashPiece = 8.0f;              // hud.png cells (3,0) / (4,0):
 constexpr float kSlashX = 24.0f;                 // x of cell (3,0) in hud.png
 constexpr float kInteractDistance = 12.0f;       // Minicraft's INTERACT_DIST
 constexpr float kStatTick = 1.0f / 60.0f;
-constexpr int kTicksPerBolt = 10;          // Minicraft: a bolt recharges each time staminaRecharge passes 10
+constexpr int kTicksPerBolt = 30;          // one bolt every ~0.5 s (Minicraft's 10 felt far too fast)
 constexpr int kExhaustedDelayTicks = 40;   // pause before recharging after running out
 
 // Index of the tile containing a world coordinate.
@@ -54,8 +54,8 @@ void Player::refillStats() {
 }
 
 void Player::tickEnergy() {
-    // Port of Minicraft's stamina recharge: running out triggers a 40-tick pause, then one bolt comes back
-    // every ~11 ticks (about 5.5 per second).
+    // Based on Minicraft's stamina recharge: running out triggers a 40-tick pause, then one bolt comes back every
+    // ~31 ticks (about 2 per second; a full refill takes ~5 s).
     if (energy_ <= 0 && energyRechargeDelay_ == 0 && energyRecharge_ == 0) {
         energyRechargeDelay_ = kExhaustedDelayTicks;
     }

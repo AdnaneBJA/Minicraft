@@ -56,7 +56,7 @@ void DroppedItems::tick(const TileMap& map, const SDL_FRect& pickupBox, Inventor
         if (item.age >= item.lifetime) return true;
         if (item.age <= kPickupDelay) return false;
         const SDL_FRect box{item.motion.x - kRadius, item.motion.y - kRadius, kRadius * 2.0f, kRadius * 2.0f};
-        if (SDL_HasRectIntersectionFloat(&box, &pickupBox)) {
+        if (SDL_HasRectIntersectionFloat(&box, &pickupBox) && inventory.canAdd(item.type)) {
             inventory.add(item.type);
             return true;
         }

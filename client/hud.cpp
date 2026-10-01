@@ -41,6 +41,8 @@ void Hud::drawStatus(SDL_Renderer* renderer, const Player& player, float viewHei
     }
 }
 
+void Hud::drawFillCell(SDL_Renderer* renderer, float x, float y) const { drawCell(renderer, 3, kFrameRow, x, y); }
+
 void Hud::drawFrame(SDL_Renderer* renderer, float x, float y, int columns, int rows) const {
     constexpr int flipX = SDL_FLIP_HORIZONTAL;
     constexpr int flipY = SDL_FLIP_VERTICAL;

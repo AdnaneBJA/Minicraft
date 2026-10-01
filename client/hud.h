@@ -19,6 +19,8 @@ public:
 
     // Minicraft's menu frame around an interior of `columns` x `rows` 8x8 cells whose top-left is (x, y).
     void drawFrame(SDL_Renderer* renderer, float x, float y, int columns, int rows) const;
+    // One 8x8 cell of the frame's fill colour (Minicraft puts one behind each title letter).
+    void drawFillCell(SDL_Renderer* renderer, float x, float y) const;
 
 private:
     // Draws the 8x8 cell (cx, cy) of hud.png at (x, y).

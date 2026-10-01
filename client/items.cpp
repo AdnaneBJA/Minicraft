@@ -10,6 +10,10 @@ const char* itemName(ItemType type) {
     return "?";
 }
 
+bool Inventory::canAdd(ItemType type) const {
+    return this->count(type) > 0 || static_cast<int>(stacks_.size()) < kMaxSlots;
+}
+
 void Inventory::add(ItemType type, int count) {
     const auto it = std::find_if(stacks_.begin(), stacks_.end(), [&](const Stack& s) { return s.type == type; });
     if (it != stacks_.end()) {

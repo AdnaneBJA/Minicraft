@@ -51,7 +51,8 @@ public:
         if (!player_.load(renderer, sprites + "player.png", sprites + "hud.png") ||
             !map_.load(renderer, sprites + "tiles.png") || !effects_.load(renderer, sprites + "smash.png") ||
             !hud_.load(renderer, sprites + "hud.png") || !font_.load(renderer, sprites + "font.png") ||
-            !itemIcons_.load(renderer, sprites + "items.png")) {
+            !itemIcons_.load(renderer, sprites + "items.png") ||
+            !inventoryMenu_.load(renderer, sprites + "inventory_counter.png")) {
             return false;
         }
         newWorld(kDefaultSeed);

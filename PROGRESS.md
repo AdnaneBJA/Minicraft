@@ -11,7 +11,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Diagonal movement tweaks | 902 |
 | 2026-10-01 | Punch animation | 965 |
 | 2026-10-01 | Punching breaks trees | 1127 |
-| 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1794 |
+| 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -74,12 +74,16 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - A broken tree drops 1-3 wood and becomes grass; a broken rock drops 1 stone and becomes the new **Dirt** tile.
   - Dropped items (`DroppedItems`, Minicraft's ItemEntity): tossed with a bounce and drawn with a shadow, picked up
     by touching the player's hitbox after 30 ticks, and they blink then despawn after ~10 s.
-  - **Inventory** (`Inventory`) and inventory screen (**E**, `InventoryMenu`): Minicraft's frame, font and
-    " count Name" entries; W/S or the arrows select; E or Esc closes. The player can't move or punch while it's open.
+  - **Inventory** (`Inventory`, 27 slots; a stack uses one slot, and when it's full new item types stay on the ground)
+    and inventory screen (**E**, `InventoryMenu`), drawn like Minicraft's:
+    - Frame, with the title set into the top edge.
+    - " count Name" entries with a `> <` cursor on the selected one.
+    - Slots-used counter (green -> yellow -> red as it fills) with the capacity in grey, at the top right.
+    - W/S or the arrows select; E or Esc closes. The player can't move or punch while it's open.
   - **HUD** (`Hud`): 10 hearts and 10 energy bolts at the bottom left from Minicraft's `hud.png`.
-  - **Energy:** a punch needs and spends 1 bolt. It recharges like Minicraft: ~5.5 bolts/s, with a 40-tick blinking
-    pause after running out.
-  - Assets: `hud.png` (also the slash; `slash.png` removed), `font.png`, `items.png`. `texture.h/.cpp` is a shared
+  - **Energy:** a punch needs and spends 1 bolt. It recharges at ~2 bolts/s (slower than Minicraft's ~5.5), with a
+    40-tick blinking pause after running out; a full refill from empty takes ~5.7 s.
+  - Assets: `hud.png` (also the slash; `slash.png` removed), `font.png`, `items.png`, `inventory_counter.png`. `texture.h/.cpp` is a shared
     PNG-to-texture loader.
   - Debug panel: health, energy, inventory counts, items on the ground, damage/max for any punchable target, and a
     "Refill health/energy" button.

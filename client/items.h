@@ -14,11 +14,15 @@ const char* itemName(ItemType type);
 // Stacks of items the player carries, in the order they were first picked up.
 class Inventory {
 public:
+    static constexpr int kMaxSlots = 27;  // Minicraft's inventory size; each stack takes one slot
+
     struct Stack {
         ItemType type;
         int count;
     };
 
+    // True if the item stacks onto an existing stack or a free slot is left.
+    bool canAdd(ItemType type) const;
     void add(ItemType type, int count = 1);
     int count(ItemType type) const;
     const std::vector<Stack>& stacks() const { return stacks_; }
