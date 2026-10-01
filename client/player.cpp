@@ -52,6 +52,12 @@ bool Player::tryPunch() {
     return true;
 }
 
+bool Player::payEnergy(int cost) {
+    if (energy_ <= 0) return false;
+    energy_ -= std::min(energy_, std::max(0, cost));
+    return true;
+}
+
 void Player::showSlash() { attackTimer_ = kAttackDuration; }
 
 void Player::refillStats() {

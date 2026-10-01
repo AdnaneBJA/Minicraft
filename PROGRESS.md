@@ -22,6 +22,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Held items, placeable workbench | 3450 |
 | 2026-10-01 | Merge: crafting (menu/saves/drops) + placeable workbench | 4349 |
 | 2026-10-01 | Workbench recipes, flowers, animals | 4708 |
+| 2026-10-01 | Tools: durability and uses | 4984 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -247,7 +248,25 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     - `Mobs` owns, spawns, despawns, punches and draws them all.
   - Debug panel: zombie and animal counts, separate spawn toggles, "Spawn zombie nearby" / "Spawn animal nearby"
     and "Remove all mobs".
+- **2026-10-01: Tools work like Minicraft's** (`player_actions.h/.cpp`, Minicraft's `Player.attack` + `Tile.interact`).
+  - **Durability:** tool type durability x (level + 1): shovel 34, hoe 30, sword 52, pickaxe 38, axe 34, bow 30 (rock
+    tools double). It's stored per tool (`Inventory::Stack::durability`), kept when dropped, stowed or saved (save
+    format v2; v1 saves still load with fresh tools). At 0 a tool breaks and leaves the hand. The HUD shows the held
+    tool's durability % (red to green) right of the hearts.
+  - **Swinging a tool** costs the usual 1 energy, then:
+    - **Axe on a tree / pickaxe on rock:** pays extra energy (axe 4 - level, pickaxe on rock 5 - level) and 1
+      durability, and deals level * 5 + 10 + 0-4 damage. A wood axe fells a tree in 2 swings (5 energy each) instead
+      of ~10 punches; a wood pickaxe breaks rock in ~5 swings (6 energy each) instead of 25. Rock mined with a
+      pickaxe drops 2-4 stone and 2 coal.
+    - **Shovel:** grass -> dirt; sand / dirt -> hole, dropping sand / dirt. **Hoe:** grass / dirt -> farmland.
+      **Pickaxe on grass:** path. Each costs 4 - level energy and 1 durability.
+    - **Otherwise it attacks:** mobs in reach take 1-2 plus the tool's bonus (sword wood 3-4 / rock 6-8, axe wood 2-5,
+      pickaxe 1-2, others 1; 1 durability), the tile takes a normal 1-3 hit, and 1 more durability if anything was
+      hit. With too little energy for a tool's use, the swing falls back to this.
+  - New tiles Farmland, Path and Hole (holes block mobs and furniture like water, the player can walk in them) and
+    items Sand, Dirt and Coal, with Minicraft+ sprites.
+  - Not yet: shooting bows (no string to craft them), seeds from shovel/hoe, farming, water filling holes.
 
 ## Next
-- Tool effects (axe/pickaxe/sword damage, hoe/shovel use), bows and arrows, a source of string.
+- Bows and arrows, a source of string; farming (seeds, wheat) on farmland.
 - Pick furniture back up (Minicraft's power glove).

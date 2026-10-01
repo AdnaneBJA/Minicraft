@@ -28,10 +28,8 @@ constexpr int kAnimalTicksPerStep = 2;
 
 int sign(int value) { return (value > 0) - (value < 0); }
 
-// No mob here can swim, so water blocks them as well as solid tiles.
-bool blocksMob(const TileMap& map, int tx, int ty) {
-    return map.isSolidAt(tx, ty) || map.tileAt(tx, ty) == Tile::Water;
-}
+// No mob here can swim, so water and holes block them as well as solid tiles.
+bool blocksMob(const TileMap& map, int tx, int ty) { return !map.inBounds(tx, ty) || blocksMobs(map.tileAt(tx, ty)); }
 
 // Mob.dropItem(min, max, items...): one random count, that many of each item.
 void dropEach(DroppedItems& drops, SDL_FPoint at, int min, int max, std::initializer_list<ItemType> items) {

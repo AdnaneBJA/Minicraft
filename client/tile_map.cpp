@@ -23,6 +23,8 @@ struct AtlasPos {
 constexpr AtlasPos kGrass{0, 0}, kSand{16, 0}, kRock{32, 0}, kDirt{48, 0};
 constexpr AtlasPos kOak{64, 0};         // tree (transparent background), exactly one per tree tile
 constexpr AtlasPos kFlower0{0, 56};     // the flower sprites, one per variant (transparent background)
+constexpr AtlasPos kFarmland{0, 72}, kPath{16, 72}, kHole{32, 72};
+constexpr AtlasPos kHoleBorder{0, 88};
 constexpr AtlasPos kRockCorner{80, 0};  // 2x2 quadrants for rock's inner corners
 constexpr AtlasPos kWaterFrame0{0, 16};
 // Border sheets: 3x3 grid of 8x8 pieces. Row/column 0 = top/left edge, 1 = no edge, 2 = bottom/right edge.
@@ -44,6 +46,9 @@ bool connects(Tile kind, Tile other) {
         case Tile::Sand: return other == Tile::Sand;
         case Tile::Water: return other == Tile::Water;
         case Tile::Rock: return other == Tile::Rock;
+        case Tile::Hole: return other == Tile::Hole;
+        case Tile::Farmland:
+        case Tile::Path: return other == kind;
         case Tile::Dirt: return other == Tile::Dirt;
     }
     return false;
@@ -101,9 +106,14 @@ const char* tileName(Tile tile) {
         case Tile::Tree: return "Tree";
         case Tile::Dirt: return "Dirt";
         case Tile::Flower: return "Flower";
+        case Tile::Farmland: return "Farmland";
+        case Tile::Path: return "Path";
+        case Tile::Hole: return "Hole";
     }
     return "?";
 }
+
+bool blocksMobs(Tile tile) { return isSolid(tile) || tile == Tile::Water || tile == Tile::Hole; }
 
 bool isSolid(Tile tile) {
     return tile == Tile::Rock || tile == Tile::Tree;  // water is swimmable
@@ -180,6 +190,7 @@ void TileMap::draw(SDL_Renderer* renderer, const Camera& camera, float timeSecon
     const ConnectedTexture grass{kGrass, kGrassBorder, nullptr};
     const ConnectedTexture sand{kSand, kSandBorder, nullptr};
     const ConnectedTexture rock{kRock, kRockBorder, &kRockCorner};
+    const ConnectedTexture hole{kHole, kHoleBorder, nullptr};
     const ConnectedTexture water{{kWaterFrame0.x + static_cast<float>(waterFrame) * size, kWaterFrame0.y},
                                  kWaterBorder, nullptr};
 
@@ -206,6 +217,9 @@ void TileMap::draw(SDL_Renderer* renderer, const Camera& camera, float timeSecon
                     drawPiece(renderer, atlas, kOak.x, kOak.y, size, x, y);
                     break;
                 case Tile::Dirt: break;  // just the dirt base
+                case Tile::Farmland: drawPiece(renderer, atlas, kFarmland.x, kFarmland.y, size, x, y); break;
+                case Tile::Path: drawPiece(renderer, atlas, kPath.x, kPath.y, size, x, y); break;
+                case Tile::Hole: drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, hole); break;
                 case Tile::Flower:
                     drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, grass);  // grass underneath
                     drawPiece(renderer, atlas, kFlower0.x + static_cast<float>(flowerVariant(tx, ty)) * size,
@@ -223,4 +237,10 @@ int TileMap::flowerVariant(int tx, int ty) const {
     h = (h ^ (h >> 13)) * 1274126177u;
     h ^= h >> 16;
     return static_cast<int>(h % static_cast<std::uint32_t>(kFlowerVariants));
+}
+
+void TileMap::setTile(int tx, int ty, Tile tile) {
+    if (!inBounds(tx, ty)) return;
+    tiles_[index(tx, ty)] = tile;
+    damage_[index(tx, ty)] = 0;
 }

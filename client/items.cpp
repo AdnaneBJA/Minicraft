@@ -40,6 +40,9 @@ const char* itemName(ItemType type) {
         case ItemType::BlueOrchid: return "Blue Orchid";
         case ItemType::Rose: return "Rose";
         case ItemType::Iris: return "Iris";
+        case ItemType::Sand: return "Sand";
+        case ItemType::Dirt: return "Dirt";
+        case ItemType::Coal: return "Coal";
     }
     return "?";
 }
@@ -54,6 +57,52 @@ bool isTool(ItemType type) {
 bool isStackable(ItemType type) { return !isFurniture(type) && !isTool(type); }
 
 ItemType flowerItem(int variant) { return static_cast<ItemType>(static_cast<int>(ItemType::Dandelion) + variant); }
+
+ToolInfo toolInfo(ItemType type) {
+    switch (type) {
+        case ItemType::WoodSword: return {ToolType::Sword, 0};
+        case ItemType::WoodAxe: return {ToolType::Axe, 0};
+        case ItemType::WoodHoe: return {ToolType::Hoe, 0};
+        case ItemType::WoodPickaxe: return {ToolType::Pickaxe, 0};
+        case ItemType::WoodShovel: return {ToolType::Shovel, 0};
+        case ItemType::WoodBow: return {ToolType::Bow, 0};
+        case ItemType::RockSword: return {ToolType::Sword, 1};
+        case ItemType::RockAxe: return {ToolType::Axe, 1};
+        case ItemType::RockHoe: return {ToolType::Hoe, 1};
+        case ItemType::RockPickaxe: return {ToolType::Pickaxe, 1};
+        case ItemType::RockShovel: return {ToolType::Shovel, 1};
+        case ItemType::RockBow: return {ToolType::Bow, 1};
+        default: return {};
+    }
+}
+
+int toolDamage(const ToolInfo& tool) { return static_cast<int>(SDL_rand(5)) + tool.level * 5 + 10; }
+
+int toolMobBonus(const ToolInfo& tool) {
+    const int level = tool.level;
+    switch (tool.type) {
+        case ToolType::Axe: return (level + 1) * 2 + static_cast<int>(SDL_rand(4));               // wood 2-5
+        case ToolType::Sword: return (level + 1) * 3 + static_cast<int>(SDL_rand(2 + level * level));  // wood 3-4
+        case ToolType::Pickaxe: return (level + 1) + static_cast<int>(SDL_rand(2));                // wood 1-2
+        case ToolType::None: return 0;
+        default: return 1;
+    }
+}
+
+int maxDurability(ItemType type) {
+    const ToolInfo tool = toolInfo(type);
+    int base = 0;  // ToolType durabilities
+    switch (tool.type) {
+        case ToolType::Shovel: base = 34; break;
+        case ToolType::Hoe: base = 30; break;
+        case ToolType::Sword: base = 52; break;
+        case ToolType::Pickaxe: base = 38; break;
+        case ToolType::Axe: base = 34; break;
+        case ToolType::Bow: base = 30; break;
+        case ToolType::None: return 0;
+    }
+    return base * (tool.level + 1);
+}
 
 std::string displayName(const Inventory::Stack& stack) {
     if (!isStackable(stack.type)) return std::string(" ") + itemName(stack.type);
@@ -75,8 +124,15 @@ int Inventory::add(ItemType type, int count) {
         stacks_.push_back({type, count});
         return 0;
     }
-    for (; count > 0 && canAdd(type); --count) stacks_.push_back({type, 1});
+    for (; count > 0 && canAdd(type); --count) stacks_.push_back({type, 1, maxDurability(type)});
     return count;
+}
+
+int Inventory::add(const Stack& stack) {
+    if (isStackable(stack.type)) return add(stack.type, stack.count);
+    if (!canAdd(stack.type)) return stack.count;
+    stacks_.push_back({stack.type, 1, stack.durability});
+    return stack.count - 1;
 }
 
 int Inventory::remove(ItemType type, int count) {
