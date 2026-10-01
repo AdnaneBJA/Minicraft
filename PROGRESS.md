@@ -20,7 +20,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Tree drops: acorns, apples | 3192 |
 | 2026-10-01 | Merge: game menu/saves + crafting/drops | 4078 |
 | 2026-10-01 | Held items, placeable workbench | 3450 |
-| 2026-10-01 | Merge: crafting (menu/saves/drops) + placeable workbench | 5513 |
+| 2026-10-01 | Merge: crafting (menu/saves/drops) + placeable workbench | 4349 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
