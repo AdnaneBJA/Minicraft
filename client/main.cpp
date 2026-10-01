@@ -27,8 +27,9 @@ public:
     static constexpr int kViewHeight = 135;
     static constexpr int kMapSize = 128;  // tiles
     static constexpr std::uint32_t kDefaultSeed = 1337;
-    // Holding Space keeps punching at this interval (10 ticks, ~6 punches/s) until energy runs out.
-    static constexpr float kPunchRepeatInterval = 10.0f / 60.0f;
+    // Holding Space keeps punching at this interval (5 ticks, 12 punches/s; the same length as a punch, so they
+    // chain back to back) until energy runs out.
+    static constexpr float kPunchRepeatInterval = 5.0f / 60.0f;
     static constexpr SDL_Color kPlayerDamageColor{255, 0, 204, 255};  // Minicraft: Color.get(-1, 504)
 
     bool init() {

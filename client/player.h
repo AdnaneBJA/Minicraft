@@ -70,7 +70,9 @@ private:
     float y_ = 0.0f;
     float walkDistance_ = 0.0f;  // pixels walked; drives the 2-frame walk animation
     Direction direction_ = Direction::Down;
-    float attackTimer_ = 0.0f;  // seconds left showing the slash
+    float attackTimer_ = 0.0f;     // seconds left showing the slash
+    float punchPoseTimer_ = 0.0f;  // seconds left showing the punching hand (hit or miss)
+    int punchHand_ = 0;            // 0/1: which hand the last punch used; alternates every punch
     Direction attackDirection_ = Direction::Down;
 
     int health_ = kMaxHealth;

@@ -12,7 +12,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Punch animation | 965 |
 | 2026-10-01 | Punching breaks trees | 1127 |
 | 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
-| 2026-10-01 | Swimming, drowning, hold-to-punch | 2000 |
+| 2026-10-01 | Swimming, drowning, hold-to-punch | 2009 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -94,8 +94,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     (30 px/s).
   - While swimming, the sprite sinks 4 px and only its top half (the head) is drawn, over Minicraft's water ripple
     (`hud.png` cells (5,0)/(5,1), alternating every 8 ticks, right half mirrored). The slash follows the head.
-  - Holding **Space** keeps punching every 10 ticks (~6/s) until energy runs out; a fresh press always punches
+  - Holding **Space** keeps punching every 5 ticks (12/s) until energy runs out; a fresh press always punches
     immediately.
+  - Punches alternate hands. Right after each punch the sprite shows the punching hand: the mirrored frame for
+    up/down, the other side frame for left/right. The full slash still shows.
   - Debug panel shows whether the player is swimming.
   - **Drowning** (Minicraft rules): energy doesn't recharge in water, and once a second the player loses a bolt, or a
     heart once energy is empty (10 s of energy + 10 s of health = drowned after 20 s).

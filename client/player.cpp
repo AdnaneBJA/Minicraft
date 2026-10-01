@@ -48,6 +48,8 @@ bool Player::tryPunch() {
     --energy_;
     attackDirection_ = direction_;
     attackTimer_ = 0.0f;
+    punchHand_ = 1 - punchHand_;  // alternate hands, so held punches go left, right, left...
+    punchPoseTimer_ = kAttackDuration;
     return true;
 }
 
@@ -106,6 +108,7 @@ void Player::setPosition(float x, float y) {
 int Player::update(float dt, const bool* keys, const TileMap& map) {
     damageTaken_ = 0;
     attackTimer_ = std::max(0.0f, attackTimer_ - dt);
+    punchPoseTimer_ = std::max(0.0f, punchPoseTimer_ - dt);
 
     // Swimming when the tile under the player's centre is water (Mob.isSwimming: Minicraft's centre is (8, 11)).
     const SDL_FPoint middle = center();
@@ -200,7 +203,10 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
     // The sheet only has down/up/right frames; the rest are horizontal mirrors (same trick as Minicraft):
     //   down: [down, down mirrored]   up: [up, up mirrored]
     //   right: [right1, right2]       left: [right1 mirrored, right2 mirrored]
-    const int walkFrame = static_cast<int>(walkDistance_ / kPixelsPerWalkFrame) % 2;
+    // Right after a punch, show the punching hand instead of the walk cycle: the alternate frame (the mirrored
+    // sprite for up/down, the second side frame for left/right) puts the other arm forward.
+    const int walkFrame = punchPoseTimer_ > 0.0f ? punchHand_
+                                                 : static_cast<int>(walkDistance_ / kPixelsPerWalkFrame) % 2;
     int column = 0;
     bool mirrored = false;
     switch (direction_) {
