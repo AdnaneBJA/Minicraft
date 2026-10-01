@@ -49,7 +49,8 @@ add_executable(Minicraft
     client/crafting_menu.cpp
     client/furniture.cpp
     client/world_gen.cpp
-    client/zombie.cpp
+    client/mob.cpp
+    client/mobs.cpp
     client/day_night.cpp
     client/world_save.cpp
     client/game_menu.cpp)

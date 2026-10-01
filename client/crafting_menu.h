@@ -4,6 +4,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <string>
 #include <vector>
 
 class Font;
@@ -18,7 +19,8 @@ class CraftingMenu {
 public:
     static constexpr SDL_Keycode kToggleKey = SDLK_Z;
 
-    explicit CraftingMenu(std::vector<Recipe> recipes);
+    // `title` is set into the top edge of the recipe frame ("Crafting" by hand, "Workbench" at a workbench).
+    CraftingMenu(std::vector<Recipe> recipes, std::string title);
 
     bool isOpen() const { return open_; }
     void toggle() { open_ = !open_; }
@@ -32,6 +34,7 @@ public:
 
 private:
     std::vector<Recipe> recipes_;
+    std::string title_;
     bool open_ = false;
     int selected_ = 0;
 };

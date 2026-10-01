@@ -14,13 +14,46 @@ const char* itemName(ItemType type) {
         case ItemType::Potato: return "Potato";
         case ItemType::Acorn: return "Acorn";
         case ItemType::Apple: return "Apple";
+        case ItemType::WoodSword: return "Wood Sword";
+        case ItemType::WoodAxe: return "Wood Axe";
+        case ItemType::WoodHoe: return "Wood Hoe";
+        case ItemType::WoodPickaxe: return "Wood Pickaxe";
+        case ItemType::WoodShovel: return "Wood Shovel";
+        case ItemType::WoodBow: return "Wood Bow";
+        case ItemType::RockSword: return "Rock Sword";
+        case ItemType::RockAxe: return "Rock Axe";
+        case ItemType::RockHoe: return "Rock Hoe";
+        case ItemType::RockPickaxe: return "Rock Pickaxe";
+        case ItemType::RockShovel: return "Rock Shovel";
+        case ItemType::RockBow: return "Rock Bow";
+        case ItemType::Arrow: return "Arrow";
+        case ItemType::String: return "String";
+        case ItemType::Leather: return "Leather";
+        case ItemType::RawBeef: return "Raw Beef";
+        case ItemType::RawPork: return "Raw Pork";
+        case ItemType::WhiteWool: return "White Wool";
+        case ItemType::Dandelion: return "Dandelion";
+        case ItemType::Poppy: return "Poppy";
+        case ItemType::OxeyeDaisy: return "Oxeye Daisy";
+        case ItemType::Cornflower: return "Cornflower";
+        case ItemType::Allium: return "Allium";
+        case ItemType::BlueOrchid: return "Blue Orchid";
+        case ItemType::Rose: return "Rose";
+        case ItemType::Iris: return "Iris";
     }
     return "?";
 }
 
 bool isFurniture(ItemType type) { return type == ItemType::Workbench; }
 
-bool isStackable(ItemType type) { return !isFurniture(type); }
+bool isTool(ItemType type) {
+    const int value = static_cast<int>(type);
+    return value >= static_cast<int>(ItemType::WoodSword) && value <= static_cast<int>(ItemType::RockBow);
+}
+
+bool isStackable(ItemType type) { return !isFurniture(type) && !isTool(type); }
+
+ItemType flowerItem(int variant) { return static_cast<ItemType>(static_cast<int>(ItemType::Dandelion) + variant); }
 
 std::string displayName(const Inventory::Stack& stack) {
     if (!isStackable(stack.type)) return std::string(" ") + itemName(stack.type);

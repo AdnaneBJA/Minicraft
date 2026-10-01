@@ -9,7 +9,7 @@
 
 class Camera;
 class Inventory;
-class Zombies;
+class Mobs;
 class Player;
 class TileMap;
 
@@ -23,19 +23,20 @@ public:
 
     // Draws outlines in screen pixels. `scale` is how many screen pixels one world pixel covers.
     void drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera, float scale, const TileMap& map,
-                          const Player& player, const Zombies& zombies) const;
+                          const Player& player, const Mobs& mobs) const;
 
     // What the panel asked the game to do this frame.
     struct PanelActions {
         std::optional<std::uint32_t> regenerateSeed;
         bool refillStats = false;
         bool spawnZombie = false;
-        bool clearZombies = false;
+        bool spawnAnimal = false;
+        bool clearMobs = false;
         std::optional<DayNight::Time> setTime;
     };
     // Draws the ImGui panel.
     PanelActions drawPanel(const Camera& camera, float scale, const TileMap& map, const Player& player,
-                           const Inventory& inventory, std::size_t droppedItemCount, Zombies& zombies,
+                           const Inventory& inventory, std::size_t droppedItemCount, Mobs& mobs,
                            const DayNight& dayNight);
 
 private:

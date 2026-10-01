@@ -13,7 +13,7 @@
 #include "player.h"
 #include "tile_map.h"
 #include "world_save.h"
-#include "zombie.h"
+#include "mobs.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -71,7 +71,7 @@ public:
             !itemIcons_.load(renderer, sprites + "items.png") ||
             !inventoryMenu_.load(renderer, sprites + "inventory_counter.png") ||
             !furniture_.load(renderer, sprites + "furniture.png") ||
-            !zombies_.load(renderer, sprites + "zombie.png") || !menu_.load(renderer, sprites + "title.png")) {
+            !mobs_.load(renderer, sprites) || !menu_.load(renderer, sprites + "title.png")) {
             return false;
         }
         menu_.openTitle(saves_.list());
@@ -108,11 +108,12 @@ private:
     void resetWorldState() {
         effects_.clear();
         droppedItems_.clear();
-        zombies_.clear();
+        mobs_.clear();
         furniture_.clear();
         inventory_.clear();
         inventoryMenu_.close();
         craftingMenu_.close();
+        workbenchMenu_.close();
         player_.setHeldItem(std::nullopt);
         player_.refillStats();
         dayNight_ = DayNight{};
@@ -197,7 +198,7 @@ private:
         map_.generate(seed, kMapSize, kMapSize);
         effects_.clear();
         droppedItems_.clear();
-        zombies_.clear();
+        mobs_.clear();
         furniture_.clear();
         const SDL_FPoint spawn = map_.findSpawnPoint();
         player_.setPosition(spawn.x, spawn.y);
@@ -214,7 +215,7 @@ private:
         if (!player_.tryPunch()) return;  // out of energy
         // Like Minicraft's attack, a punch hits mobs in the attack box (1-2 damage) and the tile in front (1-3).
         const int mobDamage = static_cast<int>(SDL_rand(2)) + 1;
-        zombies_.punch(player_.attackBox(), mobDamage, player_.facing(), effects_);
+        mobs_.punch(player_.attackBox(), mobDamage, player_.facing(), effects_);
         const SDL_Point target = player_.interactionTile();
         const int damage = static_cast<int>(SDL_rand(3)) + 1;  // bare-hand punch: 1-3, like Minicraft
         const auto hit = map_.hurtTile(target.x, target.y, damage);
@@ -224,6 +225,12 @@ private:
         }
         const float centerX = static_cast<float>(target.x * TileMap::kTileSize + TileMap::kTileSize / 2);
         const float centerY = static_cast<float>(target.y * TileMap::kTileSize + TileMap::kTileSize / 2);
+        if (hit->tile == Tile::Flower) {
+            // FlowerTile.hurt: the flower is picked (dropped as an item) and grass is left; no smash or number.
+            droppedItems_.spawn(flowerItem(map_.flowerVariant(target.x, target.y)), 1, centerX, centerY);
+            player_.showSlash();
+            return;
+        }
         effects_.addSmash(target.x, target.y);
         effects_.addDamageNumber(damage, centerX, centerY);
         // Minicraft's TreeTile.hurt: every hit on a tree has a 1 in 100 chance to shake an apple loose.
@@ -248,7 +255,7 @@ private:
         }
         if (!isFurniture(held->type)) return;
         const SDL_Point target = player_.interactionTile();
-        if (furniture_.place(held->type, target.x, target.y, map_, zombies_.hitboxes())) {
+        if (furniture_.place(held->type, target.x, target.y, map_, mobs_.hitboxes())) {
             player_.setHeldItem(std::nullopt);
         }
     }
@@ -273,7 +280,13 @@ private:
         droppedItems_.spawn(recipe.product(), leftover, middle.x, middle.y);
     }
 
-    bool menuOpen() const { return inventoryMenu_.isOpen() || craftingMenu_.isOpen(); }
+    bool menuOpen() const { return inventoryMenu_.isOpen() || craftingMenu_.isOpen() || workbenchMenu_.isOpen(); }
+
+    // E while facing a placed workbench opens its recipes (Minicraft: using a Crafter opens its CraftingDisplay).
+    bool facingWorkbench() const {
+        const SDL_Point target = player_.interactionTile();
+        return furniture_.at(target.x, target.y) == ItemType::Workbench;
+    }
 
     void handleEvents() {
         SDL_Event event;
@@ -301,9 +314,23 @@ private:
             if (menuOpen()) {
                 inventoryMenu_.close();
                 craftingMenu_.close();
+                workbenchMenu_.close();
             } else {
                 menu_.openPause();
             }
+            return;
+        }
+        if (workbenchMenu_.isOpen()) {
+            if (key == InventoryMenu::kToggleKey) {
+                workbenchMenu_.close();
+            } else if (const Recipe* recipe = workbenchMenu_.handleKey(key, inventory_)) {
+                craft(*recipe);
+            }
+            return;
+        }
+        if (key == InventoryMenu::kToggleKey && !menuOpen() && facingWorkbench()) {
+            stowHeldItem();
+            workbenchMenu_.toggle();
             return;
         }
         // Each menu's key opens it or closes it, but doesn't open one menu on top of the other.
@@ -366,7 +393,7 @@ private:
             }
         }
         dayNight_.update(dt);
-        zombies_.update(dt, map_, player_, effects_, droppedItems_, dayNight_.time() == DayNight::Time::Night,
+        mobs_.update(dt, map_, player_, effects_, droppedItems_, dayNight_.time() == DayNight::Time::Night,
                         obstacles);
         if (player_.isDead()) respawn();
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
@@ -399,7 +426,7 @@ private:
 
         // Debug overlay and UI: drawn in screen pixels so lines stay thin.
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-        if (inWorld_) debug_.drawWorldOverlay(renderer, camera_, scale_, map_, player_, zombies_);
+        if (inWorld_) debug_.drawWorldOverlay(renderer, camera_, scale_, map_, player_, mobs_);
 
         // ImGui runs every frame (even without the debug panel) so its keyboard capture state stays current.
         ImGui_ImplSDLRenderer3_NewFrame();
@@ -417,14 +444,14 @@ private:
         droppedItems_.draw(renderer, camera_, itemIcons_);
         const float playerY = player_.center().y;
         furniture_.draw(renderer, camera_, playerY, true);
-        zombies_.draw(renderer, camera_, playerY, true);
+        mobs_.draw(renderer, camera_, playerY, true);
         player_.draw(renderer, camera_);
         if (player_.isCarryingFurniture()) {
             const SDL_FPoint carried = player_.carriedFurniturePosition();
             furniture_.drawSprite(renderer, camera_, player_.heldItem()->type, carried.x, carried.y);
         }
         furniture_.draw(renderer, camera_, playerY, false);
-        zombies_.draw(renderer, camera_, playerY, false);
+        mobs_.draw(renderer, camera_, playerY, false);
         effects_.draw(renderer, camera_, font_);
 
         // Night: darken everything except a circle of light around the player (Minicraft: radius 5 * 8 px, centred
@@ -439,18 +466,24 @@ private:
         }
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
         craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
+        workbenchMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
     }
 
     void drawDebugPanel() {
         const auto actions =
-            debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size(), zombies_, dayNight_);
+            debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size(), mobs_, dayNight_);
         if (actions.regenerateSeed) newWorld(*actions.regenerateSeed);
         if (actions.refillStats) player_.refillStats();
         if (actions.spawnZombie) {
             const SDL_FPoint p = player_.center();
-            zombies_.spawnNear(map_, furniture_.hitboxes(), p.x, p.y, 3, 6);
+            mobs_.spawnNear(MobKind::Zombie, map_, furniture_.hitboxes(), p.x, p.y, 3, 6);
         }
-        if (actions.clearZombies) zombies_.clear();
+        if (actions.spawnAnimal) {
+            const SDL_FPoint p = player_.center();
+            const auto kind = static_cast<MobKind>(1 + static_cast<int>(SDL_rand(3)));  // cow, pig or sheep
+            mobs_.spawnNear(kind, map_, furniture_.hitboxes(), p.x, p.y, 3, 6);
+        }
+        if (actions.clearMobs) mobs_.clear();
         if (actions.setTime) dayNight_.setTime(*actions.setTime);
     }
 
@@ -490,14 +523,15 @@ private:
     TileMap map_;
     Player player_;
     Effects effects_;
-    Zombies zombies_;
+    Mobs mobs_;
     Furniture furniture_;
     DayNight dayNight_;
     Lighting lighting_;
     DroppedItems droppedItems_;
     Inventory inventory_;
     InventoryMenu inventoryMenu_;
-    CraftingMenu craftingMenu_{Recipe::personalRecipes()};
+    CraftingMenu craftingMenu_{Recipe::personalRecipes(), "Crafting"};
+    CraftingMenu workbenchMenu_{Recipe::workbenchRecipes(), "Workbench"};
     Hud hud_;
     Font font_;
     ItemIcons itemIcons_;
