@@ -68,7 +68,7 @@ Minicraft/
 ├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
-│   └── sprites/       # player.png, tiles.png (atlas), hud.png, font.png, items.png, smash.png
+│   └── sprites/       # player.png, zombie.png, tiles.png (atlas), hud.png, font.png, items.png, inventory_counter.png, smash.png
 └── client/
     ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
     ├── player.h/.cpp  # Player: sprite, movement, walk animation
@@ -82,7 +82,11 @@ Minicraft/
     ├── bounce.h        # Minicraft toss/bounce motion (dropped items, damage numbers)
     ├── dropped_items.h/.cpp  # items on the ground: physics, pickup, despawn
     ├── hud.h/.cpp      # hearts, energy bolts, menu frame
-    └── inventory_menu.h/.cpp  # inventory screen (E)
+    ├── inventory_menu.h/.cpp  # inventory screen (E)
+    ├── simplex.h/.cpp  # OpenSimplex2 noise (port of Minicraft+'s Simplex.java)
+    ├── world_gen.h/.cpp  # Minicraft+ biome-based surface generation
+    ├── collision.h     # tile collision shared by the player and mobs
+    └── zombie.h/.cpp   # Zombie AI (chase + contact punch) and the Zombies spawner
 ```
 
 **Target layout** (eventual destination; create each folder only when its phase starts):
@@ -227,5 +231,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory. 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a 256x256 world generated with Minicraft's biome system (zombies spawn and chase the player) with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory. 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

@@ -2,6 +2,7 @@
 
 #include "camera.h"
 #include "texture.h"
+#include "world_gen.h"
 
 #include <algorithm>
 #include <cmath>
@@ -85,44 +86,6 @@ void drawConnected(SDL_Renderer* renderer, SDL_Texture* atlas, const TileMap& ma
     }
 }
 
-// Deterministic hash of (seed, x, y) to [0, 1].
-float hash01(std::uint32_t seed, int x, int y) {
-    std::uint32_t h = seed * 374761393u + static_cast<std::uint32_t>(x) * 668265263u +
-                      static_cast<std::uint32_t>(y) * 2246822519u;
-    h = (h ^ (h >> 13)) * 1274126177u;
-    h ^= h >> 16;
-    return static_cast<float>(h & 0xFFFFFFu) / static_cast<float>(0xFFFFFFu);
-}
-
-// Smoothly interpolated value noise.
-float valueNoise(std::uint32_t seed, float x, float y) {
-    const int x0 = static_cast<int>(std::floor(x));
-    const int y0 = static_cast<int>(std::floor(y));
-    const float fx = x - static_cast<float>(x0);
-    const float fy = y - static_cast<float>(y0);
-    const float sx = fx * fx * (3.0f - 2.0f * fx);
-    const float sy = fy * fy * (3.0f - 2.0f * fy);
-    const float top = std::lerp(hash01(seed, x0, y0), hash01(seed, x0 + 1, y0), sx);
-    const float bottom = std::lerp(hash01(seed, x0, y0 + 1), hash01(seed, x0 + 1, y0 + 1), sx);
-    return std::lerp(top, bottom, sy);
-}
-
-// Three octaves of value noise, normalised to [0, 1]. `scale` is the size of the largest features in tiles.
-float fractalNoise(std::uint32_t seed, int x, int y, float scale) {
-    float sum = 0.0f;
-    float amplitude = 1.0f;
-    float frequency = 1.0f / scale;
-    float total = 0.0f;
-    for (int octave = 0; octave < 3; ++octave) {
-        sum += amplitude * valueNoise(seed + static_cast<std::uint32_t>(octave) * 1013u,
-                                      static_cast<float>(x) * frequency, static_cast<float>(y) * frequency);
-        total += amplitude;
-        amplitude *= 0.5f;
-        frequency *= 2.0f;
-    }
-    return sum / total;
-}
-
 }  // namespace
 
 const char* tileName(Tile tile) {
@@ -161,26 +124,10 @@ void TileMap::generate(std::uint32_t seed, int width, int height) {
     tiles_.assign(static_cast<std::size_t>(width * height), Tile::Grass);
     damage_.assign(static_cast<std::size_t>(width * height), 0);
 
+    const WorldGenerator generator(seed);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            // Distance from the centre in [0, ~1.4]; pushes elevation down towards the edges to make an island.
-            const float dx = (static_cast<float>(x) / static_cast<float>(width)) * 2.0f - 1.0f;
-            const float dy = (static_cast<float>(y) / static_cast<float>(height)) * 2.0f - 1.0f;
-            const float edge = dx * dx + dy * dy;
-            const float elevation = fractalNoise(seed, x, y, 24.0f) - 0.30f * edge;
-            const float forest = fractalNoise(seed + 7919u, x, y, 12.0f);
-
-            Tile tile = Tile::Grass;
-            if (elevation < 0.25f) {
-                tile = Tile::Water;
-            } else if (elevation < 0.30f) {
-                tile = Tile::Sand;
-            } else if (elevation > 0.60f) {
-                tile = Tile::Rock;
-            } else if ((forest > 0.6f && hash01(seed + 31u, x, y) > 0.35f) || hash01(seed + 57u, x, y) > 0.98f) {
-                tile = Tile::Tree;
-            }
-            tiles_[static_cast<std::size_t>(y * width + x)] = tile;
+            tiles_[index(x, y)] = generator.tileAt(x, y);
         }
     }
 }

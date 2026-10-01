@@ -13,6 +13,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Punching breaks trees | 1127 |
 | 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
 | 2026-10-01 | Swimming, drowning, hold-to-punch | 2014 |
+| 2026-10-01 | Minicraft world generation, zombies | 2762 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -107,6 +108,28 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     30-tick hurt cooldown.
   - At 0 health the player respawns at the spawn point with full health and energy and keeps the inventory (no death
     screen or death chest yet).
+- **2026-10-01: Minicraft world generation and zombies.**
+  - **World generation** (`simplex.h/.cpp`, `world_gen.h/.cpp`): a port of Minicraft+'s surface generator.
+    - OpenSimplex2 3D noise (bit-compatible port of its `Simplex.java`), 10 layers at scales 1-8192 (`LevelNoise`).
+    - Each tile gets a temperature, height and humidity; the biome with the highest generation weight wins
+      (Surface, Desert, Forest, Ocean, River, River bank, Rock), and the biome places tiles using the same noise
+      rules as Minicraft.
+    - Flowers/cactus/stairs (not in this game) become grass/sand/rock.
+    - The world is now 256x256 (Minicraft's 128 is mostly a single biome); it takes ~0.2 s to generate in Debug.
+  - **Zombies** (`zombie.h/.cpp`, port of Minicraft's Zombie/EnemyMob/MobAi, level 1 on normal difficulty):
+    - 10 health; walks at 30 px/s; chases the player within 100 px, otherwise random walks.
+    - Can't swim (water blocks it) and doesn't overlap other zombies.
+    - Bumping into the player is its punch: 1 damage plus knockback, magenta number, white flash, 0.5 s cooldown.
+    - Punches hit zombies in Minicraft's attack box (20 px reach) for 1-2 damage: red number, white flash,
+      knockback. A zombie dies at 0 health (no drops yet).
+    - `Zombies` keeps up to 8 alive: it spawns one every second on open ground 10-20 tiles from the player and
+      removes those more than 48 tiles away.
+    - Zombies are drawn behind or in front of the player depending on who is lower on screen.
+  - Player: knockback when hit; `collision.h` holds the tile collision shared by the player and zombies.
+  - Debug panel: biome under the player; zombie count, an "auto spawn" toggle, "Spawn one nearby" and "Remove all";
+    hitbox mode also outlines zombie hitboxes and the punch's attack box.
+  - Not yet: day/night (Minicraft only spawns zombies at night or in the dark), zombie drops, the player blocking
+    zombies from walking through them.
 
 ## Next
 - Crafting (workbench, wooden tools) using the gathered wood/stone.

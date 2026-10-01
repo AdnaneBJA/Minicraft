@@ -1,6 +1,7 @@
 #include "player.h"
 
 #include "camera.h"
+#include "collision.h"
 #include "tile_map.h"
 
 #include <algorithm>
@@ -13,7 +14,6 @@ constexpr float kSwimSpeedFactor = 0.5f;     // Minicraft skips every other move
 constexpr float kSwimOffsetY = 4.0f;         // the body sinks 4 px into the water
 constexpr float kRippleX = 40.0f;            // hud.png cells (5,0) / (5,1): the two water ripple frames
 constexpr float kPixelsPerWalkFrame = 8.0f;  // switch walk frame every 8 pixels walked
-constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
 constexpr float kAttackDuration = 5.0f / 60.0f;  // a bare-hand punch lasts 5 ticks in Minicraft
 constexpr float kSlashPiece = 8.0f;              // hud.png cells (3,0) / (4,0): halves of a horizontal / vertical arc
 constexpr float kSlashX = 24.0f;                 // x of cell (3,0) in hud.png
@@ -25,14 +25,10 @@ constexpr int kSwimDrainTicks = 60;        // in water, lose a bolt (or a heart 
 constexpr int kHurtTicks = 30;             // Minicraft's playerHurtTime: no further damage meanwhile
 constexpr int kHurtFlashTicks = 10;        // the sprite shows white for the first 10 ticks of that
 
-// Index of the tile containing a world coordinate.
-int tileIndex(float worldValue) { return static_cast<int>(std::floor(worldValue / kTileSize)); }
+constexpr int kKnockback = 6;              // Minicraft: a hit pushes 6 "steps" away from the attacker
+constexpr float kAttackRange = 20.0f;      // Minicraft's ATTACK_DIST: how far a punch reaches for mobs
 
-// Tile range covered by the half-open span [start, end): the end edge touching a tile doesn't count as overlap.
-int lastTileIndex(float start, float end) {
-    const bool endsOnEdge = std::fmod(end, kTileSize) == 0.0f;
-    return std::max(tileIndex(start), tileIndex(end) - (endsOnEdge ? 1 : 0));
-}
+using collision::tileIndex;
 
 }  // namespace
 
@@ -64,6 +60,8 @@ void Player::refillStats() {
     energyRecharge_ = 0;
     energyRechargeDelay_ = 0;
     hurtTime_ = 0;
+    knockbackX_ = 0;
+    knockbackY_ = 0;
 }
 
 void Player::hurt(int damage) {
@@ -71,6 +69,59 @@ void Player::hurt(int damage) {
     health_ = std::max(0, health_ - damage);
     damageTaken_ += damage;
     hurtTime_ = kHurtTicks;
+}
+
+bool Player::takeHit(int damage, int directionX, int directionY) {
+    if (hurtTime_ > 0) return false;
+    hurt(damage);
+    knockbackX_ = directionX * kKnockback;
+    knockbackY_ = directionY * kKnockback;
+    return true;
+}
+
+SDL_FRect Player::attackBox() const {
+    // Minicraft's Player.getInteractionBox(ATTACK_DIST): from 4 to 20 px ahead of the centre (raised by 2 px),
+    // and 8 px wide to one side.
+    const SDL_FPoint c = center();
+    const float x = c.x;
+    const float y = c.y - 2.0f;
+    int dirX = 0;
+    int dirY = 0;
+    switch (direction_) {
+        case Direction::Up: dirY = -1; break;
+        case Direction::Down: dirY = 1; break;
+        case Direction::Left: dirX = -1; break;
+        case Direction::Right: dirX = 1; break;
+    }
+    const float xClose = x + static_cast<float>(dirX) * 4.0f;
+    const float yClose = y + static_cast<float>(dirY) * 4.0f;
+    const float xFar = x + static_cast<float>(dirX) * kAttackRange + static_cast<float>(dirY) * 8.0f;
+    const float yFar = y + static_cast<float>(dirY) * kAttackRange + static_cast<float>(dirX) * 8.0f;
+    const float left = std::min(xClose, xFar);
+    const float top = std::min(yClose, yFar);
+    return {left, top, std::max(xClose, xFar) - left, std::max(yClose, yFar) - top};
+}
+
+SDL_Point Player::facing() const {
+    switch (direction_) {
+        case Direction::Up: return {0, -1};
+        case Direction::Down: return {0, 1};
+        case Direction::Left: return {-1, 0};
+        case Direction::Right: return {1, 0};
+    }
+    return {0, 1};
+}
+
+void Player::tickKnockback(const TileMap& map) {
+    // Mob.tick: move half the remaining knockback each tick, shrinking it by one step (6 -> 9 px over 6 ticks).
+    if (knockbackX_ != 0) {
+        moveX(static_cast<float>(knockbackX_ / 2), map);
+        knockbackX_ -= knockbackX_ > 0 ? 1 : -1;
+    }
+    if (knockbackY_ != 0) {
+        moveY(static_cast<float>(knockbackY_ / 2), map);
+        knockbackY_ -= knockbackY_ > 0 ? 1 : -1;
+    }
 }
 
 void Player::tickEnergy() {
@@ -124,6 +175,7 @@ int Player::update(float dt, const bool* keys, const TileMap& map) {
         statTickAccumulator_ -= kStatTick;
         ++ticks_;
         if (hurtTime_ > 0) --hurtTime_;
+        tickKnockback(map);
         tickEnergy();
         // Drowning, like Minicraft: once a second in water, pay a bolt, or a heart when out of energy.
         if (swimming_ && ticks_ % kSwimDrainTicks == 0) {
@@ -163,43 +215,11 @@ int Player::update(float dt, const bool* keys, const TileMap& map) {
 }
 
 void Player::moveX(float delta, const TileMap& map) {
-    if (delta == 0.0f) return;
-    const SDL_FRect box = hitbox();
-    const float left = box.x + delta;
-    const float right = left + box.w;
-    const int firstRow = tileIndex(box.y);
-    const int lastRow = lastTileIndex(box.y, box.y + box.h);
-    // Only the column the leading edge moves into can newly block us.
-    const int column = delta > 0.0f ? lastTileIndex(left, right) : tileIndex(left);
-    for (int row = firstRow; row <= lastRow; ++row) {
-        if (map.isSolidAt(column, row)) {
-            // Stop flush against the tile edge.
-            const float edge = delta > 0.0f ? static_cast<float>(column) * kTileSize - box.w
-                                            : static_cast<float>(column + 1) * kTileSize;
-            x_ = edge - kHitboxX;
-            return;
-        }
-    }
-    x_ += delta;
+    x_ += collision::allowedMoveX(hitbox(), delta, [&](int tx, int ty) { return map.isSolidAt(tx, ty); });
 }
 
 void Player::moveY(float delta, const TileMap& map) {
-    if (delta == 0.0f) return;
-    const SDL_FRect box = hitbox();
-    const float top = box.y + delta;
-    const float bottom = top + box.h;
-    const int firstColumn = tileIndex(box.x);
-    const int lastColumn = lastTileIndex(box.x, box.x + box.w);
-    const int row = delta > 0.0f ? lastTileIndex(top, bottom) : tileIndex(top);
-    for (int column = firstColumn; column <= lastColumn; ++column) {
-        if (map.isSolidAt(column, row)) {
-            const float edge = delta > 0.0f ? static_cast<float>(row) * kTileSize - box.h
-                                            : static_cast<float>(row + 1) * kTileSize;
-            y_ = edge - kHitboxY;
-            return;
-        }
-    }
-    y_ += delta;
+    y_ += collision::allowedMoveY(hitbox(), delta, [&](int tx, int ty) { return map.isSolidAt(tx, ty); });
 }
 
 void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {

@@ -8,6 +8,7 @@
 #include "items.h"
 #include "player.h"
 #include "tile_map.h"
+#include "zombie.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -25,7 +26,7 @@ public:
     // Minimum view in world pixels; the window is scaled up by the largest whole factor that still fits it.
     static constexpr int kViewWidth = 240;
     static constexpr int kViewHeight = 135;
-    static constexpr int kMapSize = 128;  // tiles
+    static constexpr int kMapSize = 256;  // tiles; big enough for Minicraft's biomes to vary within a world
     static constexpr std::uint32_t kDefaultSeed = 1337;
     // Holding Space works like Minicraft: the press punches once, and only once the key has been held for a moment
     // (Minicraft waits for the OS key repeat to make the key "sticky") does it unload rapid punches until energy
@@ -58,7 +59,8 @@ public:
             !map_.load(renderer, sprites + "tiles.png") || !effects_.load(renderer, sprites + "smash.png") ||
             !hud_.load(renderer, sprites + "hud.png") || !font_.load(renderer, sprites + "font.png") ||
             !itemIcons_.load(renderer, sprites + "items.png") ||
-            !inventoryMenu_.load(renderer, sprites + "inventory_counter.png")) {
+            !inventoryMenu_.load(renderer, sprites + "inventory_counter.png") ||
+            !zombies_.load(renderer, sprites + "zombie.png")) {
             return false;
         }
         newWorld(kDefaultSeed);
@@ -85,6 +87,7 @@ private:
         map_.generate(seed, kMapSize, kMapSize);
         effects_.clear();
         droppedItems_.clear();
+        zombies_.clear();
         const SDL_FPoint spawn = map_.findSpawnPoint();
         player_.setPosition(spawn.x, spawn.y);
     }
@@ -98,6 +101,9 @@ private:
 
     void punch() {
         if (!player_.tryPunch()) return;  // out of energy
+        // Like Minicraft's attack, a punch hits mobs in the attack box (1-2 damage) and the tile in front (1-3).
+        const int mobDamage = static_cast<int>(SDL_rand(2)) + 1;
+        zombies_.punch(player_.attackBox(), mobDamage, player_.facing(), effects_);
         const SDL_Point target = player_.interactionTile();
         const int damage = static_cast<int>(SDL_rand(3)) + 1;  // bare-hand punch: 1-3, like Minicraft
         const auto hit = map_.hurtTile(target.x, target.y, damage);
@@ -159,7 +165,6 @@ private:
             const SDL_FPoint middle = player_.center();
             effects_.addDamageNumber(damageTaken, middle.x, middle.y, kPlayerDamageColor);
         }
-        if (player_.isDead()) respawn();
         // Held Space: after kPunchHoldDelay, punch every kRapidPunchInterval (the first came from the key press).
         if (keys[SDL_SCANCODE_SPACE]) {
             punchRepeatTimer_ -= dt;
@@ -168,6 +173,8 @@ private:
                 punchRepeatTimer_ += kRapidPunchInterval;
             }
         }
+        zombies_.update(dt, map_, player_, effects_);
+        if (player_.isDead()) respawn();
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
 
@@ -191,7 +198,10 @@ private:
         SDL_SetRenderScale(renderer, scale_, scale_);
         map_.draw(renderer, camera_, time_);
         droppedItems_.draw(renderer, camera_, itemIcons_);
+        const float playerY = player_.center().y;
+        zombies_.draw(renderer, camera_, playerY, true);
         player_.draw(renderer, camera_);
+        zombies_.draw(renderer, camera_, playerY, false);
         effects_.draw(renderer, camera_, font_);
 
         // UI in view pixels (same scale, not moved by the camera).
@@ -200,14 +210,20 @@ private:
 
         // Debug overlay and UI: drawn in screen pixels so lines stay thin.
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-        debug_.drawWorldOverlay(renderer, camera_, scale_, map_, player_);
+        debug_.drawWorldOverlay(renderer, camera_, scale_, map_, player_, zombies_);
 
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        const auto actions = debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size());
+        const auto actions =
+            debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size(), zombies_);
         if (actions.regenerateSeed) newWorld(*actions.regenerateSeed);
         if (actions.refillStats) player_.refillStats();
+        if (actions.spawnZombie) {
+            const SDL_FPoint p = player_.center();
+            zombies_.spawnNear(map_, p.x, p.y, 3, 6);
+        }
+        if (actions.clearZombies) zombies_.clear();
         ImGui::Render();
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
 
@@ -250,6 +266,7 @@ private:
     TileMap map_;
     Player player_;
     Effects effects_;
+    Zombies zombies_;
     DroppedItems droppedItems_;
     Inventory inventory_;
     InventoryMenu inventoryMenu_;
