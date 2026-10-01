@@ -16,6 +16,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Classic world generation, zombies, day/night | 2886 |
 | 2026-10-01 | Crafting menu, workbench recipe | 3165 |
 | 2026-10-01 | Zombie drops | 3185 |
+| 2026-10-01 | Tree drops: acorns, apples | 3192 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -165,6 +166,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - New stackable items Cloth, Iron and Potato (`items.png` gains Minicraft+'s `cloth`, `iron_ingot` and `potato`
     icons).
   - Not yet: Minicraft's 1 in 40 coloured clothes (armour isn't in the game yet).
+- **2026-10-01: Tree drops: acorns and apples** (Minicraft's `TreeTile.hurt`).
+  - Every punch on a tree has a 1 in 100 chance to drop an **apple**.
+  - A broken tree drops 0-2 **acorns** along with its 1-3 wood.
+  - New stackable items Acorn and Apple with Minicraft+'s icons. They can't be eaten or planted yet.
 
 ## Next
 - Place the workbench in the world and open its recipe list (wooden tools) by using it.

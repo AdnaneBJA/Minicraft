@@ -11,6 +11,8 @@ const char* itemName(ItemType type) {
         case ItemType::Cloth: return "Cloth";
         case ItemType::Iron: return "Iron";
         case ItemType::Potato: return "Potato";
+        case ItemType::Acorn: return "Acorn";
+        case ItemType::Apple: return "Apple";
     }
     return "?";
 }

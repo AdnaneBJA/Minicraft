@@ -118,9 +118,14 @@ private:
         const float centerY = static_cast<float>(target.y * TileMap::kTileSize + TileMap::kTileSize / 2);
         effects_.addSmash(target.x, target.y);
         effects_.addDamageNumber(damage, centerX, centerY);
+        // Minicraft's TreeTile.hurt: every hit on a tree has a 1 in 100 chance to shake an apple loose.
+        if (hit->tile == Tile::Tree && SDL_rand(100) == 0) droppedItems_.spawn(ItemType::Apple, 1, centerX, centerY);
         if (hit->broken) {
-            // Minicraft drops: a tree gives 1-3 wood, a rock punched by hand gives 1 stone.
-            if (hit->tile == Tile::Tree) droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
+            // Minicraft drops: a tree gives 1-3 wood and 0-2 acorns, a rock punched by hand gives 1 stone.
+            if (hit->tile == Tile::Tree) {
+                droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
+                droppedItems_.spawn(ItemType::Acorn, static_cast<int>(SDL_rand(3)), centerX, centerY);
+            }
             if (hit->tile == Tile::Rock) droppedItems_.spawn(ItemType::Stone, 1, centerX, centerY);
         }
     }

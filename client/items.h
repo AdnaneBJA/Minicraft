@@ -8,7 +8,7 @@
 #include <vector>
 
 // The order matches the columns of items.png.
-enum class ItemType { Wood, Stone, Workbench, Cloth, Iron, Potato };
+enum class ItemType { Wood, Stone, Workbench, Cloth, Iron, Potato, Acorn, Apple };
 
 const char* itemName(ItemType type);
 // Resources stack; furniture (like Minicraft's FurnitureItem) takes one slot per item.
@@ -38,7 +38,7 @@ private:
     std::vector<Stack> stacks_;
 };
 
-// The 8x8 item icons (items.png: wood, stone, workbench, cloth, iron, potato).
+// The 8x8 item icons (items.png: wood, stone, workbench, cloth, iron, potato, acorn, apple).
 class ItemIcons {
 public:
     static constexpr float kSize = 8.0f;
