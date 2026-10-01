@@ -18,6 +18,23 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
     const auto toScreenY = [&](float worldY) { return std::round((worldY - camera.y()) * scale); };
     constexpr float tileSize = static_cast<float>(TileMap::kTileSize);
 
+    if (showSolidTiles_) {
+        SDL_SetRenderDrawColor(renderer, 255, 60, 60, 45);
+        const int firstX = std::max(0, static_cast<int>(camera.x() / tileSize));
+        const int lastX = std::min(map.width() - 1, static_cast<int>((camera.x() + camera.width()) / tileSize));
+        const int firstY = std::max(0, static_cast<int>(camera.y() / tileSize));
+        const int lastY = std::min(map.height() - 1, static_cast<int>((camera.y() + camera.height()) / tileSize));
+        for (int ty = firstY; ty <= lastY; ++ty) {
+            for (int tx = firstX; tx <= lastX; ++tx) {
+                if (!map.isSolidAt(tx, ty)) continue;
+                const SDL_FRect rect{toScreenX(static_cast<float>(tx) * tileSize),
+                                     toScreenY(static_cast<float>(ty) * tileSize), tileSize * scale,
+                                     tileSize * scale};
+                SDL_RenderFillRect(renderer, &rect);
+            }
+        }
+    }
+
     if (showTileGrid_) {
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, static_cast<Uint8>(gridOpacity_));
         const int firstX = std::max(0, static_cast<int>(camera.x() / tileSize));
@@ -54,6 +71,17 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
         SDL_SetRenderDrawColor(renderer, 255, 220, 40, 230);
         SDL_RenderRect(renderer, &playerRect);
     }
+
+    if (showHitbox_) {
+        // Same offset as the sprite so the box lines up with what is drawn.
+        const SDL_FRect hitbox = player.hitbox();
+        const float offsetX = camera.snap(bounds.x) - bounds.x;
+        const float offsetY = camera.snap(bounds.y) - bounds.y;
+        const SDL_FRect hitboxRect{toScreenX(hitbox.x + offsetX), toScreenY(hitbox.y + offsetY), hitbox.w * scale,
+                                   hitbox.h * scale};
+        SDL_SetRenderDrawColor(renderer, 255, 70, 200, 255);
+        SDL_RenderRect(renderer, &hitboxRect);
+    }
 }
 
 std::optional<std::uint32_t> DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
@@ -70,6 +98,8 @@ std::optional<std::uint32_t> DebugOverlay::drawPanel(const Camera& camera, float
     if (ImGui::Begin("Debug (F3)", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::SeparatorText("Show");
         ImGui::Checkbox("Player outline", &showPlayerOutline_);
+        ImGui::Checkbox("Player hitbox", &showHitbox_);
+        ImGui::Checkbox("Solid tiles", &showSolidTiles_);
         ImGui::Checkbox("Tile grid", &showTileGrid_);
         if (showTileGrid_) {
             ImGui::SliderInt("Grid opacity", &gridOpacity_, 5, 255);

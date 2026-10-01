@@ -28,6 +28,8 @@ public:
 private:
     bool enabled_ = false;
     bool showPlayerOutline_ = true;
+    bool showHitbox_ = true;
+    bool showSolidTiles_ = false;
     bool showTileGrid_ = true;
     bool showTileUnderPlayer_ = true;
     bool showInfo_ = true;

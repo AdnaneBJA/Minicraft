@@ -1,6 +1,7 @@
 #include "player.h"
 
 #include "camera.h"
+#include "tile_map.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +10,16 @@ namespace {
 
 constexpr float kSpeed = 60.0f;              // pixels per second (1 px per tick at 60 Hz, like Minicraft)
 constexpr float kPixelsPerWalkFrame = 8.0f;  // switch walk frame every 8 pixels walked
+constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
+
+// Index of the tile containing a world coordinate.
+int tileIndex(float worldValue) { return static_cast<int>(std::floor(worldValue / kTileSize)); }
+
+// Tile range covered by the half-open span [start, end): the end edge touching a tile doesn't count as overlap.
+int lastTileIndex(float start, float end) {
+    const bool endsOnEdge = std::fmod(end, kTileSize) == 0.0f;
+    return std::max(tileIndex(start), tileIndex(end) - (endsOnEdge ? 1 : 0));
+}
 
 }  // namespace
 
@@ -33,7 +44,7 @@ void Player::setPosition(float x, float y) {
     y_ = y;
 }
 
-void Player::update(float dt, const bool* keys, float worldWidth, float worldHeight) {
+void Player::update(float dt, const bool* keys, const TileMap& map) {
     float dx = 0.0f;
     float dy = 0.0f;
     if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) dy -= 1.0f;
@@ -55,9 +66,52 @@ void Player::update(float dt, const bool* keys, float worldWidth, float worldHei
     // Normalise so diagonal movement isn't faster.
     const float length = std::sqrt(dx * dx + dy * dy);
     const float step = kSpeed * dt;
-    x_ = std::clamp(x_ + dx / length * step, 0.0f, worldWidth - kSize);
-    y_ = std::clamp(y_ + dy / length * step, 0.0f, worldHeight - kSize);
-    walkDistance_ += step;
+    // Resolve each axis separately so pushing diagonally into a wall slides along it.
+    const float startX = x_;
+    const float startY = y_;
+    moveX(dx / length * step, map);
+    moveY(dy / length * step, map);
+    walkDistance_ += std::abs(x_ - startX) + std::abs(y_ - startY);
+}
+
+void Player::moveX(float delta, const TileMap& map) {
+    if (delta == 0.0f) return;
+    const SDL_FRect box = hitbox();
+    const float left = box.x + delta;
+    const float right = left + box.w;
+    const int firstRow = tileIndex(box.y);
+    const int lastRow = lastTileIndex(box.y, box.y + box.h);
+    // Only the column the leading edge moves into can newly block us.
+    const int column = delta > 0.0f ? lastTileIndex(left, right) : tileIndex(left);
+    for (int row = firstRow; row <= lastRow; ++row) {
+        if (map.isSolidAt(column, row)) {
+            // Stop flush against the tile edge.
+            const float edge = delta > 0.0f ? static_cast<float>(column) * kTileSize - box.w
+                                            : static_cast<float>(column + 1) * kTileSize;
+            x_ = edge - kHitboxX;
+            return;
+        }
+    }
+    x_ += delta;
+}
+
+void Player::moveY(float delta, const TileMap& map) {
+    if (delta == 0.0f) return;
+    const SDL_FRect box = hitbox();
+    const float top = box.y + delta;
+    const float bottom = top + box.h;
+    const int firstColumn = tileIndex(box.x);
+    const int lastColumn = lastTileIndex(box.x, box.x + box.w);
+    const int row = delta > 0.0f ? lastTileIndex(top, bottom) : tileIndex(top);
+    for (int column = firstColumn; column <= lastColumn; ++column) {
+        if (map.isSolidAt(column, row)) {
+            const float edge = delta > 0.0f ? static_cast<float>(row) * kTileSize - box.h
+                                            : static_cast<float>(row + 1) * kTileSize;
+            y_ = edge - kHitboxY;
+            return;
+        }
+    }
+    y_ += delta;
 }
 
 void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {

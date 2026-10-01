@@ -88,7 +88,7 @@ private:
         // While typing in the debug panel, keys must not move the player.
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
         const bool* keys = ImGui::GetIO().WantCaptureKeyboard ? noKeys.data() : SDL_GetKeyboardState(nullptr);
-        player_.update(dt, keys, map_.pixelWidth(), map_.pixelHeight());
+        player_.update(dt, keys, map_);
 
         int outputWidth = 0;
         int outputHeight = 0;

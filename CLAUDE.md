@@ -200,7 +200,7 @@ Rules:
 7. Prefer simple, readable solutions first. Note performance ideas as TODOs with measurements needed.
 8. After each milestone, report: what works, how to run it, what is next, and known gaps.
 9. After each task, commit and push the code (under my name only, do not put yourself as co-author)
-9. PR descriptions list only the changes made: no "Generated with Claude Code" footer and no mention of Claude/AI.
+9. PR descriptions list only the changes made: no "Test plan" section, no "Generated with Claude Code" footer, and no mention of Claude/AI.
 9. After each task, update the LOC table in `PROGRESS.md` (`.cpp` + `.h` files).
 9. Flag anything that looks like a security issue (unvalidated packet fields, token handling, SQL, deserialization).
 10. Use header and cpp files (don't use hpp files I don't really like them)
@@ -219,5 +219,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). No collision yet. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Water, rock and trees are solid. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.
