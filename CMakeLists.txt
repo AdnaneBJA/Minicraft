@@ -15,5 +15,9 @@ FetchContent_Declare(SDL3
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(SDL3)
 
-add_executable(Minicraft client/main.cpp)
+add_executable(Minicraft client/main.cpp client/player.cpp)
 target_link_libraries(Minicraft PRIVATE SDL3::SDL3)
+
+# Copy assets next to the executable; the game finds them via SDL_GetBasePath().
+add_custom_command(TARGET Minicraft POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Minicraft>/assets)
