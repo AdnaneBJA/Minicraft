@@ -138,7 +138,7 @@ const char* tileName(Tile tile) {
 }
 
 bool isSolid(Tile tile) {
-    return tile == Tile::Water || tile == Tile::Rock || tile == Tile::Tree;
+    return tile == Tile::Rock || tile == Tile::Tree;  // water is swimmable
 }
 
 int maxHealth(Tile tile) {

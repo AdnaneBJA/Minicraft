@@ -227,5 +227,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Water, rock and trees are solid. Space punches (costs 1 energy): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory. 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory. 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

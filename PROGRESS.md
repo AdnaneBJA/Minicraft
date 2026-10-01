@@ -12,6 +12,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Punch animation | 965 |
 | 2026-10-01 | Punching breaks trees | 1127 |
 | 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
+| 2026-10-01 | Swimming, drowning, hold-to-punch | 2014 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -88,6 +89,24 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - Debug panel: health, energy, inventory counts, items on the ground, damage/max for any punchable target, and a
     "Refill health/energy" button.
   - Not yet: nothing damages the player (health is display-only), tile damage doesn't regenerate, no sound.
+- **2026-10-01: Swimming, drowning and hold-to-punch.**
+  - Water is no longer solid. When the tile under the player's centre is water, the player swims at half speed
+    (30 px/s).
+  - While swimming, the sprite sinks 4 px and only its top half (the head) is drawn, over Minicraft's water ripple
+    (`hud.png` cells (5,0)/(5,1), alternating every 8 ticks, right half mirrored). The slash follows the head.
+  - Holding **Space** works like Minicraft: the press punches once. After the key has been held for 0.5 s it unloads
+    rapid punches every 3 ticks (20/s) until energy runs out.
+  - Punching resets the energy recharge count, as Minicraft's attack does. No energy comes back while punching, and
+    emptying the bar starts the 40-tick exhaustion pause with the bolts flashing white/empty.
+  - Punches alternate hands. Right after each punch the sprite shows the punching hand: the mirrored frame for
+    up/down, the other side frame for left/right. The full slash still shows.
+  - Debug panel shows whether the player is swimming.
+  - **Drowning** (Minicraft rules): energy doesn't recharge in water, and once a second the player loses a bolt, or a
+    heart once energy is empty (10 s of energy + 10 s of health = drowned after 20 s).
+  - Being hurt: a magenta damage number pops off the player, the sprite flashes white for 10 ticks, and there's a
+    30-tick hurt cooldown.
+  - At 0 health the player respawns at the spawn point with full health and energy and keeps the inventory (no death
+    screen or death chest yet).
 
 ## Next
 - Crafting (workbench, wooden tools) using the gathered wood/stone.

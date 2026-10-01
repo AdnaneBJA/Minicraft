@@ -27,6 +27,12 @@ public:
     static constexpr int kViewHeight = 135;
     static constexpr int kMapSize = 128;  // tiles
     static constexpr std::uint32_t kDefaultSeed = 1337;
+    // Holding Space works like Minicraft: the press punches once, and only once the key has been held for a moment
+    // (Minicraft waits for the OS key repeat to make the key "sticky") does it unload rapid punches until energy
+    // runs out.
+    static constexpr float kPunchHoldDelay = 0.5f;
+    static constexpr float kRapidPunchInterval = 3.0f / 60.0f;  // 20 punches/s
+    static constexpr SDL_Color kPlayerDamageColor{255, 0, 204, 255};  // Minicraft: Color.get(-1, 504)
 
     bool init() {
         if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -83,6 +89,13 @@ private:
         player_.setPosition(spawn.x, spawn.y);
     }
 
+    // No death screen yet: back to the spawn point with full health and energy; the inventory is kept.
+    void respawn() {
+        const SDL_FPoint spawn = map_.findSpawnPoint();
+        player_.setPosition(spawn.x, spawn.y);
+        player_.refillStats();
+    }
+
     void punch() {
         if (!player_.tryPunch()) return;  // out of energy
         const SDL_Point target = player_.interactionTile();
@@ -131,7 +144,10 @@ private:
             inventoryMenu_.handleKey(key, inventory_);
             return;
         }
-        if (key == SDLK_SPACE) punch();
+        if (key == SDLK_SPACE) {
+            punch();  // a fresh press always punches right away
+            punchRepeatTimer_ = kPunchHoldDelay;
+        }
     }
 
     void update(float dt) {
@@ -139,7 +155,19 @@ private:
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
         const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || inventoryMenu_.isOpen();
         const bool* keys = blockKeys ? noKeys.data() : SDL_GetKeyboardState(nullptr);
-        player_.update(dt, keys, map_);
+        if (const int damageTaken = player_.update(dt, keys, map_); damageTaken > 0) {
+            const SDL_FPoint middle = player_.center();
+            effects_.addDamageNumber(damageTaken, middle.x, middle.y, kPlayerDamageColor);
+        }
+        if (player_.isDead()) respawn();
+        // Held Space: after kPunchHoldDelay, punch every kRapidPunchInterval (the first came from the key press).
+        if (keys[SDL_SCANCODE_SPACE]) {
+            punchRepeatTimer_ -= dt;
+            if (punchRepeatTimer_ <= 0.0f) {
+                punch();
+                punchRepeatTimer_ += kRapidPunchInterval;
+            }
+        }
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
 
@@ -231,6 +259,7 @@ private:
     Camera camera_;
     DebugOverlay debug_;
     float scale_ = 1.0f;
+    float punchRepeatTimer_ = 0.0f;
     float time_ = 0.0f;
     bool running_ = true;
 };

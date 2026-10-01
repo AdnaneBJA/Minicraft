@@ -9,6 +9,9 @@
 namespace {
 
 constexpr float kSpeed = 60.0f;              // pixels per second (1 px per tick at 60 Hz, like Minicraft)
+constexpr float kSwimSpeedFactor = 0.5f;     // Minicraft skips every other movement tick in water
+constexpr float kSwimOffsetY = 4.0f;         // the body sinks 4 px into the water
+constexpr float kRippleX = 40.0f;            // hud.png cells (5,0) / (5,1): the two water ripple frames
 constexpr float kPixelsPerWalkFrame = 8.0f;  // switch walk frame every 8 pixels walked
 constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
 constexpr float kAttackDuration = 5.0f / 60.0f;  // a bare-hand punch lasts 5 ticks in Minicraft
@@ -18,6 +21,9 @@ constexpr float kInteractDistance = 12.0f;       // Minicraft's INTERACT_DIST
 constexpr float kStatTick = 1.0f / 60.0f;
 constexpr int kTicksPerBolt = 30;          // one bolt every ~0.5 s (Minicraft's 10 felt far too fast)
 constexpr int kExhaustedDelayTicks = 40;   // pause before recharging after running out
+constexpr int kSwimDrainTicks = 60;        // in water, lose a bolt (or a heart when out of energy) every second
+constexpr int kHurtTicks = 30;             // Minicraft's playerHurtTime: no further damage meanwhile
+constexpr int kHurtFlashTicks = 10;        // the sprite shows white for the first 10 ticks of that
 
 // Index of the tile containing a world coordinate.
 int tileIndex(float worldValue) { return static_cast<int>(std::floor(worldValue / kTileSize)); }
@@ -32,15 +38,21 @@ int lastTileIndex(float start, float end) {
 
 bool Player::load(SDL_Renderer* renderer, const std::string& spritePath, const std::string& hudPath) {
     texture_ = loadTexture(renderer, spritePath);
+    flashTexture_ = loadTexture(renderer, spritePath, true);
     hudTexture_ = loadTexture(renderer, hudPath);
-    return texture_ && hudTexture_;
+    return texture_ && flashTexture_ && hudTexture_;
 }
 
 bool Player::tryPunch() {
     if (energy_ <= 0) return false;  // Minicraft only allows attacking with stamina left
     --energy_;
+    // Like Minicraft's attack, punching restarts the recharge count: no energy comes back while punching, and
+    // running out triggers the exhaustion pause with the blinking bolts.
+    energyRecharge_ = 0;
     attackDirection_ = direction_;
     attackTimer_ = 0.0f;
+    punchHand_ = 1 - punchHand_;  // alternate hands, so held punches go left, right, left...
+    punchPoseTimer_ = kAttackDuration;
     return true;
 }
 
@@ -51,6 +63,14 @@ void Player::refillStats() {
     energy_ = kMaxEnergy;
     energyRecharge_ = 0;
     energyRechargeDelay_ = 0;
+    hurtTime_ = 0;
+}
+
+void Player::hurt(int damage) {
+    if (hurtTime_ > 0) return;
+    health_ = std::max(0, health_ - damage);
+    damageTaken_ += damage;
+    hurtTime_ = kHurtTicks;
 }
 
 void Player::tickEnergy() {
@@ -62,6 +82,7 @@ void Player::tickEnergy() {
     if (energyRechargeDelay_ > 0 && energy_ < kMaxEnergy) --energyRechargeDelay_;
     if (energyRechargeDelay_ == 0) {
         ++energyRecharge_;
+        if (swimming_) energyRecharge_ = 0;  // no recharge while swimming
         while (energyRecharge_ > kTicksPerBolt) {
             energyRecharge_ -= kTicksPerBolt;
             if (energy_ < kMaxEnergy) ++energy_;
@@ -87,12 +108,28 @@ void Player::setPosition(float x, float y) {
     y_ = y;
 }
 
-void Player::update(float dt, const bool* keys, const TileMap& map) {
+int Player::update(float dt, const bool* keys, const TileMap& map) {
+    damageTaken_ = 0;
     attackTimer_ = std::max(0.0f, attackTimer_ - dt);
+    punchPoseTimer_ = std::max(0.0f, punchPoseTimer_ - dt);
+
+    // Swimming when the tile under the player's centre is water (Mob.isSwimming: Minicraft's centre is (8, 11)).
+    const SDL_FPoint middle = center();
+    const int centerTileX = tileIndex(middle.x);
+    const int centerTileY = tileIndex(middle.y);
+    swimming_ = map.inBounds(centerTileX, centerTileY) && map.tileAt(centerTileX, centerTileY) == Tile::Water;
+
     statTickAccumulator_ += dt;
     while (statTickAccumulator_ >= kStatTick) {
         statTickAccumulator_ -= kStatTick;
+        ++ticks_;
+        if (hurtTime_ > 0) --hurtTime_;
         tickEnergy();
+        // Drowning, like Minicraft: once a second in water, pay a bolt, or a heart when out of energy.
+        if (swimming_ && ticks_ % kSwimDrainTicks == 0) {
+            if (energy_ > 0) --energy_;
+            else hurt(1);
+        }
     }
 
     float dx = 0.0f;
@@ -104,7 +141,7 @@ void Player::update(float dt, const bool* keys, const TileMap& map) {
 
     if (dx == 0.0f && dy == 0.0f) {
         walkDistance_ = 0.0f;  // stand still on the first frame
-        return;
+        return damageTaken_;
     }
 
     // Face the axis being pressed; vertical wins when moving diagonally (up+right shows the up sprite).
@@ -114,7 +151,7 @@ void Player::update(float dt, const bool* keys, const TileMap& map) {
     else direction_ = Direction::Right;
 
     // Each axis moves at full speed, so diagonal movement is intentionally faster (sqrt(2)x), like Minicraft.
-    const float step = kSpeed * dt;
+    const float step = kSpeed * (swimming_ ? kSwimSpeedFactor : 1.0f) * dt;
     // Resolve each axis separately so pushing diagonally into a wall slides along it.
     const float startX = x_;
     const float startY = y_;
@@ -122,6 +159,7 @@ void Player::update(float dt, const bool* keys, const TileMap& map) {
     moveY(dy * step, map);
     // Advance the walk cycle by the larger axis only: summing both would make diagonals animate twice as fast.
     walkDistance_ += std::max(std::abs(x_ - startX), std::abs(y_ - startY));
+    return damageTaken_;
 }
 
 void Player::moveX(float delta, const TileMap& map) {
@@ -168,7 +206,10 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
     // The sheet only has down/up/right frames; the rest are horizontal mirrors (same trick as Minicraft):
     //   down: [down, down mirrored]   up: [up, up mirrored]
     //   right: [right1, right2]       left: [right1 mirrored, right2 mirrored]
-    const int walkFrame = static_cast<int>(walkDistance_ / kPixelsPerWalkFrame) % 2;
+    // Right after a punch, show the punching hand instead of the walk cycle: the alternate frame (the mirrored
+    // sprite for up/down, the second side frame for left/right) puts the other arm forward.
+    const int walkFrame = punchPoseTimer_ > 0.0f ? punchHand_
+                                                 : static_cast<int>(walkDistance_ / kPixelsPerWalkFrame) % 2;
     int column = 0;
     bool mirrored = false;
     switch (direction_) {
@@ -190,11 +231,29 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
     }
 
     const float x = camera.snap(x_) - camera.x();
-    const float y = camera.snap(y_) - camera.y();
-    const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
-    const SDL_FRect destination{x, y, kSize, kSize};
-    SDL_RenderTextureRotated(renderer, texture_.get(), &source, &destination, 0.0, nullptr,
-                             mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
+    float y = camera.snap(y_) - camera.y();
+    const SDL_FlipMode flip = mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE;
+    // Just hurt: draw the white silhouette instead (Minicraft: hurtTime > playerHurtTime - 10).
+    SDL_Texture* sprite = hurtTime_ > kHurtTicks - kHurtFlashTicks ? flashTexture_.get() : texture_.get();
+    if (swimming_) {
+        // Like Minicraft's Player.render: sink 4 px, draw the water ripple (alternating every 8 ticks, right half
+        // mirrored) and then only the top half of the sprite, so just the head shows above the water.
+        y += kSwimOffsetY;
+        const float rippleY = (ticks_ / 8) % 2 == 0 ? 0.0f : 8.0f;
+        const SDL_FRect rippleSource{kRippleX, rippleY, 8.0f, 8.0f};
+        const SDL_FRect rippleLeft{x, y + 3.0f, 8.0f, 8.0f};
+        const SDL_FRect rippleRight{x + 8.0f, y + 3.0f, 8.0f, 8.0f};
+        SDL_RenderTexture(renderer, hudTexture_.get(), &rippleSource, &rippleLeft);
+        SDL_RenderTextureRotated(renderer, hudTexture_.get(), &rippleSource, &rippleRight, 0.0, nullptr,
+                                 SDL_FLIP_HORIZONTAL);
+        const SDL_FRect headSource{static_cast<float>(column) * kSize, 0.0f, kSize, kSize / 2.0f};
+        const SDL_FRect headDestination{x, y, kSize, kSize / 2.0f};
+        SDL_RenderTextureRotated(renderer, sprite, &headSource, &headDestination, 0.0, nullptr, flip);
+    } else {
+        const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
+        const SDL_FRect destination{x, y, kSize, kSize};
+        SDL_RenderTextureRotated(renderer, sprite, &source, &destination, 0.0, nullptr, flip);
+    }
 
     if (isAttacking()) {
         drawSlash(renderer, x, y);

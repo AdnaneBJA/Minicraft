@@ -23,7 +23,8 @@ public:
     bool load(SDL_Renderer* renderer, const std::string& spritePath, const std::string& hudPath);
 
     void setPosition(float x, float y);
-    void update(float dt, const bool* keys, const TileMap& map);
+    // Moves the player and runs its 60 Hz stat ticks. Returns the health lost during this update (drowning).
+    int update(float dt, const bool* keys, const TileMap& map);
     void draw(SDL_Renderer* renderer, const Camera& camera) const;
 
     // Starts a punch in the facing direction if there is energy left, spending 1. Returns false when exhausted.
@@ -31,6 +32,8 @@ public:
     // Shows the slash animation (a punch that didn't hit anything).
     void showSlash();
     bool isAttacking() const { return attackTimer_ > 0.0f; }
+    // In water (the tile under the player's centre): half speed, and only the head is drawn.
+    bool isSwimming() const { return swimming_; }
     // The tile a punch would hit: 12 px in front of the player's centre (Minicraft's INTERACT_DIST).
     SDL_Point interactionTile() const;
 
@@ -39,6 +42,9 @@ public:
     // Ticks left in the pause after running out of energy (bolts blink meanwhile); 0 when not exhausted.
     int energyRechargeDelay() const { return energyRechargeDelay_; }
     void refillStats();
+    bool isDead() const { return health_ <= 0; }
+    // Minicraft's entity centre (8, 11 inside the sprite), used for effects attached to the player.
+    SDL_FPoint center() const { return {x_ + 8.0f, y_ + 11.0f}; }
 
     // Sprite rectangle (what is drawn).
     SDL_FRect bounds() const { return {x_, y_, kSize, kSize}; }
@@ -53,15 +59,20 @@ private:
     void moveY(float delta, const TileMap& map);
     // One 60 Hz tick of energy recharge (Minicraft's stamina rules).
     void tickEnergy();
+    // Loses health unless still in the hurt cooldown; starts the cooldown and the white flash.
+    void hurt(int damage);
     void drawSlash(SDL_Renderer* renderer, float x, float y) const;
 
     TexturePtr texture_;
     TexturePtr hudTexture_;
+    TexturePtr flashTexture_;  // white silhouette of the sprite strip, shown just after being hurt
     float x_ = 0.0f;
     float y_ = 0.0f;
     float walkDistance_ = 0.0f;  // pixels walked; drives the 2-frame walk animation
     Direction direction_ = Direction::Down;
-    float attackTimer_ = 0.0f;  // seconds left showing the slash
+    float attackTimer_ = 0.0f;     // seconds left showing the slash
+    float punchPoseTimer_ = 0.0f;  // seconds left showing the punching hand (hit or miss)
+    int punchHand_ = 0;            // 0/1: which hand the last punch used; alternates every punch
     Direction attackDirection_ = Direction::Down;
 
     int health_ = kMaxHealth;
@@ -69,4 +80,8 @@ private:
     int energyRecharge_ = 0;       // ticks accumulated towards the next bolt
     int energyRechargeDelay_ = 0;  // exhaustion pause in ticks
     float statTickAccumulator_ = 0.0f;
+    bool swimming_ = false;
+    int hurtTime_ = 0;     // ticks of hurt cooldown left (no more damage meanwhile)
+    int damageTaken_ = 0;  // health lost since the start of the current update()
+    int ticks_ = 0;  // 60 Hz ticks since start; drives the swimming ripple animation
 };
