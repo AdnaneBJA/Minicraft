@@ -17,9 +17,8 @@ struct AtlasPos {
     float y;
 };
 constexpr AtlasPos kGrass{0, 0}, kSand{16, 0}, kRock{32, 0}, kDirt{48, 0};
-constexpr AtlasPos kOak{64, 0};         // lone tree (transparent background)
-constexpr AtlasPos kOakFull{80, 0};     // tree canopy used where trees touch
-constexpr AtlasPos kRockCorner{96, 0};  // 2x2 quadrants for rock's inner corners
+constexpr AtlasPos kOak{64, 0};         // tree (transparent background), exactly one per tree tile
+constexpr AtlasPos kRockCorner{80, 0};  // 2x2 quadrants for rock's inner corners
 constexpr AtlasPos kWaterFrame0{0, 16};
 // Border sheets: 3x3 grid of 8x8 pieces. Row/column 0 = top/left edge, 1 = no edge, 2 = bottom/right edge.
 constexpr AtlasPos kGrassBorder{0, 32}, kSandBorder{24, 32}, kWaterBorder{48, 32}, kRockBorder{72, 32};
@@ -79,24 +78,6 @@ void drawConnected(SDL_Renderer* renderer, SDL_Texture* atlas, const TileMap& ma
                 const float column = horizontal ? 1.0f : (h < 0 ? 0.0f : 2.0f);
                 drawPiece(renderer, atlas, texture.border.x + column * kHalf, texture.border.y + row * kHalf, kHalf,
                           qx, qy);
-            }
-        }
-    }
-}
-
-// Port of the Minicraft+ TreeTile rendering: a quadrant uses the canopy texture when the three trees around that
-// corner are present, so groups of trees merge into a forest.
-void drawTree(SDL_Renderer* renderer, SDL_Texture* atlas, const TileMap& map, int tx, int ty, float x, float y) {
-    const auto isTree = [&](int nx, int ny) { return map.inBounds(nx, ny) && map.tileAt(nx, ny) == Tile::Tree; };
-    for (const int v : {-1, 1}) {
-        for (const int h : {-1, 1}) {
-            const float qx = x + (h < 0 ? 0.0f : kHalf);
-            const float qy = y + (v < 0 ? 0.0f : kHalf);
-            const float row = v < 0 ? 0.0f : kHalf;
-            if (isTree(tx, ty + v) && isTree(tx + h, ty) && isTree(tx + h, ty + v)) {
-                drawPiece(renderer, atlas, kOakFull.x + (h < 0 ? kHalf : 0.0f), kOakFull.y + row, kHalf, qx, qy);
-            } else {
-                drawPiece(renderer, atlas, kOak.x + (h < 0 ? 0.0f : kHalf), kOak.y + row, kHalf, qx, qy);
             }
         }
     }
@@ -249,7 +230,7 @@ void TileMap::draw(SDL_Renderer* renderer, const Camera& camera, float timeSecon
                 case Tile::Water: drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, water); break;
                 case Tile::Tree:
                     drawConnected(renderer, atlas, *this, tx, ty, x, y, tile, grass);  // grass underneath
-                    drawTree(renderer, atlas, *this, tx, ty, x, y);
+                    drawPiece(renderer, atlas, kOak.x, kOak.y, size, x, y);
                     break;
             }
         }
