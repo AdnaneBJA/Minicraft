@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace {
 
@@ -125,6 +126,15 @@ void TileMap::generate(std::uint32_t seed, int width, int height) {
     damage_.assign(static_cast<std::size_t>(width * height), 0);
 
     tiles_ = WorldGenerator::generate(seed, width, height);
+}
+
+void TileMap::restore(std::uint32_t seed, int width, int height, std::vector<Tile> tiles,
+                      std::vector<std::uint8_t> damage) {
+    seed_ = seed;
+    width_ = width;
+    height_ = height;
+    tiles_ = std::move(tiles);
+    damage_ = std::move(damage);
 }
 
 std::optional<TileMap::TileHit> TileMap::hurtTile(int tx, int ty, int damage) {

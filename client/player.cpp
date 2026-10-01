@@ -154,6 +154,12 @@ SDL_Point Player::interactionTile() const {
     return {tileIndex(px), tileIndex(py)};
 }
 
+void Player::restoreStats(int health, int energy) {
+    refillStats();
+    health_ = health;
+    energy_ = energy;
+}
+
 void Player::setPosition(float x, float y) {
     x_ = x;
     y_ = y;

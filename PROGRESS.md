@@ -14,9 +14,11 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
 | 2026-10-01 | Swimming, drowning, hold-to-punch | 2014 |
 | 2026-10-01 | Classic world generation, zombies, day/night | 2886 |
+| 2026-10-01 | Game menu, world saves | 3779 |
 | 2026-10-01 | Crafting menu, workbench recipe | 3165 |
 | 2026-10-01 | Zombie drops | 3185 |
 | 2026-10-01 | Tree drops: acorns, apples | 3192 |
+| 2026-10-01 | Merge: game menu/saves + crafting/drops | 5014 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -144,6 +146,29 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - Debug panel: time of day with Morning/Day/Evening/Night buttons; zombie count, an "auto spawn" toggle, "Spawn one nearby" and "Remove all";
     hitbox mode also outlines zombie hitboxes and the punch's attack box.
   - Not yet: zombie drops, the player blocking zombies from walking through them, light sources other than the player.
+- **2026-10-01: Game menu and world saves** (`game_menu.h/.cpp`, `world_save.h/.cpp`, modelled on Minicraft+'s
+  TitleDisplay, WorldSelectDisplay, WorldGenDisplay and PauseDisplay).
+  - **Title screen:** the MINICRAFT logo (`title.png`, Minicraft+'s logo without the "+"), a random splash that
+    pulses in brightness, Play / Quit, and control hints. Up/Down or W/S select, Enter accepts.
+  - **Play:** Load World / New World. With no saved worlds yet, Play goes straight to New World (as in Minicraft+).
+  - **New World** ("World Gen Options"): name and seed fields typed with SDL text input (blinking caret), then
+    Create World. Enter creates from any row; Up/Down move between rows (W/S type letters here).
+    - Names are lower case, up to 16 of `a-z 0-9 space - _`. The field turns red with a reason when the name is
+      empty, invalid, or already taken.
+    - Seed: empty = random, a number is used as is, and other text is hashed like Minicraft+'s `getSeed`.
+    - A new world is saved right away, so it shows up under Load World.
+  - **Load World** ("Select World"): saved worlds, most recently saved first, 5 at a time with scrolling. A damaged
+    save shows "Could not load world" instead of loading.
+  - **Pause menu** (Esc in game; Esc again or Return to Game resumes): a framed "Paused" menu over the frozen world
+    with Return to Game, Save Game ("World saved!") and Save and Quit (back to the title screen).
+    The game no longer quits on Esc. Closing the window quits without saving, like Minicraft.
+  - **Save files:** one binary file per world, `<name>.sav`, in SDL's per-user folder
+    (`%APPDATA%/Minicraft/Minicraft/saves/` on Windows). Holds the seed, every tile and its damage, player position,
+    health, energy, inventory and time of day. Zombies, dropped items and effects are not saved.
+    - Little-endian, with a magic number and a version. Written to a `.tmp` file first, then renamed over the old save.
+    - Loading checks every field (map size, tile and item values, position inside the map, stat ranges, no trailing
+      bytes) and refuses the file otherwise. World names are restricted so they can't escape the saves folder.
+  - Not yet: deleting/renaming worlds from the menu, autosave, an options screen.
 
 - **2026-10-01: Crafting (personal crafting menu).**
   - **Z** opens the crafting screen (`CraftingMenu`, Minicraft's CraftingDisplay); Z or Esc closes it. Only one
