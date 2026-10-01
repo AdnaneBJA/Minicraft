@@ -46,6 +46,9 @@ bool Player::load(SDL_Renderer* renderer, const std::string& spritePath, const s
 bool Player::tryPunch() {
     if (energy_ <= 0) return false;  // Minicraft only allows attacking with stamina left
     --energy_;
+    // Like Minicraft's attack, punching restarts the recharge count: no energy comes back while punching, and
+    // running out triggers the exhaustion pause with the blinking bolts.
+    energyRecharge_ = 0;
     attackDirection_ = direction_;
     attackTimer_ = 0.0f;
     punchHand_ = 1 - punchHand_;  // alternate hands, so held punches go left, right, left...

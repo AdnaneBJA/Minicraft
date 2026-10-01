@@ -27,9 +27,11 @@ public:
     static constexpr int kViewHeight = 135;
     static constexpr int kMapSize = 128;  // tiles
     static constexpr std::uint32_t kDefaultSeed = 1337;
-    // Holding Space keeps punching at this interval (5 ticks, 12 punches/s; the same length as a punch, so they
-    // chain back to back) until energy runs out.
-    static constexpr float kPunchRepeatInterval = 5.0f / 60.0f;
+    // Holding Space works like Minicraft: the press punches once, and only once the key has been held for a moment
+    // (Minicraft waits for the OS key repeat to make the key "sticky") does it unload rapid punches until energy
+    // runs out.
+    static constexpr float kPunchHoldDelay = 0.5f;
+    static constexpr float kRapidPunchInterval = 3.0f / 60.0f;  // 20 punches/s
     static constexpr SDL_Color kPlayerDamageColor{255, 0, 204, 255};  // Minicraft: Color.get(-1, 504)
 
     bool init() {
@@ -144,7 +146,7 @@ private:
         }
         if (key == SDLK_SPACE) {
             punch();  // a fresh press always punches right away
-            punchRepeatTimer_ = kPunchRepeatInterval;
+            punchRepeatTimer_ = kPunchHoldDelay;
         }
     }
 
@@ -158,12 +160,12 @@ private:
             effects_.addDamageNumber(damageTaken, middle.x, middle.y, kPlayerDamageColor);
         }
         if (player_.isDead()) respawn();
-        // Held Space: repeat the punch every kPunchRepeatInterval (the first one came from the key press).
+        // Held Space: after kPunchHoldDelay, punch every kRapidPunchInterval (the first came from the key press).
         if (keys[SDL_SCANCODE_SPACE]) {
             punchRepeatTimer_ -= dt;
             if (punchRepeatTimer_ <= 0.0f) {
                 punch();
-                punchRepeatTimer_ += kPunchRepeatInterval;
+                punchRepeatTimer_ += kRapidPunchInterval;
             }
         }
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
