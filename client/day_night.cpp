@@ -44,6 +44,12 @@ void DayNight::setTime(Time time) {
     pastDay1_ = true;  // like Updater.changeTimeOfDay
 }
 
+void DayNight::restore(int tick, bool pastDay1) {
+    tick_ = tick;
+    pastDay1_ = pastDay1;
+    tickAccumulator_ = 0.0f;
+}
+
 float DayNight::darkness() const {
     // Screen.overlay: fade in through the evening, full at night, fade out through the morning (except day 1).
     const float progress = static_cast<float>(tick_ % kQuarter) / static_cast<float>(kQuarter);

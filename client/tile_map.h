@@ -31,6 +31,8 @@ public:
     // Generates the surface like the original Minicraft (see WorldGenerator): an island with an ocean around it,
     // sand beaches, forests, sand patches, rocky mountains and a few lakes. Width and height must be powers of two.
     void generate(std::uint32_t seed, int width, int height);
+    // Replaces the map with a saved one. `tiles` and `damage` hold width * height entries, row by row.
+    void restore(std::uint32_t seed, int width, int height, std::vector<Tile> tiles, std::vector<std::uint8_t> damage);
 
     // Finds a walkable tile near the centre of the map; returns its top-left pixel position.
     SDL_FPoint findSpawnPoint() const;
@@ -54,6 +56,8 @@ public:
     float pixelWidth() const { return static_cast<float>(width_ * kTileSize); }
     float pixelHeight() const { return static_cast<float>(height_ * kTileSize); }
     std::uint32_t seed() const { return seed_; }
+    const std::vector<Tile>& tiles() const { return tiles_; }
+    const std::vector<std::uint8_t>& damage() const { return damage_; }
 
 private:
     std::size_t index(int tx, int ty) const { return static_cast<std::size_t>(ty * width_ + tx); }
