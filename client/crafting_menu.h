@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+class Audio;
 class Font;
 class Hud;
 class Inventory;
@@ -17,6 +18,9 @@ class ItemIcons;
 // selected product the player owns and a "Cost:" box with "owned/needed" for each ingredient.
 class CraftingMenu {
 public:
+    // Moving the cursor plays Minicraft's select sound.
+    void setAudio(Audio* audio) { audio_ = audio; }
+
     static constexpr SDL_Keycode kToggleKey = SDLK_Z;
 
     // Opens on a list of recipes; `title` is set into the top edge of the recipe frame ("Crafting" by hand, or
@@ -33,6 +37,7 @@ public:
               const Inventory& inventory, float viewHeight) const;
 
 private:
+    Audio* audio_ = nullptr;
     std::vector<Recipe> recipes_;
     std::string title_;
     bool open_ = false;

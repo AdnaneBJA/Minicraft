@@ -1,5 +1,6 @@
 #include "crafting_menu.h"
 
+#include "audio.h"
 #include "font.h"
 #include "hud.h"
 #include "items.h"
@@ -64,6 +65,7 @@ const Recipe* CraftingMenu::handleKey(SDL_Keycode key, const Inventory& inventor
     if (count == 0) return nullptr;
     if (key == SDLK_W || key == SDLK_UP) selected_ = (selected_ + count - 1) % count;  // wraps, like Minicraft
     if (key == SDLK_S || key == SDLK_DOWN) selected_ = (selected_ + 1) % count;
+    if (audio_ && (key == SDLK_W || key == SDLK_UP || key == SDLK_S || key == SDLK_DOWN)) audio_->play(Sound::Select);
     if (key == SDLK_SPACE || key == SDLK_RETURN || key == SDLK_KP_ENTER) {
         const Recipe& recipe = recipes_[selected_];
         if (recipe.canCraft(inventory)) return &recipe;

@@ -25,6 +25,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Tools: durability and uses | 4984 |
 | 2026-10-01 | Debug panel item giver | 5022 |
 | 2026-10-01 | Gameplay loop: caves, sky, boss, audio, stations, farming, saves v3 | 7880 |
+| 2026-10-01 | Hit and menu sounds | 7915 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -308,7 +309,9 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - **Placing tiles**: dirt and sand fill holes, water and lava; clouds fill the sky's edge; torches, plank and
     stone brick floors, walls and doors (punch to open/close, axe or pickaxe to take back).
   - **Audio** (`audio.h/.cpp`): Minicraft+'s sound effects through SDL3 audio streams (4 voices per sound). M mutes;
-    the Options screen (title and pause menus) toggles the sound and sets the volume.
+    the Options screen (title and pause menus) toggles the sound and sets the volume. Every hit on a tile (trees,
+    rock, ore, cacti, walls) plays the hit sound; moving the cursor in any menu plays "select" and closing a screen
+    (inventory, crafting, chest, pause) plays the craft sound, like Minicraft+'s Menu and Game.exitDisplay.
   - **Saves v3**: every level's tiles and tile data, furniture with chest contents, the current level, hunger,
     armour, the bed spawn point, the boss flag and the time played. Version 1 and 2 saves still load: the other
     levels are generated from the seed and stairs are fitted into the saved surface.

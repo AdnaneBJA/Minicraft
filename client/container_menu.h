@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 
+class Audio;
 class Font;
 class Hud;
 class Inventory;
@@ -14,6 +15,9 @@ class ItemIcons;
 // Left/right switch between the two; Space or Enter moves the selected stack to the other side.
 class ContainerMenu {
 public:
+    // Moving the cursor plays Minicraft's select sound.
+    void setAudio(Audio* audio) { audio_ = audio; }
+
     // Opens on the chest standing on tile (tx, ty); `title` names it ("Chest" or "Death Chest").
     void open(int tx, int ty, std::string title);
     bool isOpen() const { return open_; }
@@ -30,6 +34,7 @@ public:
               const Inventory& inventory, float viewHeight) const;
 
 private:
+    Audio* audio_ = nullptr;
     bool open_ = false;
     bool chestSide_ = true;  // which list has the cursor
     int selected_ = 0;

@@ -127,6 +127,7 @@ void PlayerActions::onTileHit(SDL_Point target, int damage, const TileMap::TileH
     }
     effects_.addSmash(target.x, target.y);
     effects_.addDamageNumber(damage, c.x, c.y);
+    audio_.play(Sound::MonsterHurt);  // every tile's hurt() plays the hit sound
     // Minicraft's TreeTile.hurt: every hit on a tree has a 1 in 100 chance to shake an apple loose.
     if (hit.tile == Tile::Tree && SDL_rand(100) == 0) drops.spawn(ItemType::Apple, 1, c.x, c.y);
     // OreTile.hurt: every hit that does damage knocks 0-1 ore loose, and 2 more when it breaks.
@@ -139,7 +140,6 @@ void PlayerActions::onTileHit(SDL_Point target, int damage, const TileMap::TileH
         }
     };
     if (isOre(hit.tile) && damage > 0) {
-        audio_.play(Sound::MonsterHurt);
         drops.spawn(oreDrop(hit.tile), static_cast<int>(SDL_rand(2)) + (hit.broken ? 2 : 0), c.x, c.y);
     }
     if (!hit.broken) return;

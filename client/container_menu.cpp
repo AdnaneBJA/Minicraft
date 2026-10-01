@@ -1,5 +1,6 @@
 #include "container_menu.h"
 
+#include "audio.h"
 #include "font.h"
 #include "hud.h"
 #include "items.h"
@@ -34,6 +35,7 @@ std::optional<ContainerMenu::Transfer> ContainerMenu::handleKey(SDL_Keycode key,
                                                                 const Inventory& inventory) {
     if (key == SDLK_A || key == SDLK_LEFT || key == SDLK_D || key == SDLK_RIGHT) {
         chestSide_ = !chestSide_;
+        if (audio_) audio_->play(Sound::Select);
         selected_ = 0;
         return std::nullopt;
     }
@@ -42,6 +44,7 @@ std::optional<ContainerMenu::Transfer> ContainerMenu::handleKey(SDL_Keycode key,
     selected_ = std::min(selected_, count - 1);
     if (key == SDLK_W || key == SDLK_UP) selected_ = (selected_ + count - 1) % count;
     if (key == SDLK_S || key == SDLK_DOWN) selected_ = (selected_ + 1) % count;
+    if (audio_ && (key == SDLK_W || key == SDLK_UP || key == SDLK_S || key == SDLK_DOWN)) audio_->play(Sound::Select);
     if (key == SDLK_SPACE || key == SDLK_RETURN || key == SDLK_KP_ENTER) return Transfer{chestSide_, selected_};
     return std::nullopt;
 }

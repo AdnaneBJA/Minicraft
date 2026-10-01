@@ -71,6 +71,9 @@ public:
         const std::string sprites = assets + "sprites/";
         audio_.init(assets + "audio/");  // without a sound device the game just stays silent
         menu_.setAudio(&audio_);
+        inventoryMenu_.setAudio(&audio_);
+        craftingMenu_.setAudio(&audio_);
+        containerMenu_.setAudio(&audio_);
         menu_.setSoundSettings(audio_.muted(), audio_.volume());
         furnitureSheet_ = loadTexture(renderer, sprites + "furniture.png");
         projectileSheet_ = loadTexture(renderer, sprites + "projectiles.png");
@@ -230,7 +233,10 @@ private:
             case Kind::LoadWorld:
                 if (!loadWorld(action.worldName)) menu_.showMessage("Could not load world", kErrorColor);
                 break;
-            case Kind::Resume: menu_.close(); break;
+            case Kind::Resume:
+                menu_.close();
+                audio_.play(Sound::Craft);
+                break;
             case Kind::Save:
                 if (saveWorld()) menu_.showMessage("World saved!", kSavedColor);
                 else menu_.showMessage("Could not save!", kErrorColor);
@@ -357,6 +363,13 @@ private:
         containerMenu_.close();
     }
 
+    // The player leaving a screen: Minicraft plays the craft sound whenever a display exits (Game.exitDisplay).
+    void exitMenus() {
+        if (!menuOpen()) return;
+        closeMenus();
+        audio_.play(Sound::Craft);
+    }
+
     // E while facing furniture uses it (Furniture.use): a crafting station opens its recipes, a chest its
     // contents, a bed lets the player sleep. Returns false if there's no furniture to use there.
     bool useFurniture() {
@@ -454,13 +467,13 @@ private:
             return;
         }
         if (key == SDLK_ESCAPE) {
-            if (menuOpen()) closeMenus();
+            if (menuOpen()) exitMenus();
             else menu_.openPause();
             return;
         }
         if (containerMenu_.isOpen()) {
             if (key == InventoryMenu::kToggleKey) {
-                containerMenu_.close();
+                exitMenus();
                 return;
             }
             const SDL_Point tile = containerMenu_.chestTile();
@@ -473,7 +486,7 @@ private:
         }
         if (craftingMenu_.isOpen()) {
             if (key == InventoryMenu::kToggleKey || key == CraftingMenu::kToggleKey) {
-                craftingMenu_.close();
+                exitMenus();
             } else if (const Recipe* recipe = craftingMenu_.handleKey(key, inventory_)) {
                 craft(*recipe);
             }
@@ -481,13 +494,13 @@ private:
         }
         if (inventoryMenu_.isOpen()) {
             if (key == InventoryMenu::kToggleKey) {
-                inventoryMenu_.close();
+                exitMenus();
                 return;
             }
             // Selecting a slot puts that whole stack in the player's hand and closes the inventory.
             if (const auto slot = inventoryMenu_.handleKey(key, inventory_)) {
                 player_.setHeldItem(inventory_.take(*slot));
-                inventoryMenu_.close();
+                exitMenus();
             }
             return;
         }
