@@ -83,6 +83,8 @@ Minicraft/
     ├── dropped_items.h/.cpp  # items on the ground: physics, pickup, despawn
     ├── hud.h/.cpp      # hearts, energy bolts, menu frame
     ├── inventory_menu.h/.cpp  # inventory screen (E)
+    ├── recipe.h/.cpp   # Recipe: product + costs, crafted against an Inventory
+    ├── crafting_menu.h/.cpp  # crafting screen (Z): recipe list + Have/Cost boxes
     ├── world_gen.h/.cpp  # original-Minicraft-style island generation (+ beaches, few lakes)
     ├── day_night.h/.cpp  # day/night cycle and the night lighting overlay
     ├── collision.h     # tile collision shared by the player and mobs
@@ -231,5 +233,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a 256x256 island generated like the original Minicraft, with a day/night cycle (zombies spawn at night and chase the player) with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory. 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a 256x256 island generated like the original Minicraft, with a day/night cycle (zombies spawn at night and chase the player) with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory; Z opens crafting (Workbench = 10 wood, crafted with Space/Enter). 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

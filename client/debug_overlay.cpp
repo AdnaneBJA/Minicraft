@@ -168,8 +168,8 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             if (player.energyRechargeDelay() > 0) {
                 ImGui::Text("Exhausted: %d ticks", player.energyRechargeDelay());
             }
-            ImGui::Text("Wood: %d  Stone: %d  (on ground: %zu)", inventory.count(ItemType::Wood),
-                        inventory.count(ItemType::Stone), droppedItemCount);
+            ImGui::Text("Wood: %d  Stone: %d  Workbench: %d  (on ground: %zu)", inventory.count(ItemType::Wood),
+                        inventory.count(ItemType::Stone), inventory.count(ItemType::Workbench), droppedItemCount);
             if (ImGui::Button("Refill health/energy")) {
                 actions.refillStats = true;
             }

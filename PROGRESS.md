@@ -14,6 +14,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
 | 2026-10-01 | Swimming, drowning, hold-to-punch | 2014 |
 | 2026-10-01 | Classic world generation, zombies, day/night | 2886 |
+| 2026-10-01 | Crafting menu, workbench recipe | 3165 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -142,5 +143,21 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     hitbox mode also outlines zombie hitboxes and the punch's attack box.
   - Not yet: zombie drops, the player blocking zombies from walking through them, light sources other than the player.
 
+- **2026-10-01: Crafting (personal crafting menu).**
+  - **Z** opens the crafting screen (`CraftingMenu`, Minicraft's CraftingDisplay); Z or Esc closes it. Only one
+    menu is open at a time (E does nothing while crafting is open, and vice versa).
+  - Recipe list in the same frame as the inventory, titled "Crafting": " Workbench" with its icon, white when the
+    player can afford it and grey otherwise, with the `> <` cursor (W/S or arrows).
+  - Right of the list: a **Have:** box (product icon + how many the player owns) and a **Cost:** box (icon +
+    "owned/needed" per ingredient), titles at the top left like Minicraft. The Cost box sits under Have (Minicraft
+    bottom-aligns it with the recipe list, which would overlap Have while the list has one entry).
+  - Space or Enter crafts the selected recipe if affordable: takes the costs and adds the product; products that
+    don't fit are dropped at the player's feet.
+  - `Recipe` (`recipe.h/.cpp`): product, amount and costs; one recipe so far, **Workbench = 10 wood**.
+  - Inventory: `remove()`, and non-stackable items (the workbench, like Minicraft's furniture) take one slot each
+    and show as " Workbench" without a count. `items.png` gains the workbench icon.
+  - `Hud::drawTitle` now draws menu titles for both menus.
+  - Not yet: placing the workbench, workbench recipes (tools), crafting sound.
+
 ## Next
-- Crafting (workbench, wooden tools) using the gathered wood/stone.
+- Place the workbench in the world and open its recipe list (wooden tools) by using it.

@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "crafting_menu.h"
 #include "day_night.h"
 #include "debug_overlay.h"
 #include "dropped_items.h"
@@ -124,6 +125,16 @@ private:
         }
     }
 
+    // Products that don't fit in the inventory are dropped at the player's feet, like Minicraft.
+    void craft(const Recipe& recipe) {
+        const int leftover = recipe.craft(inventory_);
+        if (leftover <= 0) return;
+        const SDL_FPoint middle = player_.center();
+        droppedItems_.spawn(recipe.product(), leftover, middle.x, middle.y);
+    }
+
+    bool menuOpen() const { return inventoryMenu_.isOpen() || craftingMenu_.isOpen(); }
+
     void handleEvents() {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -140,16 +151,29 @@ private:
         if (key == DebugOverlay::kToggleKey) debug_.toggle();
         if (ImGui::GetIO().WantCaptureKeyboard) return;  // typing in the debug panel
         if (key == SDLK_ESCAPE) {
-            if (inventoryMenu_.isOpen()) inventoryMenu_.close();
-            else running_ = false;
+            if (menuOpen()) {
+                inventoryMenu_.close();
+                craftingMenu_.close();
+            } else {
+                running_ = false;
+            }
             return;
         }
-        if (key == InventoryMenu::kToggleKey) {
+        // Each menu's key opens it or closes it, but doesn't open one menu on top of the other.
+        if (key == InventoryMenu::kToggleKey && !craftingMenu_.isOpen()) {
             inventoryMenu_.toggle();
+            return;
+        }
+        if (key == CraftingMenu::kToggleKey && !inventoryMenu_.isOpen()) {
+            craftingMenu_.toggle();
             return;
         }
         if (inventoryMenu_.isOpen()) {
             inventoryMenu_.handleKey(key, inventory_);
+            return;
+        }
+        if (craftingMenu_.isOpen()) {
+            if (const Recipe* recipe = craftingMenu_.handleKey(key, inventory_)) craft(*recipe);
             return;
         }
         if (key == SDLK_SPACE) {
@@ -161,7 +185,7 @@ private:
     void update(float dt) {
         // While a menu is open or typing in the debug panel, keys must not move the player.
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
-        const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || inventoryMenu_.isOpen();
+        const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || menuOpen();
         const bool* keys = blockKeys ? noKeys.data() : SDL_GetKeyboardState(nullptr);
         if (const int damageTaken = player_.update(dt, keys, map_); damageTaken > 0) {
             const SDL_FPoint middle = player_.center();
@@ -215,6 +239,7 @@ private:
         // UI in view pixels (same scale, not moved by the camera).
         hud_.drawStatus(renderer, player_, std::floor(camera_.height()));
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
+        craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
 
         // Debug overlay and UI: drawn in screen pixels so lines stay thin.
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
@@ -281,6 +306,7 @@ private:
     DroppedItems droppedItems_;
     Inventory inventory_;
     InventoryMenu inventoryMenu_;
+    CraftingMenu craftingMenu_{Recipe::personalRecipes()};
     Hud hud_;
     Font font_;
     ItemIcons itemIcons_;
