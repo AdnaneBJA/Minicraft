@@ -23,6 +23,7 @@ constexpr int kSpawnIntervalTicks = 60;
 constexpr int kSpawnMinTiles = 10;  // off screen, like Minicraft's 60 px minimum but further
 constexpr int kSpawnMaxTiles = 20;
 constexpr float kDespawnDistance = 48.0f * static_cast<float>(TileMap::kTileSize);
+constexpr float kDaytimeDespawnDistance = 12.0f * static_cast<float>(TileMap::kTileSize);  // out of view
 constexpr SDL_Color kPlayerDamageColor{255, 0, 204, 255};  // Minicraft: Color.get(-1, 504)
 
 // Zombies can't swim, so water blocks them as well as solid tiles.
@@ -156,15 +157,15 @@ bool Zombies::load(SDL_Renderer* renderer, const std::string& spritePath) {
     return sprite_ && flash_;
 }
 
-void Zombies::update(float dt, const TileMap& map, Player& player, Effects& effects) {
+void Zombies::update(float dt, const TileMap& map, Player& player, Effects& effects, bool night) {
     tickAccumulator_ += dt;
     while (tickAccumulator_ >= kTick) {
         tickAccumulator_ -= kTick;
-        tick(map, player, effects);
+        tick(map, player, effects, night);
     }
 }
 
-void Zombies::tick(const TileMap& map, Player& player, Effects& effects) {
+void Zombies::tick(const TileMap& map, Player& player, Effects& effects, bool night) {
     const auto blocked = [&](const SDL_FRect& box, const Zombie* self) {
         for (const Zombie& other : zombies_) {
             if (&other == self) continue;
@@ -181,10 +182,11 @@ void Zombies::tick(const TileMap& map, Player& player, Effects& effects) {
     const SDL_FPoint p = player.center();
     std::erase_if(zombies_, [&](const Zombie& zombie) {
         const SDL_FPoint c = zombie.center();
-        return zombie.isDead() || std::hypot(c.x - p.x, c.y - p.y) > kDespawnDistance;
+        const float distance = std::hypot(c.x - p.x, c.y - p.y);
+        return zombie.isDead() || distance > kDespawnDistance || (!night && distance > kDaytimeDespawnDistance);
     });
 
-    if (spawningEnabled && ++spawnTimer_ >= kSpawnIntervalTicks) {
+    if (spawningEnabled && night && ++spawnTimer_ >= kSpawnIntervalTicks) {
         spawnTimer_ = 0;
         if (static_cast<int>(zombies_.size()) < kMaxAlive) {
             spawnNear(map, p.x, p.y, kSpawnMinTiles, kSpawnMaxTiles);

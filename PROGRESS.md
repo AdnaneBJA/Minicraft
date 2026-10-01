@@ -13,7 +13,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Punching breaks trees | 1127 |
 | 2026-10-01 | Resource gathering, inventory, health/energy HUD | 1892 |
 | 2026-10-01 | Swimming, drowning, hold-to-punch | 2014 |
-| 2026-10-01 | Minicraft world generation, zombies | 2762 |
+| 2026-10-01 | Classic world generation, zombies, day/night | 2886 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -108,14 +108,17 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     30-tick hurt cooldown.
   - At 0 health the player respawns at the spawn point with full health and energy and keeps the inventory (no death
     screen or death chest yet).
-- **2026-10-01: Minicraft world generation and zombies.**
-  - **World generation** (`simplex.h/.cpp`, `world_gen.h/.cpp`): a port of Minicraft+'s surface generator.
-    - OpenSimplex2 3D noise (bit-compatible port of its `Simplex.java`), 10 layers at scales 1-8192 (`LevelNoise`).
-    - Each tile gets a temperature, height and humidity; the biome with the highest generation weight wins
-      (Surface, Desert, Forest, Ocean, River, River bank, Rock), and the biome places tiles using the same noise
-      rules as Minicraft.
-    - Flowers/cactus/stairs (not in this game) become grass/sand/rock.
-    - The world is now 256x256 (Minicraft's 128 is mostly a single biome); it takes ~0.2 s to generate in Debug.
+- **2026-10-01: Classic world generation, zombies and day/night.**
+  - **World generation** (`world_gen.h/.cpp`): based on the original Minicraft `LevelGen.createTopMap`.
+    - Midpoint-displacement noise maps and `java.util.Random` (ported).
+    - Rocky mountains from Minicraft's `mval` rule, sand patches, and forest clumps.
+    - Re-rolls worlds that lack enough rock, sand, grass or trees, like `createAndValidateTopMap`.
+    - Changes from the original:
+      - The island falloff is radial, and the coast uses one smooth noise, so the ocean stays at the edges with a
+        clear, ragged coastline (the original also carves long water channels through the island).
+      - A 2-tile sand beach is added between the land and the ocean (water connected to the map edge).
+      - Lakes come from a separate noise with a strict threshold: only a few small ones inland.
+    - 256x256, ~15 ms to generate. (The earlier Minicraft+ biome port and its simplex noise were removed.)
   - **Zombies** (`zombie.h/.cpp`, port of Minicraft's Zombie/EnemyMob/MobAi, level 1 on normal difficulty):
     - 10 health; walks at 30 px/s; chases the player within 100 px, otherwise random walks.
     - Can't swim (water blocks it) and doesn't overlap other zombies.
@@ -126,10 +129,17 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
       removes those more than 48 tiles away.
     - Zombies are drawn behind or in front of the player depending on who is lower on screen.
   - Player: knockback when hit; `collision.h` holds the tile collision shared by the player and zombies.
-  - Debug panel: biome under the player; zombie count, an "auto spawn" toggle, "Spawn one nearby" and "Remove all";
+  - **Day/night** (`day_night.h/.cpp`, Minicraft's Updater + LightOverlay):
+    - A day is 64800 ticks (18 min): morning, day, evening, night.
+    - The surface darkens through the evening to 80% at night and brightens again in the morning (the first morning
+      stays bright).
+    - At night the player carries a 40 px circle of light. Its edge uses Minicraft's 4x4 ordered dither, and
+      everything outside it is dark.
+    - Zombies only spawn at night (Minicraft skips the first night; here it doesn't). During the day, zombies out of
+      view despawn.
+  - Debug panel: time of day with Morning/Day/Evening/Night buttons; zombie count, an "auto spawn" toggle, "Spawn one nearby" and "Remove all";
     hitbox mode also outlines zombie hitboxes and the punch's attack box.
-  - Not yet: day/night (Minicraft only spawns zombies at night or in the dark), zombie drops, the player blocking
-    zombies from walking through them.
+  - Not yet: zombie drops, the player blocking zombies from walking through them, light sources other than the player.
 
 ## Next
 - Crafting (workbench, wooden tools) using the gathered wood/stone.

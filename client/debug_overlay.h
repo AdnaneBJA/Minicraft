@@ -1,5 +1,7 @@
 #pragma once
 
+#include "day_night.h"
+
 #include <SDL3/SDL.h>
 
 #include <cstdint>
@@ -29,10 +31,12 @@ public:
         bool refillStats = false;
         bool spawnZombie = false;
         bool clearZombies = false;
+        std::optional<DayNight::Time> setTime;
     };
     // Draws the ImGui panel.
     PanelActions drawPanel(const Camera& camera, float scale, const TileMap& map, const Player& player,
-                           const Inventory& inventory, std::size_t droppedItemCount, Zombies& zombies);
+                           const Inventory& inventory, std::size_t droppedItemCount, Zombies& zombies,
+                           const DayNight& dayNight);
 
 private:
     bool enabled_ = false;

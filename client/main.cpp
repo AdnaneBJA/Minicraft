@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "day_night.h"
 #include "debug_overlay.h"
 #include "dropped_items.h"
 #include "effects.h"
@@ -26,7 +27,7 @@ public:
     // Minimum view in world pixels; the window is scaled up by the largest whole factor that still fits it.
     static constexpr int kViewWidth = 240;
     static constexpr int kViewHeight = 135;
-    static constexpr int kMapSize = 256;  // tiles; big enough for Minicraft's biomes to vary within a world
+    static constexpr int kMapSize = 256;  // tiles (power of two, required by the generator)
     static constexpr std::uint32_t kDefaultSeed = 1337;
     // Holding Space works like Minicraft: the press punches once, and only once the key has been held for a moment
     // (Minicraft waits for the OS key repeat to make the key "sticky") does it unload rapid punches until energy
@@ -34,6 +35,7 @@ public:
     static constexpr float kPunchHoldDelay = 0.5f;
     static constexpr float kRapidPunchInterval = 3.0f / 60.0f;  // 20 punches/s
     static constexpr SDL_Color kPlayerDamageColor{255, 0, 204, 255};  // Minicraft: Color.get(-1, 504)
+    static constexpr float kPlayerLightRadius = 40.0f;
 
     bool init() {
         if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -173,7 +175,8 @@ private:
                 punchRepeatTimer_ += kRapidPunchInterval;
             }
         }
-        zombies_.update(dt, map_, player_, effects_);
+        dayNight_.update(dt);
+        zombies_.update(dt, map_, player_, effects_, dayNight_.time() == DayNight::Time::Night);
         if (player_.isDead()) respawn();
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
@@ -204,6 +207,11 @@ private:
         zombies_.draw(renderer, camera_, playerY, false);
         effects_.draw(renderer, camera_, font_);
 
+        // Night: darken everything except a circle of light around the player (Minicraft: radius 5 * 8 px, centred
+        // on the entity position moved up-left by (1, 4)).
+        const SDL_FPoint middle = player_.center();
+        lighting_.draw(renderer, camera_, dayNight_.darkness(), {{middle.x - 1.0f, middle.y - 4.0f, kPlayerLightRadius}});
+
         // UI in view pixels (same scale, not moved by the camera).
         hud_.drawStatus(renderer, player_, std::floor(camera_.height()));
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
@@ -216,7 +224,7 @@ private:
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         const auto actions =
-            debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size(), zombies_);
+            debug_.drawPanel(camera_, scale_, map_, player_, inventory_, droppedItems_.size(), zombies_, dayNight_);
         if (actions.regenerateSeed) newWorld(*actions.regenerateSeed);
         if (actions.refillStats) player_.refillStats();
         if (actions.spawnZombie) {
@@ -224,6 +232,7 @@ private:
             zombies_.spawnNear(map_, p.x, p.y, 3, 6);
         }
         if (actions.clearZombies) zombies_.clear();
+        if (actions.setTime) dayNight_.setTime(*actions.setTime);
         ImGui::Render();
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
 
@@ -267,6 +276,8 @@ private:
     Player player_;
     Effects effects_;
     Zombies zombies_;
+    DayNight dayNight_;
+    Lighting lighting_;
     DroppedItems droppedItems_;
     Inventory inventory_;
     InventoryMenu inventoryMenu_;

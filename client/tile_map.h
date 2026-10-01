@@ -28,8 +28,8 @@ public:
 
     bool load(SDL_Renderer* renderer, const std::string& atlasPath);
 
-    // Generates the surface with Minicraft's biome system (see WorldGenerator): plains, forests, deserts, rivers,
-    // oceans and rocky highlands.
+    // Generates the surface like the original Minicraft (see WorldGenerator): an island with an ocean around it,
+    // sand beaches, forests, sand patches, rocky mountains and a few lakes. Width and height must be powers of two.
     void generate(std::uint32_t seed, int width, int height);
 
     // Finds a walkable tile near the centre of the map; returns its top-left pixel position.

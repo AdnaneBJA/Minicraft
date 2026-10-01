@@ -124,12 +124,7 @@ void TileMap::generate(std::uint32_t seed, int width, int height) {
     tiles_.assign(static_cast<std::size_t>(width * height), Tile::Grass);
     damage_.assign(static_cast<std::size_t>(width * height), 0);
 
-    const WorldGenerator generator(seed);
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            tiles_[index(x, y)] = generator.tileAt(x, y);
-        }
-    }
+    tiles_ = WorldGenerator::generate(seed, width, height);
 }
 
 std::optional<TileMap::TileHit> TileMap::hurtTile(int tx, int ty, int damage) {

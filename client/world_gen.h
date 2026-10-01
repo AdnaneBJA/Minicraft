@@ -1,31 +1,34 @@
 #pragma once
 
-#include "simplex.h"
 #include "tile_map.h"
 
 #include <cstdint>
+#include <vector>
 
-// Port of Minicraft+'s surface world generation (LevelGen, LevelNoise and the biome classes):
-// 10 layers of OpenSimplex noise at scales 1..8192 give each tile a temperature, height and humidity; the biome
-// with the highest weight wins, and each biome decides the tile from more noise.
-class WorldGenerator {
+// java.util.Random (48-bit LCG), so world generation follows the same random sequence logic as Minicraft.
+class JavaRandom {
 public:
-    enum class Biome { Surface, Desert, Forest, Ocean, River, RiverBank, Rock };
+    explicit JavaRandom(std::int64_t seed);
 
-    explicit WorldGenerator(std::int64_t seed) : noise_(seed) {}
-
-    Biome biomeAt(int x, int y) const;
-    Tile tileAt(int x, int y) const;
+    int nextInt(int bound);
+    float nextFloat();
 
 private:
-    // LevelNoise sample: scale index 0..9 is scale 1, 4, 8, 16, 32, 64, 128, 512, 2048, 8192.
-    double sample(int scaleIndex, int layer, int x, int y) const;
-    double octave(int x, int y, int layer, const double (&weights)[10]) const;
-    double temperature(int x, int y) const;
-    double height(int x, int y) const;
-    double humidity(int x, int y) const;
+    int next(int bits);
 
-    SimplexNoise noise_;
+    std::int64_t seed_;
 };
 
-const char* biomeName(WorldGenerator::Biome biome);
+// Port of the original Minicraft surface generator (LevelGen.createTopMap): an island from midpoint-displacement
+// noise with water pushed to the map edges, rocky mountains inland, sand patches and forest clumps. On top of the
+// original: a sand beach between the land and the ocean, and fewer inland lakes.
+class WorldGenerator {
+public:
+    // Generates a width x height map (both powers of two). Re-rolls until the world has enough of every tile type,
+    // like Minicraft's createAndValidateTopMap.
+    static std::vector<Tile> generate(std::uint32_t seed, int width, int height);
+
+private:
+    static std::vector<Tile> createTopMap(JavaRandom& random, int width, int height);
+    static void addBeaches(std::vector<Tile>& map, int width, int height);
+};

@@ -4,7 +4,6 @@
 #include "items.h"
 #include "player.h"
 #include "tile_map.h"
-#include "world_gen.h"
 #include "zombie.h"
 
 #include <imgui.h>
@@ -113,7 +112,8 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
 
 DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
                                                    const Player& player, const Inventory& inventory,
-                                                   std::size_t droppedItemCount, Zombies& zombies) {
+                                                   std::size_t droppedItemCount, Zombies& zombies,
+                                                   const DayNight& dayNight) {
     if (!enabled_) return {};
     if (!seedInputInitialised_) {
         seedInput_ = map.seed();
@@ -146,7 +146,6 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             ImGui::Text("FPS: %.0f", static_cast<double>(ImGui::GetIO().Framerate));
             ImGui::Text("Player: %.1f, %.1f px", static_cast<double>(bounds.x), static_cast<double>(bounds.y));
             ImGui::Text("Tile: %d, %d (%s)", tx, ty, map.inBounds(tx, ty) ? tileName(map.tileAt(tx, ty)) : "-");
-            ImGui::Text("Biome: %s", biomeName(WorldGenerator(map.seed()).biomeAt(tx, ty)));
             const SDL_Point target = player.interactionTile();
             if (map.inBounds(target.x, target.y)) {
                 const Tile targetTile = map.tileAt(target.x, target.y);
@@ -176,9 +175,18 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             }
         }
 
+        ImGui::SeparatorText("Time");
+        ImGui::Text("%s  (tick %d / %d, darkness %.0f%%)", timeName(dayNight.time()), dayNight.tick(),
+                    DayNight::kDayLength, static_cast<double>(dayNight.darkness() * 100.0f));
+        for (const DayNight::Time time :
+             {DayNight::Time::Morning, DayNight::Time::Day, DayNight::Time::Evening, DayNight::Time::Night}) {
+            if (time != DayNight::Time::Morning) ImGui::SameLine();
+            if (ImGui::Button(timeName(time))) actions.setTime = time;
+        }
+
         ImGui::SeparatorText("Zombies");
         ImGui::Text("Alive: %zu / %d", zombies.all().size(), Zombies::kMaxAlive);
-        ImGui::Checkbox("Spawn automatically", &zombies.spawningEnabled);
+        ImGui::Checkbox("Spawn automatically (at night)", &zombies.spawningEnabled);
         if (ImGui::Button("Spawn one nearby")) actions.spawnZombie = true;
         ImGui::SameLine();
         if (ImGui::Button("Remove all")) actions.clearZombies = true;
