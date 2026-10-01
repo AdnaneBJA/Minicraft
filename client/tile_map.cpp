@@ -62,6 +62,10 @@ const char* tileName(Tile tile) {
     return "?";
 }
 
+bool isSolid(Tile tile) {
+    return tile == Tile::Water || tile == Tile::Rock || tile == Tile::Tree;
+}
+
 bool TileMap::load(SDL_Renderer* renderer, const std::string& atlasPath) {
     SDL_Surface* surface = SDL_LoadPNG(atlasPath.c_str());
     if (!surface) {

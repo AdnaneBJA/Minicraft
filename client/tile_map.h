@@ -13,6 +13,9 @@ enum class Tile : std::uint8_t { Grass, Sand, Water, Rock, Tree };
 
 const char* tileName(Tile tile);
 
+// Whether a tile blocks movement.
+bool isSolid(Tile tile);
+
 class TileMap {
 public:
     static constexpr int kTileSize = 16;
@@ -29,6 +32,8 @@ public:
 
     Tile tileAt(int tx, int ty) const { return tiles_[static_cast<std::size_t>(ty * width_ + tx)]; }
     bool inBounds(int tx, int ty) const { return tx >= 0 && ty >= 0 && tx < width_ && ty < height_; }
+    // Outside the map counts as solid, so nothing can walk off the edge.
+    bool isSolidAt(int tx, int ty) const { return !inBounds(tx, ty) || isSolid(tileAt(tx, ty)); }
     int width() const { return width_; }
     int height() const { return height_; }
     float pixelWidth() const { return static_cast<float>(width_ * kTileSize); }

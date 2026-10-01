@@ -6,6 +6,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | Date | Milestone | LOC |
 |---|---|---|
 | 2026-10-01 | Tile map, camera, debug mode, movement fixes | 722 |
+| 2026-10-01 | Collision | 829 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -33,6 +34,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   ~70% of frames, which made the screen shake when moving diagonally. It also fixes vertical jitter caused
   by the half-pixel view height (135 / 2 = 67.5).
 
+- **2026-10-01: Collision.** Water, rock and trees are solid (`isSolid(Tile)`), and so is the area outside the map.
+  - The player collides with an 8x6 hitbox at their feet (Minicraft-style), so their head can overlap a tree above.
+  - X and Y are resolved separately: the player stops flush against a wall and slides along it when moving diagonally.
+  - Debug panel: new "Player hitbox" and "Solid tiles" (faint red tint) toggles.
+
 ## Next
-- Collision with solid tiles (water, rock, trees). Not done yet: the player currently walks over everything.
 - Tile borders/transitions (Minicraft+ has `*_border.png` connected textures).

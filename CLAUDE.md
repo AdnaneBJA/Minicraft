@@ -219,5 +219,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). No collision yet. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Water, rock and trees are solid. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.
