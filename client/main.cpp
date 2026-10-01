@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <string>
 
 class Game {
@@ -94,9 +95,10 @@ private:
         SDL_GetCurrentRenderOutputSize(renderer_.get(), &outputWidth, &outputHeight);
         scale_ = static_cast<float>(std::max(1, std::min(outputWidth / kViewWidth, outputHeight / kViewHeight)));
         camera_.setViewSize(static_cast<float>(outputWidth) / scale_, static_cast<float>(outputHeight) / scale_);
+        // Follow the position the player is actually drawn at (rounded), so the two never disagree by a pixel.
         const SDL_FRect bounds = player_.bounds();
-        camera_.follow(bounds.x + bounds.w / 2.0f, bounds.y + bounds.h / 2.0f, map_.pixelWidth(),
-                       map_.pixelHeight());
+        camera_.follow(std::round(bounds.x) + bounds.w / 2.0f, std::round(bounds.y) + bounds.h / 2.0f,
+                       map_.pixelWidth(), map_.pixelHeight());
     }
 
     void draw() {

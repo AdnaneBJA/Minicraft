@@ -21,7 +21,9 @@ void Camera::setViewSize(float width, float height) {
 }
 
 void Camera::follow(float targetX, float targetY, float worldWidth, float worldHeight) {
-    // Round to whole pixels so pixel art never lands between pixels (no shimmering).
-    x_ = std::round(clampAxis(targetX - width_ / 2.0f, width_, worldWidth));
-    y_ = std::round(clampAxis(targetY - height_ / 2.0f, height_, worldHeight));
+    // Snap to whole pixels so pixel art never lands between pixels. Use floor, not round: the view's half
+    // size can be fractional (135 / 2 = 67.5), and rounding would make the camera snap at different moments
+    // than the target, so the followed sprite would jitter by a pixel. Callers pass a pixel-snapped target.
+    x_ = std::floor(clampAxis(targetX - width_ / 2.0f, width_, worldWidth));
+    y_ = std::floor(clampAxis(targetY - height_ / 2.0f, height_, worldHeight));
 }
