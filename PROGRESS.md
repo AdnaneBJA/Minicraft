@@ -1,5 +1,12 @@
 # Progress
 
+## Lines of code (`.cpp` + `.h`, excluding fetched dependencies)
+Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' | xargs wc -l`
+
+| Date | Milestone | LOC |
+|---|---|---|
+| 2026-10-01 | Tile map, camera, debug mode, movement fixes | 722 |
+
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
 - **2026-10-01: Player + basic movement.** `client/player.{h,cpp}`: the `Player` class loads the Minicraft+
@@ -20,6 +27,11 @@
     player outline, and the tile under the player. A Dear ImGui panel toggles each overlay and shows
     FPS, position, tile and camera info, and has seed input + Regenerate / Random seed buttons.
   - Dear ImGui v1.92.9b is fetched by CMake (SDL3 + SDLRenderer3 backends).
+
+- **2026-10-01: Smooth camera.** The camera and player now snap to screen pixels (1/scale of a world pixel)
+  instead of whole world pixels. Before, the view moved in 4-screen-pixel jumps at 4x zoom and stood still on
+  ~70% of frames, which made the screen shake when moving diagonally. It also fixes vertical jitter caused
+  by the half-pixel view height (135 / 2 = 67.5).
 
 ## Next
 - Collision with solid tiles (water, rock, trees). Not done yet: the player currently walks over everything.

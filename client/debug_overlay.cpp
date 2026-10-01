@@ -49,7 +49,7 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
     }
 
     if (showPlayerOutline_) {
-        const SDL_FRect playerRect{toScreenX(std::round(bounds.x)), toScreenY(std::round(bounds.y)),
+        const SDL_FRect playerRect{toScreenX(camera.snap(bounds.x)), toScreenY(camera.snap(bounds.y)),
                                    bounds.w * scale, bounds.h * scale};
         SDL_SetRenderDrawColor(renderer, 255, 220, 40, 230);
         SDL_RenderRect(renderer, &playerRect);

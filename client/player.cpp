@@ -86,7 +86,7 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
     }
 
     const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
-    const SDL_FRect destination{std::round(x_) - camera.x(), std::round(y_) - camera.y(), kSize, kSize};
+    const SDL_FRect destination{camera.snap(x_) - camera.x(), camera.snap(y_) - camera.y(), kSize, kSize};
     SDL_RenderTextureRotated(renderer, texture_.get(), &source, &destination, 0.0, nullptr,
                              mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
 }

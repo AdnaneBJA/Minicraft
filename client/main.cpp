@@ -94,10 +94,10 @@ private:
         int outputHeight = 0;
         SDL_GetCurrentRenderOutputSize(renderer_.get(), &outputWidth, &outputHeight);
         scale_ = static_cast<float>(std::max(1, std::min(outputWidth / kViewWidth, outputHeight / kViewHeight)));
-        camera_.setViewSize(static_cast<float>(outputWidth) / scale_, static_cast<float>(outputHeight) / scale_);
-        // Follow the position the player is actually drawn at (rounded), so the two never disagree by a pixel.
+        camera_.setView(static_cast<float>(outputWidth) / scale_, static_cast<float>(outputHeight) / scale_, scale_);
+        // Follow the position the player is actually drawn at (snapped), so the two never disagree by a pixel.
         const SDL_FRect bounds = player_.bounds();
-        camera_.follow(std::round(bounds.x) + bounds.w / 2.0f, std::round(bounds.y) + bounds.h / 2.0f,
+        camera_.follow(camera_.snap(bounds.x) + bounds.w / 2.0f, camera_.snap(bounds.y) + bounds.h / 2.0f,
                        map_.pixelWidth(), map_.pixelHeight());
     }
 
