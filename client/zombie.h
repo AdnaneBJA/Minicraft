@@ -4,6 +4,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <span>
 #include <string>
 #include <vector>
 
@@ -67,8 +68,9 @@ public:
 
     // `night`: zombies only spawn at night (Minicraft spawns surface enemies only at night); during the day the
     // ones out of view despawn.
-    // Zombies that die drop their loot into `drops`.
-    void update(float dt, const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night);
+    // Zombies that die drop their loot into `drops`. `obstacles` (furniture) block them like other zombies.
+    void update(float dt, const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night,
+                std::span<const SDL_FRect> obstacles);
     // Draws the zombies standing behind (`behind` = true: higher on screen than `playerY`) or in front of the player,
     // so they overlap the player sprite in the right order.
     void draw(SDL_Renderer* renderer, const Camera& camera, float playerY, bool behind) const;
@@ -76,15 +78,19 @@ public:
     // A punch: hurts every zombie whose hitbox overlaps `attackBox`. Returns true if one was hit.
     bool punch(const SDL_FRect& attackBox, int damage, SDL_Point direction, Effects& effects);
 
-    // Places a zombie on open ground near (x, y) (world pixels), for testing. Returns false if no spot was found.
-    bool spawnNear(const TileMap& map, float x, float y, int minTiles, int maxTiles);
+    // Places a zombie on open ground near (x, y) (world pixels), clear of other zombies and `obstacles`. Returns
+    // false if no spot was found.
+    bool spawnNear(const TileMap& map, std::span<const SDL_FRect> obstacles, float x, float y, int minTiles,
+                   int maxTiles);
+    std::vector<SDL_FRect> hitboxes() const;
 
     void clear() { zombies_.clear(); }
     const std::vector<Zombie>& all() const { return zombies_; }
     bool spawningEnabled = true;
 
 private:
-    void tick(const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night);
+    void tick(const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night,
+              std::span<const SDL_FRect> obstacles);
 
     TexturePtr sprite_;
     TexturePtr flash_;

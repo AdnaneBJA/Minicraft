@@ -1,9 +1,12 @@
 #pragma once
 
+#include "items.h"
 #include "texture.h"
 
 #include <SDL3/SDL.h>
 
+#include <optional>
+#include <span>
 #include <string>
 
 class Camera;
@@ -19,12 +22,14 @@ public:
     static constexpr int kMaxHealth = 10;
     static constexpr int kMaxEnergy = 10;
 
-    // Loads the sprite strip (16x16 frames: down, up, right 1, right 2) and hud.png (for the slash pieces).
+    // Loads the sprite sheet (16x16 frames: down, up, right 1, right 2; walking on the top row, carrying with the
+    // arms raised on the bottom row) and hud.png (for the slash pieces).
     bool load(SDL_Renderer* renderer, const std::string& spritePath, const std::string& hudPath);
 
     void setPosition(float x, float y);
-    // Moves the player and runs its 60 Hz stat ticks. Returns the health lost during this update (drowning).
-    int update(float dt, const bool* keys, const TileMap& map);
+    // Moves the player and runs its 60 Hz stat ticks; `obstacles` (furniture) block movement like solid tiles.
+    // Returns the health lost during this update (drowning).
+    int update(float dt, const bool* keys, const TileMap& map, std::span<const SDL_FRect> obstacles);
     void draw(SDL_Renderer* renderer, const Camera& camera) const;
 
     // Starts a punch in the facing direction if there is energy left, spending 1. Returns false when exhausted.
@@ -45,6 +50,15 @@ public:
     // cooldown. Returns true if the hit landed.
     bool takeHit(int damage, int directionX, int directionY);
 
+    // The item in the player's hand (Minicraft's activeItem), taken out of the inventory.
+    const std::optional<Inventory::Stack>& heldItem() const { return heldItem_; }
+    void setHeldItem(std::optional<Inventory::Stack> item) { heldItem_ = item; }
+    // Holding furniture: the player walks with it raised over the head (Minicraft's carrySprites).
+    bool isCarryingFurniture() const { return heldItem_ && isFurniture(heldItem_->type); }
+    // Top-left of the carried furniture's 16x16 sprite: 12 px above the player sprite (Minicraft: furniture.y =
+    // yo - 4), sinking with the player in water.
+    SDL_FPoint carriedFurniturePosition() const { return {x_, y_ - 12.0f + (swimming_ ? 4.0f : 0.0f)}; }
+
     int health() const { return health_; }
     int energy() const { return energy_; }
     // Ticks left in the pause after running out of energy (bolts blink meanwhile); 0 when not exhausted.
@@ -63,13 +77,13 @@ private:
     enum class Direction { Down, Up, Left, Right };
 
     // Moves along one axis, stopping flush against the first solid tile in the way.
-    void moveX(float delta, const TileMap& map);
-    void moveY(float delta, const TileMap& map);
+    void moveX(float delta, const TileMap& map, std::span<const SDL_FRect> obstacles);
+    void moveY(float delta, const TileMap& map, std::span<const SDL_FRect> obstacles);
     // One 60 Hz tick of energy recharge (Minicraft's stamina rules).
     void tickEnergy();
     // Loses health unless still in the hurt cooldown; starts the cooldown and the white flash.
     void hurt(int damage);
-    void tickKnockback(const TileMap& map);
+    void tickKnockback(const TileMap& map, std::span<const SDL_FRect> obstacles);
     void drawSlash(SDL_Renderer* renderer, float x, float y) const;
 
     TexturePtr texture_;
@@ -95,4 +109,5 @@ private:
     int knockbackY_ = 0;
     int damageTaken_ = 0;  // health lost since the start of the current update()
     int ticks_ = 0;  // 60 Hz ticks since start; drives the swimming ripple animation
+    std::optional<Inventory::Stack> heldItem_;
 };

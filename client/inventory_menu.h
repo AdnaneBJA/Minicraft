@@ -4,6 +4,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <optional>
 #include <string>
 
 class Font;
@@ -24,7 +25,9 @@ public:
     void toggle() { open_ = !open_; }
     void close() { open_ = false; }
 
-    void handleKey(SDL_Keycode key, const Inventory& inventory);
+    // W/S or the arrows move the cursor. Space or Enter returns the selected slot, which the caller puts in the
+    // player's hand (Minicraft's PlayerInvDisplay); otherwise nullopt.
+    std::optional<int> handleKey(SDL_Keycode key, const Inventory& inventory);
     void draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
               const Inventory& inventory) const;
 

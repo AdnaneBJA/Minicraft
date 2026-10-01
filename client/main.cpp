@@ -5,6 +5,7 @@
 #include "dropped_items.h"
 #include "effects.h"
 #include "font.h"
+#include "furniture.h"
 #include "hud.h"
 #include "inventory_menu.h"
 #include "items.h"
@@ -22,6 +23,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <vector>
 
 class Game {
 public:
@@ -63,6 +65,7 @@ public:
             !hud_.load(renderer, sprites + "hud.png") || !font_.load(renderer, sprites + "font.png") ||
             !itemIcons_.load(renderer, sprites + "items.png") ||
             !inventoryMenu_.load(renderer, sprites + "inventory_counter.png") ||
+            !furniture_.load(renderer, sprites + "furniture.png") ||
             !zombies_.load(renderer, sprites + "zombie.png")) {
             return false;
         }
@@ -91,6 +94,7 @@ private:
         effects_.clear();
         droppedItems_.clear();
         zombies_.clear();
+        furniture_.clear();
         const SDL_FPoint spawn = map_.findSpawnPoint();
         player_.setPosition(spawn.x, spawn.y);
     }
@@ -122,6 +126,33 @@ private:
             // Minicraft drops: a tree gives 1-3 wood, a rock punched by hand gives 1 stone.
             if (hit->tile == Tile::Tree) droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
             if (hit->tile == Tile::Rock) droppedItems_.spawn(ItemType::Stone, 1, centerX, centerY);
+        }
+    }
+
+    // Space: with furniture in hand, try to place it on the tile in front (FurnitureItem.interactOn); with any other
+    // item in hand nothing happens (Minicraft items that can't attack don't punch); with an empty hand, punch.
+    void useOrPunch() {
+        const auto& held = player_.heldItem();
+        if (!held) {
+            punch();
+            return;
+        }
+        if (!isFurniture(held->type)) return;
+        const SDL_Point target = player_.interactionTile();
+        if (furniture_.place(held->type, target.x, target.y, map_, zombies_.hitboxes())) {
+            player_.setHeldItem(std::nullopt);
+        }
+    }
+
+    // Opening a menu puts the held item back in the inventory, or drops it if there's no room (Minicraft's
+    // tryAddToInvOrDrop).
+    void stowHeldItem() {
+        const auto held = player_.heldItem();
+        if (!held) return;
+        player_.setHeldItem(std::nullopt);
+        if (const int leftover = inventory_.add(held->type, held->count); leftover > 0) {
+            const SDL_FPoint middle = player_.center();
+            droppedItems_.spawn(held->type, leftover, middle.x, middle.y);
         }
     }
 
@@ -161,15 +192,21 @@ private:
         }
         // Each menu's key opens it or closes it, but doesn't open one menu on top of the other.
         if (key == InventoryMenu::kToggleKey && !craftingMenu_.isOpen()) {
+            stowHeldItem();
             inventoryMenu_.toggle();
             return;
         }
         if (key == CraftingMenu::kToggleKey && !inventoryMenu_.isOpen()) {
+            stowHeldItem();
             craftingMenu_.toggle();
             return;
         }
         if (inventoryMenu_.isOpen()) {
-            inventoryMenu_.handleKey(key, inventory_);
+            // Selecting a slot puts that whole stack in the player's hand and closes the inventory.
+            if (const auto slot = inventoryMenu_.handleKey(key, inventory_)) {
+                player_.setHeldItem(inventory_.take(*slot));
+                inventoryMenu_.close();
+            }
             return;
         }
         if (craftingMenu_.isOpen()) {
@@ -177,7 +214,7 @@ private:
             return;
         }
         if (key == SDLK_SPACE) {
-            punch();  // a fresh press always punches right away
+            useOrPunch();  // a fresh press always acts right away
             punchRepeatTimer_ = kPunchHoldDelay;
         }
     }
@@ -187,7 +224,8 @@ private:
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
         const bool blockKeys = ImGui::GetIO().WantCaptureKeyboard || menuOpen();
         const bool* keys = blockKeys ? noKeys.data() : SDL_GetKeyboardState(nullptr);
-        if (const int damageTaken = player_.update(dt, keys, map_); damageTaken > 0) {
+        const std::vector<SDL_FRect> obstacles = furniture_.hitboxes();
+        if (const int damageTaken = player_.update(dt, keys, map_, obstacles); damageTaken > 0) {
             const SDL_FPoint middle = player_.center();
             effects_.addDamageNumber(damageTaken, middle.x, middle.y, kPlayerDamageColor);
         }
@@ -195,12 +233,13 @@ private:
         if (keys[SDL_SCANCODE_SPACE]) {
             punchRepeatTimer_ -= dt;
             if (punchRepeatTimer_ <= 0.0f) {
-                punch();
+                useOrPunch();
                 punchRepeatTimer_ += kRapidPunchInterval;
             }
         }
         dayNight_.update(dt);
-        zombies_.update(dt, map_, player_, effects_, droppedItems_, dayNight_.time() == DayNight::Time::Night);
+        zombies_.update(dt, map_, player_, effects_, droppedItems_, dayNight_.time() == DayNight::Time::Night,
+                        obstacles);
         if (player_.isDead()) respawn();
         droppedItems_.update(dt, map_, player_.hitbox(), inventory_);
         effects_.update(dt);
@@ -226,8 +265,14 @@ private:
         map_.draw(renderer, camera_, time_);
         droppedItems_.draw(renderer, camera_, itemIcons_);
         const float playerY = player_.center().y;
+        furniture_.draw(renderer, camera_, playerY, true);
         zombies_.draw(renderer, camera_, playerY, true);
         player_.draw(renderer, camera_);
+        if (player_.isCarryingFurniture()) {
+            const SDL_FPoint carried = player_.carriedFurniturePosition();
+            furniture_.drawSprite(renderer, camera_, player_.heldItem()->type, carried.x, carried.y);
+        }
+        furniture_.draw(renderer, camera_, playerY, false);
         zombies_.draw(renderer, camera_, playerY, false);
         effects_.draw(renderer, camera_, font_);
 
@@ -238,6 +283,9 @@ private:
 
         // UI in view pixels (same scale, not moved by the camera).
         hud_.drawStatus(renderer, player_, std::floor(camera_.height()));
+        if (const auto& held = player_.heldItem()) {
+            hud_.drawHeldItem(renderer, font_, itemIcons_, *held, std::floor(camera_.height()));
+        }
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
         craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
 
@@ -254,7 +302,7 @@ private:
         if (actions.refillStats) player_.refillStats();
         if (actions.spawnZombie) {
             const SDL_FPoint p = player_.center();
-            zombies_.spawnNear(map_, p.x, p.y, 3, 6);
+            zombies_.spawnNear(map_, furniture_.hitboxes(), p.x, p.y, 3, 6);
         }
         if (actions.clearZombies) zombies_.clear();
         if (actions.setTime) dayNight_.setTime(*actions.setTime);
@@ -301,6 +349,7 @@ private:
     Player player_;
     Effects effects_;
     Zombies zombies_;
+    Furniture furniture_;
     DayNight dayNight_;
     Lighting lighting_;
     DroppedItems droppedItems_;

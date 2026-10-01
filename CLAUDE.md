@@ -68,7 +68,7 @@ Minicraft/
 ├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
-│   └── sprites/       # player.png, zombie.png, tiles.png (atlas), hud.png, font.png, items.png, inventory_counter.png, smash.png
+│   └── sprites/       # player.png, zombie.png, tiles.png (atlas), hud.png, font.png, items.png, inventory_counter.png, smash.png, furniture.png
 └── client/
     ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
     ├── player.h/.cpp  # Player: sprite, movement, walk animation
@@ -85,6 +85,7 @@ Minicraft/
     ├── inventory_menu.h/.cpp  # inventory screen (E)
     ├── recipe.h/.cpp   # Recipe: product + costs, crafted against an Inventory
     ├── crafting_menu.h/.cpp  # crafting screen (Z): recipe list + Have/Cost boxes
+    ├── furniture.h/.cpp  # placed furniture (workbench): placement, collision boxes, drawing
     ├── world_gen.h/.cpp  # original-Minicraft-style island generation (+ beaches, few lakes)
     ├── day_night.h/.cpp  # day/night cycle and the night lighting overlay
     ├── collision.h     # tile collision shared by the player and mobs
@@ -233,5 +234,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a 256x256 island generated like the original Minicraft, with a day/night cycle (zombies spawn at night and chase the player) with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory; Z opens crafting (Workbench = 10 wood, crafted with Space/Enter). 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a 256x256 island generated like the original Minicraft, with a day/night cycle (zombies spawn at night and chase the player) with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory; Z opens crafting (Workbench = 10 wood, crafted with Space/Enter). Space/Enter on an inventory slot puts it in hand; a held workbench is carried over the head and Space places it on the tile in front (it blocks the player and zombies). 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

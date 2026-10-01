@@ -6,9 +6,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 
-// Tile collision shared by the player and mobs: moving a box along one axis, stopping flush against the first
-// solid tile in the way. `isSolid(tx, ty)` decides which tiles block (e.g. mobs that can't swim treat water as solid).
+// Collision shared by the player and mobs: moving a box along one axis, stopping flush against the first solid tile
+// (or obstacle box, e.g. furniture) in the way. `isSolid(tx, ty)` decides which tiles block (e.g. mobs that can't
+// swim treat water as solid).
 namespace collision {
 
 constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
@@ -57,6 +59,29 @@ float allowedMoveY(const SDL_FRect& box, float delta, IsSolid isSolid) {
                                             : static_cast<float>(row + 1) * kTileSize;
             return edge - box.y;
         }
+    }
+    return delta;
+}
+
+// Shortens a move of `box` by `delta` along x so it stops flush against the first obstacle in the way. Obstacles
+// the box already overlaps don't block, so nothing can get stuck inside one.
+inline float clampMoveX(const SDL_FRect& box, float delta, std::span<const SDL_FRect> obstacles) {
+    for (const SDL_FRect& o : obstacles) {
+        if (box.y >= o.y + o.h || o.y >= box.y + box.h) continue;  // not level with the box
+        const float right = box.x + box.w;
+        if (delta > 0.0f && o.x >= right) delta = std::min(delta, o.x - right);
+        if (delta < 0.0f && o.x + o.w <= box.x) delta = std::max(delta, o.x + o.w - box.x);
+    }
+    return delta;
+}
+
+// Same as clampMoveX, along y.
+inline float clampMoveY(const SDL_FRect& box, float delta, std::span<const SDL_FRect> obstacles) {
+    for (const SDL_FRect& o : obstacles) {
+        if (box.x >= o.x + o.w || o.x >= box.x + box.w) continue;
+        const float bottom = box.y + box.h;
+        if (delta > 0.0f && o.y >= bottom) delta = std::min(delta, o.y - bottom);
+        if (delta < 0.0f && o.y + o.h <= box.y) delta = std::max(delta, o.y + o.h - box.y);
     }
     return delta;
 }

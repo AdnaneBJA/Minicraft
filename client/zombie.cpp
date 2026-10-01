@@ -168,22 +168,24 @@ bool Zombies::load(SDL_Renderer* renderer, const std::string& spritePath) {
 }
 
 void Zombies::update(float dt, const TileMap& map, Player& player, Effects& effects, DroppedItems& drops,
-                     bool night) {
+                     bool night, std::span<const SDL_FRect> obstacles) {
     tickAccumulator_ += dt;
     while (tickAccumulator_ >= kTick) {
         tickAccumulator_ -= kTick;
-        tick(map, player, effects, drops, night);
+        tick(map, player, effects, drops, night, obstacles);
     }
 }
 
-void Zombies::tick(const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night) {
+void Zombies::tick(const TileMap& map, Player& player, Effects& effects, DroppedItems& drops, bool night,
+                   std::span<const SDL_FRect> obstacles) {
     const auto blocked = [&](const SDL_FRect& box, const Zombie* self) {
         for (const Zombie& other : zombies_) {
             if (&other == self) continue;
             const SDL_FRect otherBox = other.hitbox();
             if (SDL_HasRectIntersectionFloat(&box, &otherBox)) return true;
         }
-        return false;
+        return std::any_of(obstacles.begin(), obstacles.end(),
+                           [&](const SDL_FRect& obstacle) { return SDL_HasRectIntersectionFloat(&box, &obstacle); });
     };
     for (Zombie& zombie : zombies_) {
         zombie.tick(map, player, effects, blocked);
@@ -204,12 +206,13 @@ void Zombies::tick(const TileMap& map, Player& player, Effects& effects, Dropped
     if (spawningEnabled && night && ++spawnTimer_ >= kSpawnIntervalTicks) {
         spawnTimer_ = 0;
         if (static_cast<int>(zombies_.size()) < kMaxAlive) {
-            spawnNear(map, p.x, p.y, kSpawnMinTiles, kSpawnMaxTiles);
+            spawnNear(map, obstacles, p.x, p.y, kSpawnMinTiles, kSpawnMaxTiles);
         }
     }
 }
 
-bool Zombies::spawnNear(const TileMap& map, float x, float y, int minTiles, int maxTiles) {
+bool Zombies::spawnNear(const TileMap& map, std::span<const SDL_FRect> obstacles, float x, float y, int minTiles,
+                        int maxTiles) {
     const int centerX = collision::tileIndex(x);
     const int centerY = collision::tileIndex(y);
     for (int attempt = 0; attempt < 20; ++attempt) {
@@ -219,15 +222,26 @@ bool Zombies::spawnNear(const TileMap& map, float x, float y, int minTiles, int 
         if (distance < minTiles || !map.inBounds(tx, ty) || blocksZombie(map, tx, ty)) continue;
         Zombie zombie(static_cast<float>(tx * TileMap::kTileSize), static_cast<float>(ty * TileMap::kTileSize) - 3.0f);
         const SDL_FRect box = zombie.hitbox();
-        const bool occupied = std::any_of(zombies_.begin(), zombies_.end(), [&](const Zombie& other) {
-            const SDL_FRect otherBox = other.hitbox();
-            return SDL_HasRectIntersectionFloat(&box, &otherBox);
-        });
+        const bool occupied =
+            std::any_of(zombies_.begin(), zombies_.end(),
+                        [&](const Zombie& other) {
+                            const SDL_FRect otherBox = other.hitbox();
+                            return SDL_HasRectIntersectionFloat(&box, &otherBox);
+                        }) ||
+            std::any_of(obstacles.begin(), obstacles.end(),
+                        [&](const SDL_FRect& obstacle) { return SDL_HasRectIntersectionFloat(&box, &obstacle); });
         if (occupied) continue;
         zombies_.push_back(zombie);
         return true;
     }
     return false;
+}
+
+std::vector<SDL_FRect> Zombies::hitboxes() const {
+    std::vector<SDL_FRect> boxes;
+    boxes.reserve(zombies_.size());
+    for (const Zombie& zombie : zombies_) boxes.push_back(zombie.hitbox());
+    return boxes;
 }
 
 bool Zombies::punch(const SDL_FRect& attackBox, int damage, SDL_Point direction, Effects& effects) {
