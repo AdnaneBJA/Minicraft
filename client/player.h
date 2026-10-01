@@ -10,11 +10,15 @@ class TileMap;
 
 class Player {
 public:
-    // Loads the sprite strip (16x16 frames: down, up, right 1, right 2). Returns false on failure.
-    bool load(SDL_Renderer* renderer, const std::string& spritePath);
+    // Loads the sprite strip (16x16 frames: down, up, right 1, right 2) and the attack slash (two 8x8 pieces).
+    // Returns false on failure.
+    bool load(SDL_Renderer* renderer, const std::string& spritePath, const std::string& slashPath);
 
     void setPosition(float x, float y);
     void update(float dt, const bool* keys, const TileMap& map);
+    // Starts a punch in the direction the player is facing. The slash shows for a short moment.
+    void attack();
+    bool isAttacking() const { return attackTimer_ > 0.0f; }
     void draw(SDL_Renderer* renderer, const Camera& camera) const;
 
     // Sprite rectangle (what is drawn).
@@ -39,9 +43,14 @@ private:
         void operator()(SDL_Texture* texture) const { SDL_DestroyTexture(texture); }
     };
 
+    void drawSlash(SDL_Renderer* renderer, float x, float y) const;
+
     std::unique_ptr<SDL_Texture, TextureDeleter> texture_;
+    std::unique_ptr<SDL_Texture, TextureDeleter> slashTexture_;
     float x_ = 0.0f;
     float y_ = 0.0f;
     float walkDistance_ = 0.0f;  // pixels walked; drives the 2-frame walk animation
     Direction direction_ = Direction::Down;
+    float attackTimer_ = 0.0f;  // seconds left showing the slash
+    Direction attackDirection_ = Direction::Down;
 };

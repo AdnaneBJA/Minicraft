@@ -41,7 +41,7 @@ public:
 
         const char* basePath = SDL_GetBasePath();
         const std::string assets = std::string(basePath ? basePath : "") + "assets/";
-        if (!player_.load(renderer, assets + "sprites/player.png") ||
+        if (!player_.load(renderer, assets + "sprites/player.png", assets + "sprites/slash.png") ||
             !map_.load(renderer, assets + "sprites/tiles.png")) {
             return false;
         }
@@ -80,6 +80,7 @@ private:
             } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
                 if (event.key.key == SDLK_ESCAPE) running_ = false;
                 if (event.key.key == DebugOverlay::kToggleKey) debug_.toggle();
+                if (event.key.key == SDLK_SPACE && !ImGui::GetIO().WantCaptureKeyboard) player_.attack();
             }
         }
     }

@@ -68,7 +68,7 @@ Minicraft/
 ├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
-│   └── sprites/       # player.png, tiles.png (atlas)
+│   └── sprites/       # player.png, slash.png, tiles.png (atlas)
 └── client/
     ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
     ├── player.h/.cpp  # Player: sprite, movement, walk animation
@@ -219,5 +219,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Water, rock and trees are solid. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Water, rock and trees are solid. Space punches (slash animation only). Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

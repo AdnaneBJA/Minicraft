@@ -9,6 +9,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Collision | 829 |
 | 2026-10-01 | Tile borders/transitions | 902 |
 | 2026-10-01 | Diagonal movement tweaks | 902 |
+| 2026-10-01 | Punch animation | 965 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -54,5 +55,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - Diagonal movement is no longer normalised: each axis moves at full speed, so diagonals are sqrt(2)x faster, like Minicraft.
   - The walk cycle advances by the larger axis only, so diagonals animate at the same rate as straight walking
     (7 sprite changes/s instead of 14).
+- **2026-10-01: Punch animation (player interaction, step 1).**
+  - **Space** punches in the facing direction and shows Minicraft's slash for 5 ticks (~83 ms).
+  - The slash is two 8x8 halves from Minicraft+'s `hud.png`, placed and mirrored as in `Player.render`.
+  - Visual only for now: the punch doesn't hit anything yet.
 
 ## Next
+- Punch interaction: damage/break tiles (e.g. trees) in front of the player.

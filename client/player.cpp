@@ -11,6 +11,24 @@ namespace {
 constexpr float kSpeed = 60.0f;              // pixels per second (1 px per tick at 60 Hz, like Minicraft)
 constexpr float kPixelsPerWalkFrame = 8.0f;  // switch walk frame every 8 pixels walked
 constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
+constexpr float kAttackDuration = 5.0f / 60.0f;  // a bare-hand punch lasts 5 ticks in Minicraft
+constexpr float kSlashPiece = 8.0f;              // slash.png: [0] half of a horizontal arc, [1] half of a vertical arc
+
+SDL_Texture* loadTexture(SDL_Renderer* renderer, const std::string& path) {
+    SDL_Surface* surface = SDL_LoadPNG(path.c_str());
+    if (!surface) {
+        SDL_Log("Failed to load %s: %s", path.c_str(), SDL_GetError());
+        return nullptr;
+    }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+    if (!texture) {
+        SDL_Log("Failed to create texture for %s: %s", path.c_str(), SDL_GetError());
+        return nullptr;
+    }
+    SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+    return texture;
+}
 
 // Index of the tile containing a world coordinate.
 int tileIndex(float worldValue) { return static_cast<int>(std::floor(worldValue / kTileSize)); }
@@ -23,20 +41,15 @@ int lastTileIndex(float start, float end) {
 
 }  // namespace
 
-bool Player::load(SDL_Renderer* renderer, const std::string& spritePath) {
-    SDL_Surface* surface = SDL_LoadPNG(spritePath.c_str());
-    if (!surface) {
-        SDL_Log("Failed to load %s: %s", spritePath.c_str(), SDL_GetError());
-        return false;
-    }
-    texture_.reset(SDL_CreateTextureFromSurface(renderer, surface));
-    SDL_DestroySurface(surface);
-    if (!texture_) {
-        SDL_Log("Failed to create player texture: %s", SDL_GetError());
-        return false;
-    }
-    SDL_SetTextureScaleMode(texture_.get(), SDL_SCALEMODE_NEAREST);
-    return true;
+bool Player::load(SDL_Renderer* renderer, const std::string& spritePath, const std::string& slashPath) {
+    texture_.reset(loadTexture(renderer, spritePath));
+    slashTexture_.reset(loadTexture(renderer, slashPath));
+    return texture_ && slashTexture_;
+}
+
+void Player::attack() {
+    attackTimer_ = kAttackDuration;
+    attackDirection_ = direction_;
 }
 
 void Player::setPosition(float x, float y) {
@@ -45,6 +58,8 @@ void Player::setPosition(float x, float y) {
 }
 
 void Player::update(float dt, const bool* keys, const TileMap& map) {
+    attackTimer_ = std::max(0.0f, attackTimer_ - dt);
+
     float dx = 0.0f;
     float dy = 0.0f;
     if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) dy -= 1.0f;
@@ -139,8 +154,46 @@ void Player::draw(SDL_Renderer* renderer, const Camera& camera) const {
             break;
     }
 
+    const float x = camera.snap(x_) - camera.x();
+    const float y = camera.snap(y_) - camera.y();
     const SDL_FRect source{static_cast<float>(column) * kSize, 0.0f, kSize, kSize};
-    const SDL_FRect destination{camera.snap(x_) - camera.x(), camera.snap(y_) - camera.y(), kSize, kSize};
+    const SDL_FRect destination{x, y, kSize, kSize};
     SDL_RenderTextureRotated(renderer, texture_.get(), &source, &destination, 0.0, nullptr,
                              mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
+
+    if (isAttacking()) {
+        drawSlash(renderer, x, y);
+    }
+}
+
+void Player::drawSlash(SDL_Renderer* renderer, float x, float y) const {
+    // Same placement and mirroring as Minicraft+ (Player.render): two 8x8 halves form an arc just outside the
+    // sprite, on the side the player is facing.
+    const auto piece = [&](int index, float px, float py, int flip) {
+        const SDL_FRect source{static_cast<float>(index) * kSlashPiece, 0.0f, kSlashPiece, kSlashPiece};
+        const SDL_FRect destination{px, py, kSlashPiece, kSlashPiece};
+        SDL_RenderTextureRotated(renderer, slashTexture_.get(), &source, &destination, 0.0, nullptr,
+                                 static_cast<SDL_FlipMode>(flip));
+    };
+    constexpr int none = SDL_FLIP_NONE;
+    constexpr int flipX = SDL_FLIP_HORIZONTAL;
+    constexpr int flipY = SDL_FLIP_VERTICAL;
+    switch (attackDirection_) {
+        case Direction::Up:
+            piece(0, x, y - 4.0f, none);
+            piece(0, x + 8.0f, y - 4.0f, flipX);
+            break;
+        case Direction::Down:
+            piece(0, x, y + 12.0f, flipY);
+            piece(0, x + 8.0f, y + 12.0f, flipX | flipY);
+            break;
+        case Direction::Left:
+            piece(1, x - 4.0f, y, flipX);
+            piece(1, x - 4.0f, y + 8.0f, flipX | flipY);
+            break;
+        case Direction::Right:
+            piece(1, x + 12.0f, y, none);
+            piece(1, x + 12.0f, y + 8.0f, flipY);
+            break;
+    }
 }
