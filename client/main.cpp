@@ -11,6 +11,7 @@
 #include "inventory_menu.h"
 #include "items.h"
 #include "player.h"
+#include "player_actions.h"
 #include "tile_map.h"
 #include "world_save.h"
 #include "mobs.h"
@@ -143,7 +144,7 @@ private:
         player_.setPosition(data->playerX, data->playerY);
         player_.restoreStats(data->health, data->energy);
         dayNight_.restore(data->dayTick, data->pastDay1);
-        for (const auto& stack : data->inventory) inventory_.add(stack.type, stack.count);
+        for (const auto& stack : data->inventory) inventory_.add(stack);
         enterWorld(std::move(name));
         return true;
     }
@@ -164,7 +165,7 @@ private:
         data.pastDay1 = dayNight_.pastDay1();
         // The item in hand isn't in the inventory; save it as part of it so it isn't lost.
         Inventory carried = inventory_;
-        if (const auto& held = player_.heldItem()) carried.add(held->type, held->count);
+        if (const auto& held = player_.heldItem()) carried.add(*held);
         data.inventory = carried.stacks();
         return saves_.save(worldName_, data);
     }
@@ -211,46 +212,19 @@ private:
         player_.refillStats();
     }
 
-    void punch() {
-        if (!player_.tryPunch()) return;  // out of energy
-        // Like Minicraft's attack, a punch hits mobs in the attack box (1-2 damage) and the tile in front (1-3).
-        const int mobDamage = static_cast<int>(SDL_rand(2)) + 1;
-        mobs_.punch(player_.attackBox(), mobDamage, player_.facing(), effects_);
-        const SDL_Point target = player_.interactionTile();
-        const int damage = static_cast<int>(SDL_rand(3)) + 1;  // bare-hand punch: 1-3, like Minicraft
-        const auto hit = map_.hurtTile(target.x, target.y, damage);
-        if (!hit) {
-            player_.showSlash();  // nothing to hit: just the slash
-            return;
-        }
-        const float centerX = static_cast<float>(target.x * TileMap::kTileSize + TileMap::kTileSize / 2);
-        const float centerY = static_cast<float>(target.y * TileMap::kTileSize + TileMap::kTileSize / 2);
-        if (hit->tile == Tile::Flower) {
-            // FlowerTile.hurt: the flower is picked (dropped as an item) and grass is left; no smash or number.
-            droppedItems_.spawn(flowerItem(map_.flowerVariant(target.x, target.y)), 1, centerX, centerY);
-            player_.showSlash();
-            return;
-        }
-        effects_.addSmash(target.x, target.y);
-        effects_.addDamageNumber(damage, centerX, centerY);
-        // Minicraft's TreeTile.hurt: every hit on a tree has a 1 in 100 chance to shake an apple loose.
-        if (hit->tile == Tile::Tree && SDL_rand(100) == 0) droppedItems_.spawn(ItemType::Apple, 1, centerX, centerY);
-        if (hit->broken) {
-            // Minicraft drops: a tree gives 1-3 wood and 0-2 acorns, a rock punched by hand gives 1 stone.
-            if (hit->tile == Tile::Tree) {
-                droppedItems_.spawn(ItemType::Wood, 1 + static_cast<int>(SDL_rand(3)), centerX, centerY);
-                droppedItems_.spawn(ItemType::Acorn, static_cast<int>(SDL_rand(3)), centerX, centerY);
-            }
-            if (hit->tile == Tile::Rock) droppedItems_.spawn(ItemType::Stone, 1, centerX, centerY);
-        }
-    }
+    PlayerActions actions() { return PlayerActions(map_, player_, mobs_, effects_, droppedItems_); }
 
-    // Space: with furniture in hand, try to place it on the tile in front (FurnitureItem.interactOn); with any other
-    // item in hand nothing happens (Minicraft items that can't attack don't punch); with an empty hand, punch.
+    // Space: with furniture in hand, try to place it on the tile in front (FurnitureItem.interactOn); with a tool,
+    // use or swing it; with any other item in hand nothing happens (Minicraft items that can't attack don't punch);
+    // with an empty hand, punch.
     void useOrPunch() {
         const auto& held = player_.heldItem();
         if (!held) {
-            punch();
+            actions().punch();
+            return;
+        }
+        if (isTool(held->type)) {
+            actions().swingTool();
             return;
         }
         if (!isFurniture(held->type)) return;
@@ -266,9 +240,9 @@ private:
         const auto held = player_.heldItem();
         if (!held) return;
         player_.setHeldItem(std::nullopt);
-        if (const int leftover = inventory_.add(held->type, held->count); leftover > 0) {
+        if (const int leftover = inventory_.add(*held); leftover > 0) {
             const SDL_FPoint middle = player_.center();
-            droppedItems_.spawn(held->type, leftover, middle.x, middle.y);
+            droppedItems_.spawn(held->type, leftover, middle.x, middle.y, held->durability);
         }
     }
 
@@ -463,6 +437,7 @@ private:
         hud_.drawStatus(renderer, player_, std::floor(camera_.height()));
         if (const auto& held = player_.heldItem()) {
             hud_.drawHeldItem(renderer, font_, itemIcons_, *held, std::floor(camera_.height()));
+            if (isTool(held->type)) hud_.drawToolDurability(renderer, font_, *held, std::floor(camera_.height()));
         }
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);
         craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory_);

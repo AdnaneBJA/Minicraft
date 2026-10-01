@@ -15,7 +15,7 @@
 namespace {
 
 constexpr std::array<char, 4> kMagic{'M', 'C', 'W', 'S'};
-constexpr std::uint32_t kVersion = 1;
+constexpr std::uint32_t kVersion = 2;  // 2: inventory stacks also store durability
 constexpr const char* kExtension = ".sav";
 constexpr int kMinMapSize = 16;
 constexpr int kMaxMapSize = 1024;
@@ -150,6 +150,7 @@ bool WorldSaves::save(std::string_view name, const WorldSaveData& data) const {
     for (const auto& stack : data.inventory) {
         writer.u8(static_cast<std::uint8_t>(stack.type));
         writer.i32(stack.count);
+        writer.i32(stack.durability);
     }
 
     // Write a temporary file first, so a crash mid-save never leaves a half-written world behind.
@@ -188,7 +189,9 @@ std::optional<WorldSaveData> WorldSaves::load(std::string_view name) const {
     // Every field is checked before use: the file is outside the game's control.
     ByteReader reader(bytes);
     std::array<char, 4> magic{};
-    if (!reader.raw(magic.data(), magic.size()) || magic != kMagic || reader.u32() != kVersion) return std::nullopt;
+    if (!reader.raw(magic.data(), magic.size()) || magic != kMagic) return std::nullopt;
+    const std::uint32_t version = reader.u32();
+    if (version != 1 && version != kVersion) return std::nullopt;  // version 1 saves had no durability
 
     WorldSaveData data;
     data.seed = reader.u32();
@@ -230,10 +233,17 @@ std::optional<WorldSaveData> WorldSaves::load(std::string_view name) const {
         const int count = reader.i32();
         if (!reader.ok() || !isKnownItem(type) || count < 1 || count > kMaxStackCount) return std::nullopt;
         const auto itemType = static_cast<ItemType>(type);
-        const bool duplicate = std::any_of(data.inventory.begin(), data.inventory.end(),
-                                           [&](const Inventory::Stack& s) { return s.type == itemType; });
-        if (duplicate) return std::nullopt;
-        data.inventory.push_back({itemType, count});
+        int durability = maxDurability(itemType);
+        if (version >= 2) {
+            durability = reader.i32();
+            if (!reader.ok() || durability < 0 || durability > maxDurability(itemType)) return std::nullopt;
+        }
+        // Stackable items have a single stack each; tools and furniture are one stack per item.
+        const bool duplicate =
+            isStackable(itemType) && std::any_of(data.inventory.begin(), data.inventory.end(),
+                                                 [&](const Inventory::Stack& s) { return s.type == itemType; });
+        if (duplicate || (!isStackable(itemType) && count != 1)) return std::nullopt;
+        data.inventory.push_back({itemType, count, durability});
     }
     if (!reader.atEnd()) return std::nullopt;
     return data;

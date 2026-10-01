@@ -26,8 +26,8 @@ bool Furniture::load(SDL_Renderer* renderer, const std::string& path) {
 }
 
 bool Furniture::place(ItemType type, int tx, int ty, const TileMap& map, std::span<const SDL_FRect> blockers) {
-    // Tile.mayPass for furniture: anything but solid tiles and water (furniture can't swim).
-    if (map.isSolidAt(tx, ty) || map.tileAt(tx, ty) == Tile::Water) return false;
+    // Tile.mayPass for furniture: anything but solid tiles, water and holes (furniture can't swim).
+    if (!map.inBounds(tx, ty) || blocksMobs(map.tileAt(tx, ty))) return false;
     const float size = static_cast<float>(TileMap::kTileSize);
     const SDL_FRect tile{static_cast<float>(tx) * size, static_cast<float>(ty) * size, size, size};
     const bool taken = std::any_of(pieces_.begin(), pieces_.end(), [&](const Piece& piece) {

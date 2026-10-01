@@ -13,12 +13,15 @@
 class Camera;
 
 // New values go at the end: saves store tiles by number.
-enum class Tile : std::uint8_t { Grass, Sand, Water, Rock, Tree, Dirt, Flower };
+enum class Tile : std::uint8_t { Grass, Sand, Water, Rock, Tree, Dirt, Flower, Farmland, Path, Hole };
 
 const char* tileName(Tile tile);
 
 // Whether a tile blocks movement.
 bool isSolid(Tile tile);
+// Whether a mob (none of them can swim) or furniture can't stand on a tile: solid tiles, water and holes
+// (Minicraft's WaterTile / HoleTile only let swimmers pass).
+bool blocksMobs(Tile tile);
 
 // Damage needed to break a tile with punches; 0 = can't be damaged. Minicraft values: tree 20, rock 50.
 int maxHealth(Tile tile);
@@ -46,6 +49,8 @@ public:
     };
     // Applies damage to a tile. Returns nothing if the tile can't be damaged (see maxHealth).
     std::optional<TileHit> hurtTile(int tx, int ty, int damage);
+    // Replaces a tile (a tool digging, tilling or paving it) and clears its damage.
+    void setTile(int tx, int ty, Tile tile);
     int damageAt(int tx, int ty) const { return damage_[index(tx, ty)]; }
 
     Tile tileAt(int tx, int ty) const { return tiles_[index(tx, ty)]; }

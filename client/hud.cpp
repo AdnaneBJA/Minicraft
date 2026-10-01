@@ -43,6 +43,21 @@ void Hud::drawStatus(SDL_Renderer* renderer, const Player& player, float viewHei
     }
 }
 
+void Hud::drawToolDurability(SDL_Renderer* renderer, const Font& font, const Inventory::Stack& tool,
+                             float viewHeight) const {
+    const int max = maxDurability(tool.type);
+    if (max <= 0) return;
+    const int percent = tool.durability * 100 / max;
+    const auto green = static_cast<Uint8>(static_cast<float>(percent) * 2.55f);
+    const std::string text = std::to_string(percent) + "%";
+    const float x = 164.0f;  // Minicraft draws it at (164, h - 16)
+    const float y = viewHeight - 2.0f * kCell;
+    const SDL_FRect background{x, y, Font::textWidth(text), kCell};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &background);
+    font.draw(renderer, text, x, y, SDL_Color{static_cast<Uint8>(255 - green), green, 0, 255});
+}
+
 void Hud::drawHeldItem(SDL_Renderer* renderer, const Font& font, const ItemIcons& icons, const Inventory::Stack& item,
                        float viewHeight) const {
     const float x = 10.0f * kCell;

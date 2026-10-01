@@ -17,7 +17,8 @@ int tileOf(float worldValue) {
 
 }  // namespace
 
-void DroppedItems::spawn(ItemType type, int count, float centerX, float centerY) {
+void DroppedItems::spawn(ItemType type, int count, float centerX, float centerY, int durability) {
+    if (durability < 0) durability = maxDurability(type);
     const int tx = tileOf(centerX);
     const int ty = tileOf(centerY);
     for (int i = 0; i < count; ++i) {
@@ -29,7 +30,7 @@ void DroppedItems::spawn(ItemType type, int count, float centerX, float centerY)
             y = centerY + static_cast<float>(SDL_rand(11)) - 5.0f;
         } while (tileOf(x) != tx || tileOf(y) != ty);
         const int lifetime = 600 + static_cast<int>(SDL_rand(70));  // ~10 s, like Minicraft
-        items_.push_back({type, Bounce::toss(x, y, 1.0f), 0, lifetime});
+        items_.push_back({type, durability, Bounce::toss(x, y, 1.0f), 0, lifetime});
     }
 }
 
@@ -57,7 +58,7 @@ void DroppedItems::tick(const TileMap& map, const SDL_FRect& pickupBox, Inventor
         if (item.age <= kPickupDelay) return false;
         const SDL_FRect box{item.motion.x - kRadius, item.motion.y - kRadius, kRadius * 2.0f, kRadius * 2.0f};
         if (SDL_HasRectIntersectionFloat(&box, &pickupBox) && inventory.canAdd(item.type)) {
-            inventory.add(item.type);
+            inventory.add(Inventory::Stack{item.type, 1, item.durability});
             return true;
         }
         return false;

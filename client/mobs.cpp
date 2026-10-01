@@ -31,7 +31,7 @@ const char* spriteFile(MobKind kind) {
 
 // Zombies spawn on any open ground; animals only on grass (PassiveMob.checkStartPos: grass or flowers).
 bool canSpawnOn(MobKind kind, Tile tile) {
-    if (kind == MobKind::Zombie) return !isSolid(tile) && tile != Tile::Water;
+    if (kind == MobKind::Zombie) return !blocksMobs(tile);
     return tile == Tile::Grass || tile == Tile::Flower;
 }
 

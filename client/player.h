@@ -34,6 +34,8 @@ public:
 
     // Starts a punch in the facing direction if there is energy left, spending 1. Returns false when exhausted.
     bool tryPunch();
+    // Minicraft's payStamina: fails if out of energy, otherwise takes up to `cost` (never below 0).
+    bool payEnergy(int cost);
     // Shows the slash animation (a punch that didn't hit anything).
     void showSlash();
     bool isAttacking() const { return attackTimer_ > 0.0f; }

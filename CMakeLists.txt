@@ -51,6 +51,7 @@ add_executable(Minicraft
     client/world_gen.cpp
     client/mob.cpp
     client/mobs.cpp
+    client/player_actions.cpp
     client/day_night.cpp
     client/world_save.cpp
     client/game_menu.cpp)

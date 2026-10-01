@@ -23,6 +23,10 @@ public:
 
     // The held item on the energy row, right of the bolts: icon plus its name on a black background (Minicraft's
     // Item.renderHUD at (10 * 8, Screen.h - 8)).
+    // The held tool's durability as a percentage at the right of the hearts row, red when worn and green when new
+    // (Minicraft's tool durability status).
+    void drawToolDurability(SDL_Renderer* renderer, const Font& font, const Inventory::Stack& tool,
+                            float viewHeight) const;
     void drawHeldItem(SDL_Renderer* renderer, const Font& font, const ItemIcons& icons, const Inventory::Stack& item,
                       float viewHeight) const;
 
