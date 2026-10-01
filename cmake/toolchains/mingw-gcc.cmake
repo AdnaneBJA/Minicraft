@@ -1,0 +1,23 @@
+# Toolchain used by vcpkg when building ports for the x64-mingw-static overlay triplet.
+# Accepts either prefixed (x86_64-w64-mingw32-*) or plain MinGW tool names from PATH.
+if(NOT _MINICRAFT_MINGW_TOOLCHAIN)
+    set(_MINICRAFT_MINGW_TOOLCHAIN 1)
+
+    set(CMAKE_SYSTEM_NAME Windows CACHE STRING "" FORCE)
+    set(CMAKE_SYSTEM_PROCESSOR x86_64 CACHE STRING "")
+    set(CMAKE_CROSSCOMPILING OFF CACHE BOOL "")
+
+    find_program(CMAKE_C_COMPILER NAMES x86_64-w64-mingw32-gcc gcc REQUIRED)
+    find_program(CMAKE_CXX_COMPILER NAMES x86_64-w64-mingw32-g++ g++ REQUIRED)
+    find_program(CMAKE_RC_COMPILER NAMES x86_64-w64-mingw32-windres windres)
+
+    string(APPEND CMAKE_C_FLAGS_INIT " ${VCPKG_C_FLAGS} ")
+    string(APPEND CMAKE_CXX_FLAGS_INIT " ${VCPKG_CXX_FLAGS} ")
+    string(APPEND CMAKE_C_FLAGS_DEBUG_INIT " ${VCPKG_C_FLAGS_DEBUG} ")
+    string(APPEND CMAKE_CXX_FLAGS_DEBUG_INIT " ${VCPKG_CXX_FLAGS_DEBUG} ")
+    string(APPEND CMAKE_C_FLAGS_RELEASE_INIT " ${VCPKG_C_FLAGS_RELEASE} ")
+    string(APPEND CMAKE_CXX_FLAGS_RELEASE_INIT " ${VCPKG_CXX_FLAGS_RELEASE} ")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS_INIT " ${VCPKG_LINKER_FLAGS} ")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT " ${VCPKG_LINKER_FLAGS} ")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS_INIT " ${VCPKG_LINKER_FLAGS} ")
+endif()

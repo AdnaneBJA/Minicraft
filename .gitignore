@@ -1,0 +1,27 @@
+# Build output
+build/
+cmake-build-*/
+out/
+
+# vcpkg (manifest mode installs into the build tree; this covers out-of-tree use)
+vcpkg_installed/
+
+# CLion / IDEs (keep nothing user-specific)
+.idea/
+.vscode/
+*.user
+CMakeUserPresets.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Java / Gradle
+.gradle/
+**/build/
+*.class
