@@ -57,21 +57,21 @@ void Player::update(float dt, const bool* keys, const TileMap& map) {
         return;
     }
 
-    // Face the axis being pressed; horizontal wins when moving diagonally.
-    if (dx < 0.0f) direction_ = Direction::Left;
-    else if (dx > 0.0f) direction_ = Direction::Right;
-    else if (dy < 0.0f) direction_ = Direction::Up;
-    else direction_ = Direction::Down;
+    // Face the axis being pressed; vertical wins when moving diagonally (up+right shows the up sprite).
+    if (dy < 0.0f) direction_ = Direction::Up;
+    else if (dy > 0.0f) direction_ = Direction::Down;
+    else if (dx < 0.0f) direction_ = Direction::Left;
+    else direction_ = Direction::Right;
 
-    // Normalise so diagonal movement isn't faster.
-    const float length = std::sqrt(dx * dx + dy * dy);
+    // Each axis moves at full speed, so diagonal movement is intentionally faster (sqrt(2)x), like Minicraft.
     const float step = kSpeed * dt;
     // Resolve each axis separately so pushing diagonally into a wall slides along it.
     const float startX = x_;
     const float startY = y_;
-    moveX(dx / length * step, map);
-    moveY(dy / length * step, map);
-    walkDistance_ += std::abs(x_ - startX) + std::abs(y_ - startY);
+    moveX(dx * step, map);
+    moveY(dy * step, map);
+    // Advance the walk cycle by the larger axis only: summing both would make diagonals animate twice as fast.
+    walkDistance_ += std::max(std::abs(x_ - startX), std::abs(y_ - startY));
 }
 
 void Player::moveX(float delta, const TileMap& map) {

@@ -8,6 +8,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Tile map, camera, debug mode, movement fixes | 722 |
 | 2026-10-01 | Collision | 829 |
 | 2026-10-01 | Tile borders/transitions | 902 |
+| 2026-10-01 | Diagonal movement tweaks | 902 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -48,5 +49,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   - Exactly one tree sprite per tree tile. Minicraft+'s forest-canopy merging (`oak_full`) was dropped because it
     drew extra crowns on the corners between trees, so tiles looked like they held several trees.
   - Tile interiors use the full speckled texture (and animated water) instead of the plain border centre, so large areas don't look flat.
+- **2026-10-01: Diagonal movement tweaks.**
+  - When moving diagonally the player faces up or down (vertical wins), not left or right.
+  - Diagonal movement is no longer normalised: each axis moves at full speed, so diagonals are sqrt(2)x faster, like Minicraft.
+  - The walk cycle advances by the larger axis only, so diagonals animate at the same rate as straight walking
+    (7 sprite changes/s instead of 14).
 
 ## Next
