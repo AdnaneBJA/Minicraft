@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 class Camera;
@@ -16,8 +17,11 @@ public:
 
     void setPosition(float x, float y);
     void update(float dt, const bool* keys, const TileMap& map);
-    // Starts a punch in the direction the player is facing. The slash shows for a short moment.
-    void attack();
+    // Punches the tile in front of the player for 1-3 damage. Returns the tile if it was hit (e.g. a tree);
+    // otherwise the punch whiffs and the slash animation shows for a short moment.
+    std::optional<SDL_Point> attack(TileMap& map);
+    // The tile a punch would hit: 12 px in front of the player's centre (Minicraft's INTERACT_DIST).
+    SDL_Point interactionTile() const;
     bool isAttacking() const { return attackTimer_ > 0.0f; }
     void draw(SDL_Renderer* renderer, const Camera& camera) const;
 

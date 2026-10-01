@@ -37,7 +37,8 @@ add_executable(Minicraft
     client/player.cpp
     client/tile_map.cpp
     client/camera.cpp
-    client/debug_overlay.cpp)
+    client/debug_overlay.cpp
+    client/effects.cpp)
 target_link_libraries(Minicraft PRIVATE SDL3::SDL3 imgui)
 
 # Copy assets next to the executable; the game finds them via SDL_GetBasePath().

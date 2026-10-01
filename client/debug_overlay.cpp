@@ -65,6 +65,15 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
         SDL_RenderRect(renderer, &tileRect);
     }
 
+    if (showPunchTarget_) {
+        const SDL_Point target = player.interactionTile();
+        const SDL_FRect targetRect{toScreenX(static_cast<float>(target.x) * tileSize),
+                                   toScreenY(static_cast<float>(target.y) * tileSize), tileSize * scale,
+                                   tileSize * scale};
+        SDL_SetRenderDrawColor(renderer, 255, 140, 0, 200);
+        SDL_RenderRect(renderer, &targetRect);
+    }
+
     if (showPlayerOutline_) {
         const SDL_FRect playerRect{toScreenX(camera.snap(bounds.x)), toScreenY(camera.snap(bounds.y)),
                                    bounds.w * scale, bounds.h * scale};
@@ -100,6 +109,7 @@ std::optional<std::uint32_t> DebugOverlay::drawPanel(const Camera& camera, float
         ImGui::Checkbox("Player outline", &showPlayerOutline_);
         ImGui::Checkbox("Player hitbox", &showHitbox_);
         ImGui::Checkbox("Solid tiles", &showSolidTiles_);
+        ImGui::Checkbox("Punch target", &showPunchTarget_);
         ImGui::Checkbox("Tile grid", &showTileGrid_);
         if (showTileGrid_) {
             ImGui::SliderInt("Grid opacity", &gridOpacity_, 5, 255);
@@ -117,6 +127,16 @@ std::optional<std::uint32_t> DebugOverlay::drawPanel(const Camera& camera, float
             ImGui::Text("FPS: %.0f", static_cast<double>(ImGui::GetIO().Framerate));
             ImGui::Text("Player: %.1f, %.1f px", static_cast<double>(bounds.x), static_cast<double>(bounds.y));
             ImGui::Text("Tile: %d, %d (%s)", tx, ty, map.inBounds(tx, ty) ? tileName(map.tileAt(tx, ty)) : "-");
+            const SDL_Point target = player.interactionTile();
+            if (map.inBounds(target.x, target.y)) {
+                const Tile targetTile = map.tileAt(target.x, target.y);
+                if (targetTile == Tile::Tree) {
+                    ImGui::Text("Punch target: %d, %d (Tree, %d/%d damage)", target.x, target.y,
+                                map.damageAt(target.x, target.y), TileMap::kTreeHealth);
+                } else {
+                    ImGui::Text("Punch target: %d, %d (%s)", target.x, target.y, tileName(targetTile));
+                }
+            }
             ImGui::Text("Camera: %.0f, %.0f  view %.0fx%.0f", static_cast<double>(camera.x()),
                         static_cast<double>(camera.y()), static_cast<double>(camera.width()),
                         static_cast<double>(camera.height()));

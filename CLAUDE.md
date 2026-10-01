@@ -68,13 +68,14 @@ Minicraft/
 ├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
-│   └── sprites/       # player.png, slash.png, tiles.png (atlas)
+│   └── sprites/       # player.png, slash.png, smash.png, tiles.png (atlas)
 └── client/
     ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
     ├── player.h/.cpp  # Player: sprite, movement, walk animation
     ├── tile_map.h/.cpp  # TileMap: seeded island generation + tile rendering
     ├── camera.h/.cpp  # Camera: follows the player, clamped to the map
-    └── debug_overlay.h/.cpp  # F3 debug mode: outlines + ImGui panel
+    ├── debug_overlay.h/.cpp  # F3 debug mode: outlines + ImGui panel
+    └── effects.h/.cpp  # short-lived world effects (smash X on hit)
 ```
 
 **Target layout** (eventual destination; create each folder only when its phase starts):
@@ -219,5 +220,5 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Water, rock and trees are solid. Space punches (slash animation only). Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- `client/` shows a generated tile map with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Water, rock and trees are solid. Space punches: trees take 1-3 damage and break at 20 (smash X on hit, slash on miss). Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

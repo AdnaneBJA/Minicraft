@@ -1,5 +1,6 @@
 #include "camera.h"
 #include "debug_overlay.h"
+#include "effects.h"
 #include "player.h"
 #include "tile_map.h"
 
@@ -42,7 +43,7 @@ public:
         const char* basePath = SDL_GetBasePath();
         const std::string assets = std::string(basePath ? basePath : "") + "assets/";
         if (!player_.load(renderer, assets + "sprites/player.png", assets + "sprites/slash.png") ||
-            !map_.load(renderer, assets + "sprites/tiles.png")) {
+            !map_.load(renderer, assets + "sprites/tiles.png") || !effects_.load(renderer, assets + "sprites/smash.png")) {
             return false;
         }
         newWorld(kDefaultSeed);
@@ -67,8 +68,15 @@ public:
 private:
     void newWorld(std::uint32_t seed) {
         map_.generate(seed, kMapSize, kMapSize);
+        effects_.clear();
         const SDL_FPoint spawn = map_.findSpawnPoint();
         player_.setPosition(spawn.x, spawn.y);
+    }
+
+    void punch() {
+        if (const auto hitTile = player_.attack(map_)) {
+            effects_.addSmash(hitTile->x, hitTile->y);
+        }
     }
 
     void handleEvents() {
@@ -80,7 +88,7 @@ private:
             } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
                 if (event.key.key == SDLK_ESCAPE) running_ = false;
                 if (event.key.key == DebugOverlay::kToggleKey) debug_.toggle();
-                if (event.key.key == SDLK_SPACE && !ImGui::GetIO().WantCaptureKeyboard) player_.attack();
+                if (event.key.key == SDLK_SPACE && !ImGui::GetIO().WantCaptureKeyboard) punch();
             }
         }
     }
@@ -90,6 +98,7 @@ private:
         static const std::array<bool, SDL_SCANCODE_COUNT> noKeys{};
         const bool* keys = ImGui::GetIO().WantCaptureKeyboard ? noKeys.data() : SDL_GetKeyboardState(nullptr);
         player_.update(dt, keys, map_);
+        effects_.update(dt);
 
         int outputWidth = 0;
         int outputHeight = 0;
@@ -111,6 +120,7 @@ private:
         SDL_SetRenderScale(renderer, scale_, scale_);
         map_.draw(renderer, camera_, time_);
         player_.draw(renderer, camera_);
+        effects_.draw(renderer, camera_);
 
         // Debug overlay and UI: drawn in screen pixels so lines stay thin.
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
@@ -163,6 +173,7 @@ private:
     ImGuiContextGuard imgui_;
     TileMap map_;
     Player player_;
+    Effects effects_;
     Camera camera_;
     DebugOverlay debug_;
     float scale_ = 1.0f;

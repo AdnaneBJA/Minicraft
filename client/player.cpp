@@ -13,6 +13,7 @@ constexpr float kPixelsPerWalkFrame = 8.0f;  // switch walk frame every 8 pixels
 constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
 constexpr float kAttackDuration = 5.0f / 60.0f;  // a bare-hand punch lasts 5 ticks in Minicraft
 constexpr float kSlashPiece = 8.0f;              // slash.png: [0] half of a horizontal arc, [1] half of a vertical arc
+constexpr float kInteractDistance = 12.0f;       // Minicraft's INTERACT_DIST
 
 SDL_Texture* loadTexture(SDL_Renderer* renderer, const std::string& path) {
     SDL_Surface* surface = SDL_LoadPNG(path.c_str());
@@ -47,9 +48,29 @@ bool Player::load(SDL_Renderer* renderer, const std::string& spritePath, const s
     return texture_ && slashTexture_;
 }
 
-void Player::attack() {
-    attackTimer_ = kAttackDuration;
+std::optional<SDL_Point> Player::attack(TileMap& map) {
     attackDirection_ = direction_;
+    const SDL_Point target = interactionTile();
+    const int damage = static_cast<int>(SDL_rand(3)) + 1;  // bare-hand punch: 1-3, like Minicraft
+    if (map.hurtTile(target.x, target.y, damage)) {
+        attackTimer_ = 0.0f;  // a hit shows the smash effect instead of the slash
+        return target;
+    }
+    attackTimer_ = kAttackDuration;
+    return std::nullopt;
+}
+
+SDL_Point Player::interactionTile() const {
+    // Minicraft measures from the entity centre, which sits at (8, 11) inside the sprite, raised by 2 px.
+    float px = x_ + 8.0f;
+    float py = y_ + 9.0f;
+    switch (direction_) {
+        case Direction::Up: py -= kInteractDistance; break;
+        case Direction::Down: py += kInteractDistance; break;
+        case Direction::Left: px -= kInteractDistance; break;
+        case Direction::Right: px += kInteractDistance; break;
+    }
+    return {tileIndex(px), tileIndex(py)};
 }
 
 void Player::setPosition(float x, float y) {
