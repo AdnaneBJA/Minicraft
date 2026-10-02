@@ -21,7 +21,7 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - [Controls](#controls)
 - [Tests](#tests)
 - [Project layout](#project-layout)
-- [Roadmap](#roadmap)
+- [Status](#status)
 - [Credits](#credits)
 
 ---
@@ -44,8 +44,8 @@ A faithful port of Minicraft's loop, built from the original Java sources as a r
 | The caves are dark: only you, torches and lanterns give light | The workbench, one of six crafting stations |
 |---|---|
 | ![A dark cave lit by the player and a torch](docs/media/cave.png) | ![The workbench recipe list](docs/media/crafting.png) |
-| **The map** (Tab) shows the way down to the caves and up to the boss | **The Air Wizard** casts spirals of sparks |
-| ![The world map with stairs markers](docs/media/map.png) | ![Fighting the Air Wizard with a bow](docs/media/boss.gif) |
+| **The map** (Tab) shows the way down to the caves and up to the boss | **The Air Wizard** casts spirals of sparks; arrows finish him off |
+| ![The world map with stairs markers](docs/media/map.png) | ![Shooting the Air Wizard with a gem bow until he dies and the win screen shows](docs/media/boss.gif) |
 
 ## Multiplayer
 
@@ -54,6 +54,10 @@ Run `minicraft-server`, choose **Multiplayer** in the game, then create a world 
 ![Two clients side by side: Bob walks over to Alice, they chat and fight; both screens show the same world](docs/media/multiplayer.gif)
 
 *Two clients, rendered side by side. Each one runs its own simulation from the same ticks, so both screens show exactly the same world from each player's point of view.*
+
+| PvP: Bob loses, drops a death chest, and gets the death screen | Building together: Alice places a workbench, Bob crafts a sword on it |
+|---|---|
+| ![Alice and Bob fight with swords until Bob dies; his items fall into a death chest](docs/media/pvp.gif) | ![Alice puts down a workbench and Bob uses it to craft a wood sword](docs/media/building.gif) |
 
 | Title screen | Lobby list |
 |---|---|
@@ -180,19 +184,10 @@ assets/       sprites, sound effects, ASSETS.md (sources and licenses)
 docs/         architecture decisions (adr/) and the media in this README
 ```
 
-## Roadmap
-
-This is a portfolio project about distributed systems: the game is the vehicle. What's done and what's next:
+## Status
 
 - [x] The full single-player game, with its rules in a deterministic, tested core library
 - [x] Multiplayer: lobbies, chat, PvP, late join by replay, desync detection
-- [ ] Client-side prediction, so your own movement feels instant over the internet
-- [ ] A browser build (WebAssembly) and a hosted demo
-- [ ] Java/Spring services: accounts and connect tokens, a fleet of game servers, saved worlds in Postgres, leaderboards in Redis
-- [ ] Game events streamed through Kafka to Python/PyTorch (play-style clustering, an RL-trained boss)
-- [ ] Docker Compose and Kubernetes deployment, CI with sanitizers, Grafana dashboards, load tests with hundreds of bots
-
-Progress is tracked in [`PROGRESS.md`](PROGRESS.md).
 
 ## Credits
 
