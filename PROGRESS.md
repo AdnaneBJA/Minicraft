@@ -31,6 +31,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-02 | `game-core` extraction: deterministic simulation library + tests | 9116 |
 | 2026-10-02 | Multiplayer over ENet: server, lobbies, chat, PvP | 11061 |
 | 2026-10-02 | Smaller name tags and chat | 11076 |
+| 2026-10-02 | README with GIFs, screenshots and diagrams | 11076 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -383,6 +384,12 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     don't cover the game.
   - Not yet: client-side prediction (input lag = one round trip), saving multiplayer worlds, reconnecting to your
     old character, snapshot-based joins (history grows with the lobby's age).
+
+- **2026-10-02: README for recruiters.** What the game is, the multiplayer design (Mermaid architecture and lockstep
+  sequence diagrams, link to ADR 0001), setup (CLion and terminal; single-player and multiplayer), controls, tests,
+  layout, an honest roadmap and credits. The media in `docs/media/` (gameplay, two-client multiplayer and boss GIFs;
+  cave, crafting, map, title and lobby screenshots) were rendered from real simulations through the client's own
+  renderers: the multiplayer GIF is two independent simulations fed the same ticks.
 
 ## Next
 - Phase 1 leftovers: recipes/tiles/mobs as data (`assets/data/*.json`), a WASM build.
