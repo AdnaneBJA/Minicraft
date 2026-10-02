@@ -1,5 +1,6 @@
 #include "crafting_menu.h"
 
+#include "audio.h"
 #include "font.h"
 #include "hud.h"
 #include "items.h"
@@ -52,14 +53,19 @@ float drawInfoBox(SDL_Renderer* renderer, const Hud& hud, const Font& font, cons
 
 }  // namespace
 
-CraftingMenu::CraftingMenu(std::vector<Recipe> recipes, std::string title)
-    : recipes_(std::move(recipes)), title_(std::move(title)) {}
+void CraftingMenu::open(std::vector<Recipe> recipes, std::string title) {
+    recipes_ = std::move(recipes);
+    title_ = std::move(title);
+    selected_ = 0;
+    open_ = true;
+}
 
 const Recipe* CraftingMenu::handleKey(SDL_Keycode key, const Inventory& inventory) {
     const int count = static_cast<int>(recipes_.size());
     if (count == 0) return nullptr;
     if (key == SDLK_W || key == SDLK_UP) selected_ = (selected_ + count - 1) % count;  // wraps, like Minicraft
     if (key == SDLK_S || key == SDLK_DOWN) selected_ = (selected_ + 1) % count;
+    if (audio_ && (key == SDLK_W || key == SDLK_UP || key == SDLK_S || key == SDLK_DOWN)) audio_->play(Sound::Select);
     if (key == SDLK_SPACE || key == SDLK_RETURN || key == SDLK_KP_ENTER) {
         const Recipe& recipe = recipes_[selected_];
         if (recipe.canCraft(inventory)) return &recipe;
@@ -68,7 +74,7 @@ const Recipe* CraftingMenu::handleKey(SDL_Keycode key, const Inventory& inventor
 }
 
 void CraftingMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
-                        const Inventory& inventory) const {
+                        const Inventory& inventory, float viewHeight) const {
     if (!open_ || recipes_.empty()) return;
     const float cursorWidth = Font::textWidth(kCursorLeft);
 
@@ -77,21 +83,25 @@ void CraftingMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font
     for (const auto& recipe : recipes_) {
         columns = std::max(columns, 2 + 1 + static_cast<int>(recipeText(recipe).size()) + 2);
     }
-    const int rows = static_cast<int>(recipes_.size());
+    // As many rows as fit between the frame top and the status bar; the window follows the cursor.
+    const int count = static_cast<int>(recipes_.size());
+    const int rows = std::clamp(static_cast<int>((viewHeight - kFrameTop - 4.0f * kCell) / kCell), 1, count);
+    const int first = std::clamp(selected_ - rows / 2, 0, count - rows);
     const float interiorLeft = kFrameLeft + kCell;
     const float interiorTop = kFrameTop + kCell;
     hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
     hud.drawTitle(renderer, font, title_,
                   std::floor(kFrameLeft + (frameSize(columns) - Font::textWidth(title_)) / 2.0f), kFrameTop);
 
-    for (std::size_t i = 0; i < recipes_.size(); ++i) {
-        const Recipe& recipe = recipes_[i];
-        const float y = interiorTop + static_cast<float>(i) * kCell;
+    for (int row = 0; row < rows; ++row) {
+        const int i = first + row;
+        const Recipe& recipe = recipes_[static_cast<std::size_t>(i)];
+        const float y = interiorTop + static_cast<float>(row) * kCell;
         const float entryX = interiorLeft + cursorWidth;
         const std::string text = recipeText(recipe);
         icons.draw(renderer, recipe.product(), entryX, y);
         font.draw(renderer, text, entryX + ItemIcons::kSize, y, recipe.canCraft(inventory) ? kWhite : kGrey);
-        if (static_cast<int>(i) == selected_) {
+        if (i == selected_) {
             font.draw(renderer, kCursorLeft, interiorLeft, y, kWhite);
             font.draw(renderer, kCursorRight, entryX + ItemIcons::kSize + Font::textWidth(text), y, kWhite);
         }

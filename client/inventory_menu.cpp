@@ -1,5 +1,6 @@
 #include "inventory_menu.h"
 
+#include "audio.h"
 #include "font.h"
 #include "hud.h"
 #include "items.h"
@@ -43,12 +44,13 @@ std::optional<int> InventoryMenu::handleKey(SDL_Keycode key, const Inventory& in
     selected_ = std::min(selected_, count - 1);  // the inventory may have shrunk since the last key
     if (key == SDLK_W || key == SDLK_UP) selected_ = (selected_ + count - 1) % count;  // wraps, like Minicraft
     if (key == SDLK_S || key == SDLK_DOWN) selected_ = (selected_ + 1) % count;
+    if (audio_ && (key == SDLK_W || key == SDLK_UP || key == SDLK_S || key == SDLK_DOWN)) audio_->play(Sound::Select);
     if (key == SDLK_SPACE || key == SDLK_RETURN || key == SDLK_KP_ENTER) return selected_;
     return std::nullopt;
 }
 
 void InventoryMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
-                         const Inventory& inventory) const {
+                         const Inventory& inventory, float viewHeight) const {
     if (!open_) return;
     const auto& stacks = inventory.stacks();
     const float cursorWidth = Font::textWidth(kCursorLeft);
@@ -59,7 +61,10 @@ void InventoryMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& fon
     for (const auto& stack : stacks) {
         columns = std::max(columns, 2 + 1 + static_cast<int>(displayName(stack).size()) + 2);
     }
-    const int rows = std::max(1, static_cast<int>(stacks.size()));
+    // As many rows as fit between the frame top and the status bar; the window follows the cursor.
+    const int count = static_cast<int>(stacks.size());
+    const int rows = std::clamp(static_cast<int>((viewHeight - kFrameTop - 4.0f * kCell) / kCell), 1,
+                                std::max(1, count));
     const float interiorLeft = kFrameLeft + kCell;
     const float interiorTop = kFrameTop + kCell;
     hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
@@ -69,9 +74,11 @@ void InventoryMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& fon
     hud.drawTitle(renderer, font, kTitle, std::floor(kFrameLeft + (frameWidth - Font::textWidth(kTitle)) / 2.0f),
                   kFrameTop);
 
-    const int selected = std::min(selected_, static_cast<int>(stacks.size()) - 1);
-    for (std::size_t i = 0; i < stacks.size(); ++i) {
-        const float y = interiorTop + static_cast<float>(i) * kCell;
+    const int selected = std::min(selected_, count - 1);
+    const int first = std::clamp(selected - rows / 2, 0, std::max(0, count - rows));
+    for (int row = 0; row < rows && first + row < count; ++row) {
+        const auto i = static_cast<std::size_t>(first + row);
+        const float y = interiorTop + static_cast<float>(row) * kCell;
         const float entryX = interiorLeft + cursorWidth;
         const std::string text = displayName(stacks[i]);
         icons.draw(renderer, stacks[i].type, entryX, y);

@@ -15,6 +15,9 @@ constexpr double kOceanBelow = 0.5;      // "land" value under which a tile is o
 constexpr double kInland = 0.9;          // lakes and mountains only where the land value is above this (away from the coast)
 constexpr double kLakeBelow = -0.55;     // lake noise below this floods: a few round lakes
 constexpr int kBeachWidth = 2;           // land tiles within this distance of the ocean become sand
+// Caves: pools below this "water noise" value. Minicraft uses -2 + depth / 2 * 3 (none on the first level, 1 below),
+// which floods about 40% of a 256-tile cave and leaves the gold and gems out of reach; this keeps lakes, not seas.
+constexpr double kCaveLiquidBelow = -1.0;
 
 // Midpoint-displacement noise (Minicraft's LevelGen(w, h, featureSize)): random values on a grid of featureSize,
 // then repeatedly filling in the square and diamond midpoints with smaller and smaller random offsets.
@@ -103,11 +106,158 @@ std::vector<Tile> WorldGenerator::generate(std::uint32_t seed, int width, int he
         std::vector<Tile> map = createTopMap(random, width, height);
         // createAndValidateTopMap: reject worlds without enough of each resource and terrain.
         const auto count = [&](Tile tile) { return std::count(map.begin(), map.end(), tile); };
-        if (count(Tile::Rock) < 100 || count(Tile::Sand) < 100 || count(Tile::Grass) < 100 || count(Tile::Tree) < 100) {
+        if (count(Tile::Rock) < 100 || count(Tile::Sand) < 100 || count(Tile::Grass) < 100 || count(Tile::Tree) < 100 ||
+            count(Tile::StairsDown) < 2) {
             continue;
         }
         return map;
     }
+}
+
+std::vector<Tile> WorldGenerator::generateUnderground(std::uint32_t seed, int width, int height, int depth) {
+    // Each level gets its own random sequence, so the caves don't depend on how many tries the surface took.
+    JavaRandom random(static_cast<std::int64_t>(seed) + 7919LL * depth);
+    while (true) {
+        std::vector<Tile> map = createUndergroundMap(random, width, height, depth);
+        const auto count = [&](Tile tile) { return std::count(map.begin(), map.end(), tile); };
+        const Tile ore = depth == 1 ? Tile::IronOre : depth == 2 ? Tile::GoldOre : Tile::GemOre;
+        if (count(Tile::Rock) < 100 || count(Tile::Dirt) < 100 || count(ore) < 20) continue;
+        if (depth < 3 && count(Tile::StairsDown) < 2) continue;
+        return map;
+    }
+}
+
+std::vector<Tile> WorldGenerator::generateSky(std::uint32_t seed, int width, int height) {
+    JavaRandom random(static_cast<std::int64_t>(seed) - 104729LL);
+    while (true) {
+        std::vector<Tile> map = createSkyMap(random, width, height);
+        const auto count = [&](Tile tile) { return std::count(map.begin(), map.end(), tile); };
+        if (count(Tile::Cloud) < 2000 || count(Tile::StairsDown) < 2) continue;
+        return map;
+    }
+}
+
+void WorldGenerator::addStairs(JavaRandom& random, std::vector<Tile>& map, int w, int h, Tile ground, int margin,
+                               int max) {
+    int placed = 0;
+    for (int i = 0; i < w * h / 100 && placed < max; ++i) {
+        const int x = random.nextInt(w - 2 * margin) + margin;
+        const int y = random.nextInt(h - 2 * margin) + margin;
+        bool fits = true;
+        for (int yy = y - 1; yy <= y + 1 && fits; ++yy) {
+            for (int xx = x - 1; xx <= x + 1; ++xx) {
+                if (map[static_cast<std::size_t>(xx + yy * w)] != ground) {
+                    fits = false;
+                    break;
+                }
+            }
+        }
+        if (!fits) continue;
+        map[static_cast<std::size_t>(x + y * w)] = Tile::StairsDown;
+        ++placed;
+    }
+}
+
+std::vector<Tile> WorldGenerator::createUndergroundMap(JavaRandom& random, int w, int h, int depth) {
+    const NoiseMap mnoise1(random, w, h, 16);
+    const NoiseMap mnoise2(random, w, h, 16);
+    const NoiseMap mnoise3(random, w, h, 16);
+    const NoiseMap nnoise1(random, w, h, 16);
+    const NoiseMap nnoise2(random, w, h, 16);
+    const NoiseMap nnoise3(random, w, h, 16);
+    const NoiseMap wnoise1(random, w, h, 16);
+    const NoiseMap wnoise2(random, w, h, 16);
+    const NoiseMap wnoise3(random, w, h, 16);
+    const NoiseMap noise1(random, w, h, 32);
+    const NoiseMap noise2(random, w, h, 32);
+
+    std::vector<Tile> map(static_cast<std::size_t>(w * h), Tile::Rock);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const int i = x + y * w;
+            double val = std::abs(noise1.at(i) - noise2.at(i)) * 3 - 2;
+            double mval = std::abs(mnoise1.at(i) - mnoise2.at(i));
+            mval = std::abs(mval - mnoise3.at(i)) * 3 - 2;
+            double nval = std::abs(nnoise1.at(i) - nnoise2.at(i));
+            nval = std::abs(nval - nnoise3.at(i)) * 3 - 2;
+            double wval = std::abs(wnoise1.at(i) - wnoise2.at(i));
+            wval = std::abs(nval - wnoise3.at(i)) * 3 - 2;  // (sic) Minicraft uses nval here
+            // Solid rock along the edges: distance to the nearest edge, to the 8th power.
+            const double xd = std::abs(x / (w - 1.0) * 2 - 1);
+            const double yd = std::abs(y / (h - 1.0) * 2 - 1);
+            double dist = std::max(xd, yd);
+            dist = dist * dist * dist * dist;
+            dist = dist * dist * dist * dist;
+            val = val + 1 - dist * 20;
+
+            Tile tile = Tile::Rock;
+            if (val > -2 && wval < (depth > 1 ? kCaveLiquidBelow : -2.0)) {
+                tile = depth > 2 ? Tile::Lava : Tile::Water;
+            } else if (val > -2 && (mval < -1.7 || nval < -1.4)) {
+                tile = Tile::Dirt;
+            }
+            map[static_cast<std::size_t>(i)] = tile;
+        }
+    }
+
+    // Ore veins in the rock: iron on the first level, gold on the second, gems on the third.
+    const Tile ore = depth == 1 ? Tile::IronOre : depth == 2 ? Tile::GoldOre : Tile::GemOre;
+    constexpr int r = 2;
+    for (int i = 0; i < w * h / 400; ++i) {
+        const int x = random.nextInt(w);
+        const int y = random.nextInt(h);
+        for (int j = 0; j < 30; ++j) {
+            const int xx = x + random.nextInt(5) - random.nextInt(5);
+            const int yy = y + random.nextInt(5) - random.nextInt(5);
+            if (xx >= r && yy >= r && xx < w - r && yy < h - r &&
+                map[static_cast<std::size_t>(xx + yy * w)] == Tile::Rock) {
+                map[static_cast<std::size_t>(xx + yy * w)] = ore;
+            }
+        }
+    }
+
+    if (depth < 3) addStairs(random, map, w, h, Tile::Rock, 10, 4);
+    return map;
+}
+
+std::vector<Tile> WorldGenerator::createSkyMap(JavaRandom& random, int w, int h) {
+    const NoiseMap noise1(random, w, h, 8);
+    const NoiseMap noise2(random, w, h, 8);
+
+    std::vector<Tile> map(static_cast<std::size_t>(w * h), Tile::InfiniteFall);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            const int i = x + y * w;
+            double val = std::abs(noise1.at(i) - noise2.at(i)) * 3 - 2;
+            const double xd = std::abs(x / (w - 1.0) * 2 - 1);
+            const double yd = std::abs(y / (h - 1.0) * 2 - 1);
+            double dist = std::max(xd, yd);
+            dist = dist * dist * dist * dist;
+            dist = dist * dist * dist * dist;
+            val = -val * 1 - 2.2;
+            val = val + 1 - dist * 20;
+            map[static_cast<std::size_t>(i)] = val < -0.25 ? Tile::InfiniteFall : Tile::Cloud;
+        }
+    }
+
+    // Cloud cacti: single spikes in the middle of the clouds.
+    for (int i = 0; i < w * h / 50; ++i) {
+        const int x = random.nextInt(w - 2) + 1;
+        const int y = random.nextInt(h - 2) + 1;
+        bool fits = true;
+        for (int yy = y - 1; yy <= y + 1 && fits; ++yy) {
+            for (int xx = x - 1; xx <= x + 1; ++xx) {
+                if (map[static_cast<std::size_t>(xx + yy * w)] != Tile::Cloud) {
+                    fits = false;
+                    break;
+                }
+            }
+        }
+        if (fits) map[static_cast<std::size_t>(x + y * w)] = Tile::CloudCactus;
+    }
+
+    addStairs(random, map, w, h, Tile::Cloud, 1, 2);
+    return map;
 }
 
 std::vector<Tile> WorldGenerator::createTopMap(JavaRandom& random, int w, int h) {
@@ -201,6 +351,16 @@ std::vector<Tile> WorldGenerator::createTopMap(JavaRandom& random, int w, int h)
     }
 
     addBeaches(map, w, h);
+
+    // Cacti on the sand (the original createTopMap's cactus pass).
+    for (int i = 0; i < w * h / 100; ++i) {
+        const int x = random.nextInt(w);
+        const int y = random.nextInt(h);
+        if (map[static_cast<std::size_t>(x + y * w)] == Tile::Sand) map[static_cast<std::size_t>(x + y * w)] = Tile::Cactus;
+    }
+
+    // Stairs down into the caves, cut into the middle of rocky mountains.
+    addStairs(random, map, w, h, Tile::Rock, 1, 4);
     return map;
 }
 

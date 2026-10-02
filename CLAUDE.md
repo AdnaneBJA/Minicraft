@@ -68,11 +68,12 @@ Minicraft/
 ├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
-│   └── sprites/       # player.png, zombie.png, cow.png, pig.png, sheep.png, tiles.png (atlas), hud.png, font.png, items.png, inventory_counter.png, smash.png, title.png, furniture.png
+│   ├── audio/         # Minicraft+ sound effects (.wav)
+│   └── sprites/       # player, mob sheets (zombie, skeleton, slime, creeper, snake, air_wizard, cow, pig, sheep), tiles.png (atlas), hud.png, font.png, items.png, furniture.png, projectiles.png, inventory_counter.png, smash.png, title.png
 └── client/
     ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
     ├── player.h/.cpp  # Player: sprite, movement, walk animation
-    ├── tile_map.h/.cpp  # TileMap: seeded island generation + tile rendering
+    ├── tile_map.h/.cpp  # TileMap: tiles + per-tile data, random tile ticks, tile rendering
     ├── camera.h/.cpp  # Camera: follows the player, clamped to the map
     ├── debug_overlay.h/.cpp  # F3 debug mode: outlines + ImGui panel
     ├── effects.h/.cpp  # short-lived world effects (smash X, damage numbers)
@@ -85,14 +86,19 @@ Minicraft/
     ├── inventory_menu.h/.cpp  # inventory screen (E)
     ├── recipe.h/.cpp   # Recipe: product + costs, crafted against an Inventory
     ├── crafting_menu.h/.cpp  # crafting screen (Z): recipe list + Have/Cost boxes
-    ├── furniture.h/.cpp  # placed furniture (workbench): placement, collision boxes, drawing
-    ├── world_gen.h/.cpp  # original-Minicraft-style island generation (+ beaches, few lakes)
+    ├── furniture.h/.cpp  # placed furniture (stations, chests, lanterns, beds, death chests)
+    ├── container_menu.h/.cpp  # chest screen (move stacks between a chest and the inventory)
+    ├── map_screen.h/.cpp  # Tab map of the current level: player, stairs, the way to the boss
+    ├── world.h/.cpp    # World: the 5 levels (sky, surface, 3 caves) and their stairs; Level = map + mobs + drops + furniture
+    ├── projectiles.h/.cpp  # arrows and the Air Wizard's sparks
+    ├── audio.h/.cpp    # SDL3 sound effects, mute and volume
+    ├── world_gen.h/.cpp  # original-Minicraft level generation: island surface, caves, sky
     ├── day_night.h/.cpp  # day/night cycle and the night lighting overlay
     ├── collision.h     # tile collision shared by the player and mobs
-    ├── mob.h/.cpp      # Mob base (MobAi movement/hurt/draw) + Zombie and Animal (cow/pig/sheep)
-    ├── mobs.h/.cpp     # Mobs: owns, spawns, despawns, punches and draws all mobs
-    ├── player_actions.h/.cpp  # what a swing does: punch, tool use on tiles (axe/pickaxe/shovel/hoe), tool attacks
-    ├── game_menu.h/.cpp  # title screen, new/load world screens, pause menu
+    ├── mob.h/.cpp      # Mob base + enemies (zombie, skeleton, slime, creeper, snake, Air Wizard) and animals
+    ├── mobs.h/.cpp     # Mobs: one level's mobs: spawning by level/light, creeper blasts, the boss
+    ├── player_actions.h/.cpp  # Space: punch, tools on tiles, bows, eating, armour, placing tiles/furniture, power glove
+    ├── game_menu.h/.cpp  # title, new/load world, options (sound), pause, death and victory screens
     └── world_save.h/.cpp  # one binary save file per world (validated on load)
 ```
 
@@ -238,6 +244,8 @@ Rules:
 ## 11. Current state
 
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
-- The game opens on a Minicraft-style title screen: Play -> Load World / New World (name + optional seed). Esc in game pauses (Return to Game / Save Game / Save and Quit). Worlds are saved to `%APPDATA%/Minicraft/Minicraft/saves/<name>.sav`.
-- `client/` shows a 256x256 island generated like the original Minicraft, with a day/night cycle (zombies spawn at night and chase the player) with a camera following the player (WASD/arrows). F3 toggles debug mode (outlines + ImGui panel). Rock and trees are solid; water is swimmable (half speed, only the head shows; drains energy, then health; respawn at 0 health). Space punches, and holding it repeats (costs 1 energy each): trees (20) and rocks (50) take 1-3 damage with damage numbers, then drop wood/stone that is picked up by walking over it. E opens the inventory; Z opens crafting (Workbench = 10 wood, crafted with Space/Enter). Space/Enter on an inventory slot puts it in hand; a held workbench is carried over the head and Space places it on the tile in front (it blocks the player and mobs). E while facing a placed workbench opens its recipes (wood/rock tools, bows, arrows). Tools work like Minicraft (durability, extra energy, axe/pickaxe much stronger on trees/rock, shovel/hoe/pickaxe reshape soil, swords hit mobs harder). Flowers grow on grass (punch to pick); cows, pigs and sheep wander and drop loot. 10 hearts + 10 energy bolts at the bottom left. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
+- The game opens on a Minicraft-style title screen: Play (Load World / New World with name + optional seed), Options (sound on/off, volume), Quit. Esc in game pauses (Return to Game / Options / Save Game / Save and Quit). Worlds are saved to `%APPDATA%/Minicraft/Minicraft/saves/<name>.sav` (format v3; v1/v2 still load).
+- The full original-Minicraft loop is in: a 256x256 island surface with day/night, three caves below (iron, gold, gems; water then lava; pitch black except light from the player, torches, lanterns and lava) and the sky above, all linked by stairs (the sky stairs sit in hard rock: gem pickaxe needed). The Air Wizard boss in the sky ends the game ("You won!").
+- Controls: WASD/arrows move; Space punches/uses the held item (hold to repeat); E opens the inventory, or uses the furniture in front (workbench/furnace/oven/anvil/loom recipes, chest contents, bed); Z crafts by hand; Tab shows the map; M mutes; F3 debug panel.
+- Systems: tools with durability (wood to gem), ores and smelting, food and hunger, armour, bows and arrows, farming (seeds, wheat), saplings, placeable tiles (dirt, sand, torches, floors, walls, doors), chests, lanterns, beds (respawn point), the power glove, death chests, mobs by level (zombie, skeleton, slime, creeper, snake, cow, pig, sheep), Minicraft+ sound effects. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

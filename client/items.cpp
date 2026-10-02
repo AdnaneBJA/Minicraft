@@ -4,76 +4,107 @@
 #include <iterator>
 #include <string>
 
+namespace {
+
+// Names in ItemType order.
+constexpr const char* kNames[] = {
+    "Wood", "Stone", "Workbench", "Cloth", "Iron", "Potato", "Acorn", "Apple",
+    "Wood Sword", "Wood Axe", "Wood Hoe", "Wood Pickaxe", "Wood Shovel", "Wood Bow",
+    "Rock Sword", "Rock Axe", "Rock Hoe", "Rock Pickaxe", "Rock Shovel", "Rock Bow",
+    "Arrow", "String", "Leather", "Raw Beef", "Raw Pork", "White Wool",
+    "Dandelion", "Poppy", "Oxeye Daisy", "Cornflower", "Allium", "Blue Orchid", "Rose", "Iris",
+    "Sand", "Dirt", "Coal",
+    "Iron Ore", "Gold Ore", "Gem", "Gold", "Glass", "Slime", "Bone", "Gunpowder", "Wheat", "Seeds",
+    "Bread", "Cooked Pork", "Steak", "Baked Potato", "Gold Apple", "Cactus", "Cloud", "Cloud Ore",
+    "Torch", "Plank", "Stone Brick", "Plank Wall", "Stone Wall", "Wood Door", "Stone Door", "Scale",
+    "Furnace", "Oven", "Anvil", "Chest", "Lantern", "Loom", "Bed", "Power Glove",
+    "Iron Sword", "Iron Axe", "Iron Hoe", "Iron Pickaxe", "Iron Shovel", "Iron Bow",
+    "Gold Sword", "Gold Axe", "Gold Hoe", "Gold Pickaxe", "Gold Shovel", "Gold Bow",
+    "Gem Sword", "Gem Axe", "Gem Hoe", "Gem Pickaxe", "Gem Shovel", "Gem Bow",
+    "Leather Armor", "Snake Armor", "Iron Armor", "Gold Armor", "Gem Armor",
+};
+static_assert(std::size(kNames) == kItemTypeCount, "one name per ItemType");
+
+// First item of each block of six tools (sword, axe, hoe, pickaxe, shovel, bow), by level.
+constexpr ItemType kToolBlocks[] = {ItemType::WoodSword, ItemType::RockSword, ItemType::IronSword, ItemType::GoldSword,
+                                    ItemType::GemSword};
+
+}  // namespace
+
 const char* itemName(ItemType type) {
+    const int index = static_cast<int>(type);
+    return index >= 0 && index < kItemTypeCount ? kNames[index] : "?";
+}
+
+bool isFurniture(ItemType type) {
     switch (type) {
-        case ItemType::Wood: return "Wood";
-        case ItemType::Stone: return "Stone";
-        case ItemType::Workbench: return "Workbench";
-        case ItemType::Cloth: return "Cloth";
-        case ItemType::Iron: return "Iron";
-        case ItemType::Potato: return "Potato";
-        case ItemType::Acorn: return "Acorn";
-        case ItemType::Apple: return "Apple";
-        case ItemType::WoodSword: return "Wood Sword";
-        case ItemType::WoodAxe: return "Wood Axe";
-        case ItemType::WoodHoe: return "Wood Hoe";
-        case ItemType::WoodPickaxe: return "Wood Pickaxe";
-        case ItemType::WoodShovel: return "Wood Shovel";
-        case ItemType::WoodBow: return "Wood Bow";
-        case ItemType::RockSword: return "Rock Sword";
-        case ItemType::RockAxe: return "Rock Axe";
-        case ItemType::RockHoe: return "Rock Hoe";
-        case ItemType::RockPickaxe: return "Rock Pickaxe";
-        case ItemType::RockShovel: return "Rock Shovel";
-        case ItemType::RockBow: return "Rock Bow";
-        case ItemType::Arrow: return "Arrow";
-        case ItemType::String: return "String";
-        case ItemType::Leather: return "Leather";
-        case ItemType::RawBeef: return "Raw Beef";
-        case ItemType::RawPork: return "Raw Pork";
-        case ItemType::WhiteWool: return "White Wool";
-        case ItemType::Dandelion: return "Dandelion";
-        case ItemType::Poppy: return "Poppy";
-        case ItemType::OxeyeDaisy: return "Oxeye Daisy";
-        case ItemType::Cornflower: return "Cornflower";
-        case ItemType::Allium: return "Allium";
-        case ItemType::BlueOrchid: return "Blue Orchid";
-        case ItemType::Rose: return "Rose";
-        case ItemType::Iris: return "Iris";
-        case ItemType::Sand: return "Sand";
-        case ItemType::Dirt: return "Dirt";
-        case ItemType::Coal: return "Coal";
+        case ItemType::Workbench:
+        case ItemType::Furnace:
+        case ItemType::Oven:
+        case ItemType::Anvil:
+        case ItemType::Chest:
+        case ItemType::Lantern:
+        case ItemType::Loom:
+        case ItemType::Bed: return true;
+        default: return false;
     }
-    return "?";
 }
 
-bool isFurniture(ItemType type) { return type == ItemType::Workbench; }
+bool isTool(ItemType type) { return toolInfo(type).type != ToolType::None; }
 
-bool isTool(ItemType type) {
-    const int value = static_cast<int>(type);
-    return value >= static_cast<int>(ItemType::WoodSword) && value <= static_cast<int>(ItemType::RockBow);
-}
-
-bool isStackable(ItemType type) { return !isFurniture(type) && !isTool(type); }
+bool isStackable(ItemType type) { return !isFurniture(type) && !isTool(type) && type != ItemType::PowerGlove; }
 
 ItemType flowerItem(int variant) { return static_cast<ItemType>(static_cast<int>(ItemType::Dandelion) + variant); }
 
-ToolInfo toolInfo(ItemType type) {
+int foodValue(ItemType type) {
     switch (type) {
-        case ItemType::WoodSword: return {ToolType::Sword, 0};
-        case ItemType::WoodAxe: return {ToolType::Axe, 0};
-        case ItemType::WoodHoe: return {ToolType::Hoe, 0};
-        case ItemType::WoodPickaxe: return {ToolType::Pickaxe, 0};
-        case ItemType::WoodShovel: return {ToolType::Shovel, 0};
-        case ItemType::WoodBow: return {ToolType::Bow, 0};
-        case ItemType::RockSword: return {ToolType::Sword, 1};
-        case ItemType::RockAxe: return {ToolType::Axe, 1};
-        case ItemType::RockHoe: return {ToolType::Hoe, 1};
-        case ItemType::RockPickaxe: return {ToolType::Pickaxe, 1};
-        case ItemType::RockShovel: return {ToolType::Shovel, 1};
-        case ItemType::RockBow: return {ToolType::Bow, 1};
-        default: return {};
+        case ItemType::BakedPotato:
+        case ItemType::Apple:
+        case ItemType::RawPork:
+        case ItemType::RawBeef: return 1;
+        case ItemType::Bread: return 2;
+        case ItemType::CookedPork:
+        case ItemType::Steak: return 3;
+        case ItemType::GoldenApple: return 10;
+        default: return 0;
     }
+}
+
+int armorLevel(ItemType type) {
+    switch (type) {
+        case ItemType::LeatherArmor: return 1;
+        case ItemType::SnakeArmor: return 2;
+        case ItemType::IronArmor: return 3;
+        case ItemType::GoldArmor: return 4;
+        case ItemType::GemArmor: return 5;
+        default: return 0;
+    }
+}
+
+int armorPoints(ItemType type) {
+    switch (type) {
+        case ItemType::LeatherArmor: return 30;
+        case ItemType::SnakeArmor: return 40;
+        case ItemType::IronArmor: return 50;
+        case ItemType::GoldArmor: return 70;
+        case ItemType::GemArmor: return 100;
+        default: return 0;
+    }
+}
+
+int lightRadius(ItemType type) {
+    if (type == ItemType::Lantern) return 9;  // Lantern.Type.NORM
+    if (type == ItemType::Torch) return 5;    // TorchTile.getLightRadius
+    return 0;
+}
+
+ToolInfo toolInfo(ItemType type) {
+    const int value = static_cast<int>(type);
+    for (int level = 0; level < static_cast<int>(std::size(kToolBlocks)); ++level) {
+        const int first = static_cast<int>(kToolBlocks[level]);
+        if (value >= first && value < first + 6) return {static_cast<ToolType>(1 + value - first), level};
+    }
+    return {};
 }
 
 int toolDamage(const ToolInfo& tool) { return static_cast<int>(SDL_rand(5)) + tool.level * 5 + 10; }

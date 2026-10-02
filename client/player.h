@@ -9,7 +9,9 @@
 #include <span>
 #include <string>
 
+class Audio;
 class Camera;
+class Effects;
 class TileMap;
 
 class Player {
@@ -21,6 +23,9 @@ public:
     static constexpr float kHitboxHeight = 6.0f;
     static constexpr int kMaxHealth = 10;
     static constexpr int kMaxEnergy = 10;
+    static constexpr int kMaxHunger = 10;
+    static constexpr int kMaxArmor = 100;
+    static constexpr float kLightRadius = 40.0f;  // Player.getLightRadius: 5 (x 8 px)
 
     // Loads the sprite sheet (16x16 frames: down, up, right 1, right 2; walking on the top row, carrying with the
     // arms raised on the bottom row) and hud.png (for the slash pieces).
@@ -28,7 +33,7 @@ public:
 
     void setPosition(float x, float y);
     // Moves the player and runs its 60 Hz stat ticks; `obstacles` (furniture) block movement like solid tiles.
-    // Returns the health lost during this update (drowning).
+    // Returns the health lost during this update (drowning, burning in lava, starving).
     int update(float dt, const bool* keys, const TileMap& map, std::span<const SDL_FRect> obstacles);
     void draw(SDL_Renderer* renderer, const Camera& camera) const;
 
@@ -39,7 +44,7 @@ public:
     // Shows the slash animation (a punch that didn't hit anything).
     void showSlash();
     bool isAttacking() const { return attackTimer_ > 0.0f; }
-    // In water (the tile under the player's centre): half speed, and only the head is drawn.
+    // In water or lava (the tile under the player's centre): half speed, and only the head is drawn.
     bool isSwimming() const { return swimming_; }
     // The tile a punch would hit: 12 px in front of the player's centre (Minicraft's INTERACT_DIST).
     SDL_Point interactionTile() const;
@@ -48,9 +53,21 @@ public:
     // Unit vector of the facing direction (e.g. right = {1, 0}).
     SDL_Point facing() const;
 
-    // Hit by a mob: loses health and is knocked back along (directionX, directionY), unless still in the hurt
-    // cooldown. Returns true if the hit landed.
-    bool takeHit(int damage, int directionX, int directionY);
+    // Hit by a mob, an arrow or a blast: worn armour soaks it up first (Player.doHurt), the rest costs health,
+    // and the player is knocked back along (directionX, directionY), unless still in the hurt cooldown. Shows the
+    // damage numbers and plays the hurt sound. Returns true if the hit landed.
+    bool takeHit(int damage, int directionX, int directionY, Effects& effects, Audio& audio);
+
+    // Eats food that restores `value` hunger (FoodItem.interactOn: 2 energy). False if not hungry or exhausted.
+    bool eat(int value);
+    // Puts on armour (ArmorItem.interactOn: 9 energy). False if already wearing some or exhausted.
+    bool wearArmor(ItemType armor);
+    // The armour being worn and the points it has left (0-100).
+    const std::optional<ItemType>& armor() const { return armor_; }
+    int armorPoints() const { return armorPoints_; }
+    int hunger() const { return hunger_; }
+    // Light around the player in the dark: 40 px, or a held lantern's.
+    float lightRadius() const;
 
     // The item in the player's hand (Minicraft's activeItem), taken out of the inventory.
     const std::optional<Inventory::Stack>& heldItem() const { return heldItem_; }
@@ -66,8 +83,10 @@ public:
     // Ticks left in the pause after running out of energy (bolts blink meanwhile); 0 when not exhausted.
     int energyRechargeDelay() const { return energyRechargeDelay_; }
     void refillStats();
-    // Sets health and energy (a loaded save); clears any hurt cooldown, knockback or exhaustion pause.
-    void restoreStats(int health, int energy);
+    // Sets the saved stats (a loaded save); clears any hurt cooldown, knockback or exhaustion pause.
+    void restoreStats(int health, int energy, int hunger, std::optional<ItemType> armor, int armorPoints);
+    // Takes off the armour (it goes into the death chest when the player dies).
+    void removeArmor();
     bool isDead() const { return health_ <= 0; }
     // Minicraft's entity centre (8, 11 inside the sprite), used for effects attached to the player.
     SDL_FPoint center() const { return {x_ + 8.0f, y_ + 11.0f}; }
@@ -85,6 +104,9 @@ private:
     void moveY(float delta, const TileMap& map, std::span<const SDL_FRect> obstacles);
     // One 60 Hz tick of energy recharge (Minicraft's stamina rules).
     void tickEnergy();
+    // One 60 Hz tick of Minicraft+'s hunger: time, walking and low energy wear it down; a full stomach heals and an
+    // empty one starves.
+    void tickHunger();
     // Loses health unless still in the hurt cooldown; starts the cooldown and the white flash.
     void hurt(int damage);
     void tickKnockback(const TileMap& map, std::span<const SDL_FRect> obstacles);
@@ -112,6 +134,17 @@ private:
     int knockbackX_ = 0;   // remaining knockback "steps" (Minicraft's xKnockback / yKnockback)
     int knockbackY_ = 0;
     int damageTaken_ = 0;  // health lost since the start of the current update()
+    bool inLava_ = false;
+    int hunger_ = kMaxHunger;
+    int hungerStamCount_ = 7;     // "bites" left before losing a hunger point (Minicraft+'s hungerStamCnt)
+    int stamHungerTicks_ = 400;   // points left before losing a bite
+    int stepCount_ = 0;           // pixels walked since the last walking hunger penalty
+    float stepAccumulator_ = 0.0f;
+    int hungerChargeDelay_ = 0;   // ticks towards the next heart healed by a full stomach
+    int hungerStarveDelay_ = 0;   // ticks towards the next heart lost to starving
+    std::optional<ItemType> armor_;
+    int armorPoints_ = 0;
+    int armorDamageBuffer_ = 0;
     int ticks_ = 0;  // 60 Hz ticks since start; drives the swimming ripple animation
     std::optional<Inventory::Stack> heldItem_;
 };

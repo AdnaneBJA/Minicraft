@@ -24,6 +24,10 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Workbench recipes, flowers, animals | 4708 |
 | 2026-10-01 | Tools: durability and uses | 4984 |
 | 2026-10-01 | Debug panel item giver | 5022 |
+| 2026-10-01 | Gameplay loop: caves, sky, boss, audio, stations, farming, saves v3 | 7880 |
+| 2026-10-01 | Hit and menu sounds; no gem pickaxe hint while tired | 7917 |
+| 2026-10-01 | World map (Tab) | 8131 |
+| 2026-10-02 | Fixes: held item kept through the inventory, no walled-in stairs | 8172 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -272,6 +276,63 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   (1-999) and press Give, or use the shortcuts "+50 wood & stone", "All tools" (every wood and rock tool) and "Clear
   inventory". What doesn't fit in the inventory is dropped at the player's feet.
 
+- **2026-10-01: The Minicraft gameplay loop** (branch `gameplay-loop`). Ported from the original Minicraft and
+  Minicraft+ (`Level`, `LevelGen`, the tile, mob, furniture and item classes, `Recipes`, `Sound`).
+  - **Levels** (`world.h/.cpp`): the sky, the surface and three caves, 256x256 each, generated from the world seed
+    (`world_gen.cpp`: `createUndergroundMap` and `createSkyMap`). Stairs down are cut into 3x3 patches of rock (4 per
+    level) and lead to stairs up at the same spot below, in a small dirt room; the surface's stairs up to the sky
+    sit in a ring of hard rock that only a gem pickaxe breaks. Stepping onto stairs changes level with a short fade.
+    Caves are pitch black except around light: the player (40 px), torches, lanterns and lava.
+  - **Caves**: dirt tunnels through rock, iron ore (B1), gold (B2) and gems (B3), water pools on B2 and lava on B3
+    (the original's flooding is lowered to lakes, `kCaveLiquidBelow`). Ores need a pickaxe (6 - level energy) and
+    drop ore on every hit; lava burns (4 damage) and lights its surroundings.
+  - **Mobs** (`mob.h/.cpp`, `mobs.h/.cpp`): every enemy has a level (sprite row, health = base x level^2 x 2, contact
+    damage = level): zombies, skeletons (shoot arrows), slimes (hop), creepers (a 1 s fuse, then a blast that hurts
+    everything around and digs holes) and snakes (deepest caves). Enemies spawn at night on the surface and anytime
+    in the dark below (never in torch or lantern light); the sky has level-4 slimes and zombies.
+  - **The Air Wizard** (2000 health) waits in the middle of the sky: it keeps its distance, teleports back when the
+    player runs off, and casts spirals of sparks that speed up as it weakens. A boss bar shows its health; beating
+    it opens the "You won!" screen.
+  - **Crafting stations** (`recipe.cpp`): workbench (tools, torches, planks, bricks, walls, doors, furnace, oven,
+    chest, anvil, loom, lantern, armour), furnace (iron, gold, glass), oven (cooked pork, steak, bread, baked potato),
+    anvil (iron/gold/gem tools and armour, gold apple), loom (string, wool, bed). E on a station opens its recipes;
+    long lists scroll.
+  - **Furniture** (`furniture.h/.cpp`): chests with their own inventory (`container_menu.h/.cpp`: Left/Right switch
+    lists, Enter moves a stack), lanterns (light radius 72 px), beds (sleep through the evening or night to the
+    morning; the bed becomes the respawn point), and the power glove (new worlds start with it) to pick furniture
+    back up (chests only when empty).
+  - **Player**: hunger (Minicraft+ normal difficulty: time, walking and low energy drain it; above half it heals,
+    at zero it starves down to 3 hearts), food (2 energy to eat), armour (leather to gem: soaks hits and every
+    level + 1 points cost a heart), bows (shoot arrows from the inventory; the HUD shows how many are left), and
+    death: everything carried goes into a death chest where the player fell, then "You died!" with Respawn.
+  - **World ticks**: grass spreads onto dirt, acorns grow into trees and cacti from cactus, wheat grows on farmland
+    (hoe or shovel grass for seeds; harvest at full age for 2-4 wheat), water and lava flow into holes, damaged
+    trees and rock heal.
+  - **Placing tiles**: dirt and sand fill holes, water and lava; clouds fill the sky's edge; torches, plank and
+    stone brick floors, walls and doors (punch to open/close, axe or pickaxe to take back).
+  - **Audio** (`audio.h/.cpp`): Minicraft+'s sound effects through SDL3 audio streams (4 voices per sound). M mutes;
+    the Options screen (title and pause menus) toggles the sound and sets the volume. Every hit on a tile (trees,
+    rock, ore, cacti, walls) plays the hit sound; moving the cursor in any menu plays "select" and closing a screen
+    (inventory, crafting, chest, pause) plays the craft sound, like Minicraft+'s Menu and Game.exitDisplay.
+  - **Saves v3**: every level's tiles and tile data, furniture with chest contents, the current level, hunger,
+    armour, the bed spawn point, the boss flag and the time played. Version 1 and 2 saves still load: the other
+    levels are generated from the seed and stairs are fitted into the saved surface.
+  - **Debug panel**: hunger/armour/level info, spawn any mob at any level, jump to any level, full-bright, and
+    "Cave kit" / "Boss kit" item shortcuts.
+  - Not ported: the dungeon (obsidian knight, keys), potions and the enchanter, dyes and coloured wool/beds, boats,
+    fishing, TNT, signs, quests and achievements, knights.
+
+- **2026-10-01: World map** (`map_screen.h/.cpp`). Tab shows the whole level the player is on, one pixel per tile
+  (shrunk to fit the view), with markers: the player (blinking), stairs down, and on the surface the stairs up to the
+  sky where the Air Wizard waits (stairs up in the caves; the Air Wizard himself in the sky), plus a legend. Tab or
+  Esc closes it; the world keeps running behind it like the other screens.
+
+- **2026-10-02: Fixes.**
+  - Opening the inventory no longer unequips the held item: it shows in the list while the inventory is open and
+    goes back in hand on close (unless another item was picked).
+  - Taking stairs up out of a cave no longer lands the player in a pocket of solid rock: every stairs down below the
+    sky now gets the same small dirt room as stairs up (`World::linkStairs`), which also runs on load so older saves
+    are fixed.
+
 ## Next
-- Bows and arrows, a source of string; farming (seeds, wheat) on farmland.
-- Pick furniture back up (Minicraft's power glove).
+- Phase 1 leftovers: move the simulation into `game-core`, recipes/tiles/mobs as data, a WASM build.
