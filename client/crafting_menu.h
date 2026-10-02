@@ -32,6 +32,8 @@ public:
     // W/S or the arrows move the cursor. Space or Enter returns the selected recipe if the inventory can pay for
     // it (the caller crafts it); otherwise nullptr.
     const Recipe* handleKey(SDL_Keycode key, const Inventory& inventory);
+    // Where the cursor is in the recipe list (the recipe handleKey returned).
+    int selectedIndex() const { return selected_; }
     // Long lists scroll to keep the cursor in view within `viewHeight`.
     void draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, const ItemIcons& icons,
               const Inventory& inventory, float viewHeight) const;

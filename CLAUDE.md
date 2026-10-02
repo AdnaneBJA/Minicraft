@@ -25,7 +25,7 @@ Do not hesitate to take assets from there to use them, this project will not be 
 |---|-----------------------------------------------------------------------------|
 | Game core / client / game server | **C++20**, CMake. Dependencies come in via CMake `FetchContent` (no package manager). |
 | Rendering/input/audio (client) | **SDL3** (fetched and statically linked by CMake) |
-| Server networking | **standalone ASIO** (or raw epoll + `recvmmsg`) over UDP                    |
+| Server networking | **ENet** (reliable ordered UDP); lockstep relay, see `docs/adr/0001-multiplayer-lockstep-over-enet.md` |
 | Wire format | **Protobuf** (or hand-rolled binary for hot-path packets)                   |
 | Platform services | **Java 21**, Spring Boot 3, Gradle                                          |
 | Messaging | **Kafka** (events), **Redis** (sessions, pub/sub, leaderboards, rate limits) |
@@ -65,20 +65,22 @@ Minicraft/
 ├── CLAUDE.md
 ├── README.md
 ├── PROGRESS.md        # after each task, record progress here so multiple agents can sync
-├── CMakeLists.txt     # single top-level CMake file; fetches SDL3, Dear ImGui and GoogleTest; builds game_core, Minicraft, game_core_tests
+├── CMakeLists.txt     # single top-level CMake file; fetches SDL3, Dear ImGui, ENet and GoogleTest; builds game_core, net_common, Minicraft, minicraft-server, game_core_tests
+├── docs/adr/          # architecture decisions (0001: multiplayer as lockstep over ENet)
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
 │   ├── audio/         # Minicraft+ sound effects (.wav)
 │   └── sprites/       # player, mob sheets (zombie, skeleton, slime, creeper, snake, air_wizard, cow, pig, sheep), tiles.png (atlas), hud.png, font.png, items.png, furniture.png, projectiles.png, inventory_counter.png, smash.png, title.png
 ├── game-core/         # the simulation as a static library (`game_core`): no SDL, no rendering, no I/O, deterministic
-│   ├── simulation.h/.cpp  # Simulation: world + player + inventory + time; tick(PlayerInput) at 60 Hz; stairs, death, sleep, crafting, chests; stateHash()
+│   ├── simulation.h/.cpp  # Simulation: world + players + time; tick(TickInput) at 60 Hz; commands, stairs, death, beds, crafting, chests, PvP; stateHash()
+│   ├── tick_input.h    # PlayerInput (keys), PlayerCommand (join, craft, transfer, respawn...), PlayerTurn, TickInput
 │   ├── events.h        # Sound IDs and GameEvents (sounds, smashes, damage numbers, notes, level change, death, victory) the client acts on
 │   ├── random.h/.cpp   # seeded xoshiro128** (no global randomness)
 │   ├── geometry.h      # Vec2, Point, Rect, intersects()
 │   ├── world.h/.cpp    # World: the 5 levels (sky, surface, 3 caves) and their stairs; Level = map + mobs + drops + furniture + projectiles
 │   ├── world_gen.h/.cpp  # original-Minicraft level generation: island surface, caves, sky
 │   ├── tile_map.h/.cpp  # TileMap: tiles + per-tile data, tile rules, random tile ticks
-│   ├── player.h/.cpp   # Player + PlayerInput: movement, energy, hunger, armour, hurt
+│   ├── player.h/.cpp   # Player: id, name, inventory, level, spawn point; movement, energy, hunger, armour, hurt
 │   ├── player_actions.h/.cpp  # Space: punch, tools on tiles, bows, eating, armour, placing tiles/furniture, power glove
 │   ├── mob.h/.cpp      # Mob base + enemies (zombie, skeleton, slime, creeper, snake, Air Wizard) and animals
 │   ├── mobs.h/.cpp     # Mobs: one level's mobs: spawning by level/light, creeper blasts, the boss
@@ -89,9 +91,13 @@ Minicraft/
 │   ├── projectiles.h/.cpp  # arrows and the Air Wizard's sparks
 │   ├── day_night.h/.cpp  # day/night cycle; Light
 │   ├── collision.h, bounce.h  # tile collision; Minicraft's toss/bounce motion
-│   └── tests/          # GoogleTest: determinism, world generation, gameplay rules (`game_core_tests` target)
+│   └── tests/          # GoogleTest: determinism, lockstep, world generation, gameplay rules, multiplayer (`game_core_tests`)
+├── net-common/        # `net_common`: the client/server messages (protocol.h) and their bytes; ENet helpers
+├── server/            # `minicraft-server`: lobbies, the 60 Hz tick relay, tick history for late joiners, chat, desync check
 └── client/             # the SDL3 game: window, input, menus, saves, sound, drawing (`Minicraft` target)
-    ├── main.cpp       # Game: runs the Simulation in fixed ticks, turns its events into sounds/effects/screens; run `Minicraft` in CLion
+    ├── main.cpp       # Game: makes ticks offline or takes them from the server online, plays their events; run `Minicraft` in CLion
+    ├── network_client.h/.cpp  # the ENet connection to minicraft-server: lobby list, joined world, ticks, chat
+    ├── chat_box.h/.cpp  # multiplayer chat (Enter)
     ├── tile_renderer.h/.cpp  # draws the tiles (connected borders, animated water/lava)
     ├── sprite_renderer.h/.cpp  # draws the player, mobs, furniture, drops and projectiles (owns their sprite sheets)
     ├── lighting.h/.cpp  # the darkness overlay with dithered light circles
@@ -100,7 +106,7 @@ Minicraft/
     ├── audio.h/.cpp    # SDL3 sound effects, mute and volume
     ├── hud.h/.cpp      # hearts, energy, hunger, armour, boss bar, menu frame
     ├── inventory_menu.h/.cpp, crafting_menu.h/.cpp, container_menu.h/.cpp, map_screen.h/.cpp  # E, Z, chest and Tab screens
-    ├── game_menu.h/.cpp  # title, new/load world, options (sound), pause, death and victory screens
+    ├── game_menu.h/.cpp  # title, new/load world, multiplayer (connect, lobbies), options, pause/menu, death and victory screens
     ├── world_save.h/.cpp  # one binary save file per world (validated on load)
     ├── debug_overlay.h/.cpp  # F3 debug mode: outlines + ImGui panel
     ├── camera.h/.cpp, font.h/.cpp, texture.h/.cpp
@@ -250,6 +256,7 @@ Rules:
 - Repo: https://github.com/AdnaneBJA/Minicraft (branch `main`).
 - The game opens on a Minicraft-style title screen: Play (Load World / New World with name + optional seed), Options (sound on/off, volume), Quit. Esc in game pauses (Return to Game / Options / Save Game / Save and Quit). Worlds are saved to `%APPDATA%/Minicraft/Minicraft/saves/<name>.sav` (format v3; v1/v2 still load).
 - The full original-Minicraft loop is in: a 256x256 island surface with day/night, three caves below (iron, gold, gems; water then lava; pitch black except light from the player, torches, lanterns and lava) and the sky above, all linked by stairs (the sky stairs sit in hard rock: gem pickaxe needed). The Air Wizard boss in the sky ends the game ("You won!").
+- Multiplayer: run the `minicraft-server` target (port 7777, or `minicraft-server <port>`), then in the game pick Multiplayer, enter a name and the server address (`localhost`, an IP, or `host:port`), and create a world or join one from the lobby list. Players see each other (name tags), chat with Enter, and can hit each other (punches, tools, arrows). The world never pauses online; Esc opens a Menu with Leave Game. Joining a running world replays its history first. All clients must run the same build.
 - Controls: WASD/arrows move; Space punches/uses the held item (hold to repeat); E opens the inventory, or uses the furniture in front (workbench/furnace/oven/anvil/loom recipes, chest contents, bed); Z crafts by hand; Tab shows the map; M mutes; F3 debug panel.
 - Systems: tools with durability (wood to gem), ores and smelting, food and hunger, armour, bows and arrows, farming (seeds, wheat), saplings, placeable tiles (dirt, sand, torches, floors, walls, doors), chests, lanterns, beds (respawn point), the power glove, death chests, mobs by level (zombie, skeleton, slime, creeper, snake, cow, pig, sheep), Minicraft+ sound effects. Run the `Minicraft` target from CLion (default Debug profile, no extra setup).
 - For now, focus only on C++ work.

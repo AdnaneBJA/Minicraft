@@ -3,6 +3,7 @@
 #include "audio.h"
 #include "font.h"
 #include "hud.h"
+#include "protocol.h"
 #include "world_save.h"
 
 #include <algorithm>
@@ -33,7 +34,7 @@ constexpr SDL_Color kGreen{0, 255, 0, 255};
 constexpr SDL_Color kRed{255, 0, 0, 255};
 constexpr SDL_Color kCyan{0, 255, 255, 255};
 
-constexpr std::array<std::string_view, 3> kTitleEntries{"Play", "Options", "Quit"};
+constexpr std::array<std::string_view, 4> kTitleEntries{"Play", "Multiplayer", "Options", "Quit"};
 constexpr std::array<std::string_view, 2> kPlayEntries{"Load World", "New World"};
 constexpr std::array<std::string_view, 4> kPauseEntries{"Return to Game", "Options", "Save Game", "Save and Quit"};
 constexpr int kSoundRow = 0;   // options screen rows
@@ -41,6 +42,10 @@ constexpr int kVolumeRow = 1;
 constexpr int kNameRow = 0;
 constexpr int kSeedRow = 1;
 constexpr int kCreateRow = 2;
+constexpr int kPlayerNameRow = 0;  // multiplayer connect screen rows
+constexpr int kAddressRow = 1;
+constexpr int kConnectRow = 2;
+constexpr std::size_t kMaxAddressLength = 40;
 
 // A few of Minicraft's title splashes that fit this game.
 constexpr std::array<std::string_view, 16> kSplashes{
@@ -119,14 +124,21 @@ void GameMenu::play(bool confirm) const {
     if (audio_) audio_->play(confirm ? Sound::Confirm : Sound::Select);
 }
 
+void GameMenu::setLobbies(std::vector<LobbyEntry> lobbies) {
+    lobbies_ = std::move(lobbies);
+    selected_ = std::min(selected_, static_cast<int>(lobbies_.size()));  // row 0 is "Create new world"
+}
+
 std::vector<std::string> GameMenu::entries() const {
     switch (screen_) {
-        case Screen::Pause: return {kPauseEntries.begin(), kPauseEntries.end()};
+        case Screen::Pause:
+            if (online_) return {"Return to Game", "Options", "Leave Game"};
+            return {kPauseEntries.begin(), kPauseEntries.end()};
         case Screen::Options:
             return {std::string("Sound: ") + (muted_ ? "Off" : "On"),
                     "Volume: < " + std::to_string(volume_ * 100 / Audio::kVolumeSteps) + "% >"};
-        case Screen::Dead: return {"Respawn", "Save and Quit"};
-        case Screen::Won: return {"Continue", "Save and Quit"};
+        case Screen::Dead: return {"Respawn", online_ ? "Leave Game" : "Save and Quit"};
+        case Screen::Won: return {"Continue", online_ ? "Leave Game" : "Save and Quit"};
         default: return {};
     }
 }
@@ -143,6 +155,7 @@ void GameMenu::open(Screen screen) {
 }
 
 bool GameMenu::wantsTextInput() const {
+    if (screen_ == Screen::Connect) return selected_ == kPlayerNameRow || selected_ == kAddressRow;
     return screen_ == Screen::NewWorld && (selected_ == kNameRow || selected_ == kSeedRow);
 }
 
@@ -150,7 +163,10 @@ int GameMenu::entryCount() const {
     switch (screen_) {
         case Screen::Title: return static_cast<int>(kTitleEntries.size());
         case Screen::Play: return static_cast<int>(kPlayEntries.size());
-        case Screen::NewWorld: return 3;
+        case Screen::NewWorld:
+        case Screen::Connect: return 3;
+        case Screen::Connecting: return 0;
+        case Screen::Lobbies: return 1 + static_cast<int>(lobbies_.size());
         case Screen::LoadWorld: return static_cast<int>(worlds_.size());
         case Screen::Pause:
         case Screen::Options:
@@ -162,8 +178,8 @@ int GameMenu::entryCount() const {
 }
 
 GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
-    // W/S move the cursor too, except on the world creation screen where letters are typed.
-    const bool typing = screen_ == Screen::NewWorld;
+    // W/S move the cursor too, except on the screens where letters are typed.
+    const bool typing = screen_ == Screen::NewWorld || screen_ == Screen::Connect;
     const bool up = key == SDLK_UP || (!typing && key == SDLK_W);
     const bool down = key == SDLK_DOWN || (!typing && key == SDLK_S);
     const int count = entryCount();
@@ -176,7 +192,8 @@ GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
         return {};
     }
     if (key == SDLK_BACKSPACE && wantsTextInput()) {
-        std::string& field = selected_ == kNameRow ? name_ : seed_;
+        std::string& field = screen_ == Screen::Connect ? (selected_ == kPlayerNameRow ? playerName_ : serverAddress_)
+                                                        : (selected_ == kNameRow ? name_ : seed_);
         if (!field.empty()) field.pop_back();
         return {};
     }
@@ -201,6 +218,9 @@ GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
                 open(screen_ == Screen::NewWorld && !worlds_.empty() ? Screen::Play : Screen::Title);
                 break;
             case Screen::LoadWorld: open(Screen::Play); break;
+            case Screen::Connect: open(Screen::Title); break;
+            case Screen::Connecting:
+            case Screen::Lobbies: return {.kind = Action::Kind::Disconnect};
             case Screen::Pause: return {.kind = Action::Kind::Resume};
             case Screen::Options: open(optionsReturn_); break;
             case Screen::Title:
@@ -215,10 +235,14 @@ GameMenu::Action GameMenu::handleKey(SDL_Keycode key, bool repeat) {
 GameMenu::Action GameMenu::select() {
     switch (screen_) {
         case Screen::Title:
-            if (selected_ == 2) return {.kind = Action::Kind::Quit};
-            if (selected_ == 1) {
+            if (selected_ == 3) return {.kind = Action::Kind::Quit};
+            if (selected_ == 2) {
                 optionsReturn_ = Screen::Title;
                 open(Screen::Options);
+                break;
+            }
+            if (selected_ == 1) {
+                open(Screen::Connect);
                 break;
             }
             // Like Minicraft+: straight to world creation when there is nothing to load.
@@ -235,6 +259,22 @@ GameMenu::Action GameMenu::select() {
         case Screen::LoadWorld:
             if (worlds_.empty()) return {};
             return {.kind = Action::Kind::LoadWorld, .worldName = worlds_[static_cast<std::size_t>(selected_)]};
+        case Screen::Connect:
+            // Enter connects from any row, so the name and address can be typed and confirmed right away.
+            if (!protocol::isValidName(playerName_)) {
+                selected_ = kPlayerNameRow;
+                showMessage("Name: 1-12 letters, digits, - or _", kRed);
+                return {};
+            }
+            if (serverAddress_.empty()) {
+                selected_ = kAddressRow;
+                return {};
+            }
+            return {.kind = Action::Kind::Connect, .playerName = playerName_, .address = serverAddress_};
+        case Screen::Connecting: break;
+        case Screen::Lobbies:
+            if (selected_ == 0) return {.kind = Action::Kind::CreateLobby};
+            return {.kind = Action::Kind::JoinLobby, .lobbyId = lobbies_[static_cast<std::size_t>(selected_ - 1)].id};
         case Screen::Pause:
             if (selected_ == 1) {
                 optionsReturn_ = Screen::Pause;
@@ -242,12 +282,17 @@ GameMenu::Action GameMenu::select() {
                 return {};
             }
             if (selected_ == 0) return {.kind = Action::Kind::Resume};
+            if (online_) return {.kind = Action::Kind::LeaveGame};
             return {.kind = selected_ == 2 ? Action::Kind::Save : Action::Kind::SaveAndQuit};
         case Screen::Options:
             if (selected_ == kSoundRow) return {.kind = Action::Kind::ToggleSound};
             return {};
-        case Screen::Dead: return {.kind = selected_ == 0 ? Action::Kind::Respawn : Action::Kind::SaveAndQuit};
-        case Screen::Won: return {.kind = selected_ == 0 ? Action::Kind::Resume : Action::Kind::SaveAndQuit};
+        case Screen::Dead:
+            if (selected_ == 0) return {.kind = Action::Kind::Respawn};
+            return {.kind = online_ ? Action::Kind::LeaveGame : Action::Kind::SaveAndQuit};
+        case Screen::Won:
+            if (selected_ == 0) return {.kind = Action::Kind::Resume};
+            return {.kind = online_ ? Action::Kind::LeaveGame : Action::Kind::SaveAndQuit};
         case Screen::None: break;
     }
     return {};
@@ -255,6 +300,18 @@ GameMenu::Action GameMenu::select() {
 
 void GameMenu::handleText(const char* text) {
     if (!wantsTextInput()) return;
+    if (screen_ == Screen::Connect) {
+        // Player names: letters, digits, - and _. Addresses: a host name or IP, and maybe ":port".
+        const bool isName = selected_ == kPlayerNameRow;
+        std::string& field = isName ? playerName_ : serverAddress_;
+        const std::size_t maxLength = isName ? static_cast<std::size_t>(protocol::kMaxNameLength) : kMaxAddressLength;
+        for (const char* c = text; *c != '\0' && field.size() < maxLength; ++c) {
+            const char ch = *c;
+            const bool alnum = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9');
+            if (alnum || ch == '-' || ch == '_' || (!isName && (ch == '.' || ch == ':'))) field.push_back(ch);
+        }
+        return;
+    }
     const bool isName = selected_ == kNameRow;
     std::string& field = isName ? name_ : seed_;
     const std::size_t maxLength = isName ? WorldSaves::kMaxNameLength : kMaxSeedLength;
@@ -309,6 +366,13 @@ void GameMenu::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, fl
             break;
         case Screen::NewWorld: drawNewWorld(renderer, font, viewWidth, viewHeight); break;
         case Screen::LoadWorld: drawLoadWorld(renderer, font, viewWidth, viewHeight); break;
+        case Screen::Connect: drawConnect(renderer, font, viewWidth, viewHeight); break;
+        case Screen::Connecting:
+            drawCentered(renderer, font, "Connecting to " + serverAddress_ + "...", viewWidth, viewHeight / 2.0f - 4.0f,
+                         kWhite);
+            drawCentered(renderer, font, "(ESCAPE to cancel)", viewWidth, viewHeight - 10.0f, kDarkGray);
+            break;
+        case Screen::Lobbies: drawLobbies(renderer, font, viewWidth, viewHeight); break;
         case Screen::Pause: drawPause(renderer, hud, font, viewWidth, viewHeight); break;
         case Screen::Options:
             drawFramedList(renderer, hud, font, "Options", entries(), {}, viewWidth, viewHeight);
@@ -423,25 +487,64 @@ void GameMenu::drawFramedList(SDL_Renderer* renderer, const Hud& hud, const Font
     }
 }
 
+void GameMenu::drawConnect(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const {
+    drawCentered(renderer, font, "Multiplayer", viewWidth, 8.0f, kWhite);
+    // Same look as world creation: left-aligned rows on a fixed column, the selected field green with a caret.
+    const float columnWidth = Font::textWidth("Server: ") + static_cast<float>(kMaxAddressLength / 2 + 1) * kCell;
+    const float left = std::floor((viewWidth - columnWidth) / 2.0f);
+    const float top = std::floor(viewHeight / 2.0f) - 20.0f;
+    const bool caretOn = (ticks_ / 30) % 2 == 0;
+    const auto drawRow = [&](int row, const std::string& text, SDL_Color color) {
+        const float y = top + static_cast<float>(row) * kRowHeight;
+        font.draw(renderer, text, left, y, color);
+        if (row != selected_) return;
+        const bool isField = row != kConnectRow;
+        if (isField && caretOn) font.draw(renderer, "_", left + Font::textWidth(text), y, color);
+        font.draw(renderer, kCursorLeft, left - Font::textWidth(kCursorLeft), y, kWhite);
+        font.draw(renderer, kCursorRight, left + Font::textWidth(text) + (isField ? kCell : 0.0f), y, kWhite);
+    };
+    drawRow(kPlayerNameRow, "Name: " + playerName_, selected_ == kPlayerNameRow ? kGreen : kGray);
+    drawRow(kAddressRow, "Server: " + serverAddress_, selected_ == kAddressRow ? kGreen : kGray);
+    drawRow(kConnectRow, "Connect", kCyan);
+    if (!message_.empty()) drawCentered(renderer, font, message_, viewWidth, top + 4.0f * kRowHeight, messageColor_);
+    drawCentered(renderer, font, "(ENTER to connect)", viewWidth, viewHeight - 20.0f, kDarkGray);
+    drawCentered(renderer, font, "(ESCAPE to return)", viewWidth, viewHeight - 10.0f, kDarkGray);
+}
+
+void GameMenu::drawLobbies(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const {
+    drawCentered(renderer, font, "Lobbies", viewWidth, 8.0f, kWhite);
+    std::vector<std::string> rows{"Create new world"};
+    for (const LobbyEntry& lobby : lobbies_) rows.push_back(lobby.label);
+    const int shown = std::min(kVisibleWorlds + 1, static_cast<int>(rows.size()));
+    const int first = std::clamp(selected_ - shown + 1, 0, std::max(0, static_cast<int>(rows.size()) - shown));
+    drawEntries(renderer, font, rows, first, shown, selected_, viewWidth, 28.0f);
+    if (lobbies_.empty()) {
+        drawCentered(renderer, font, "No one is playing yet", viewWidth, 28.0f + 2.0f * kRowHeight, kDarkGray);
+    }
+    if (!message_.empty()) drawCentered(renderer, font, message_, viewWidth, viewHeight - 34.0f, messageColor_);
+    drawCentered(renderer, font, "(ENTER to join)", viewWidth, viewHeight - 20.0f, kDarkGray);
+    drawCentered(renderer, font, "(ESCAPE to disconnect)", viewWidth, viewHeight - 10.0f, kDarkGray);
+}
+
 void GameMenu::drawPause(SDL_Renderer* renderer, const Hud& hud, const Font& font, float viewWidth,
                          float viewHeight) const {
-    // A framed list over the paused world, entries on every other row (blank rows above and below too), with the
-    // title set into the top edge.
+    // A framed list over the world, entries on every other row (blank rows above and below too), with the title set
+    // into the top edge. In multiplayer the world keeps going underneath, so it's just the "Menu".
+    const std::vector<std::string> list = entries();
     std::size_t longest = 0;
-    for (const auto entry : kPauseEntries) longest = std::max(longest, entry.size());
+    for (const auto& entry : list) longest = std::max(longest, entry.size());
     const int columns = static_cast<int>(longest) + 4;  // room for "> " and " <"
-    const int rows = static_cast<int>(kPauseEntries.size()) * 2 + 1;
+    const int rows = static_cast<int>(list.size()) * 2 + 1;
     const float interiorLeft = std::floor((viewWidth - static_cast<float>(columns) * kCell) / 2.0f);
     const float interiorTop = std::floor((viewHeight - static_cast<float>(rows) * kCell) / 2.0f);
     hud.drawFrame(renderer, interiorLeft, interiorTop, columns, rows);
 
-    const std::string_view title = "Paused";
+    const std::string_view title = online_ ? "Menu" : "Paused";
     hud.drawTitle(renderer, font, title, centeredX(title, viewWidth), interiorTop - kCell);
 
-    for (int i = 0; i < static_cast<int>(kPauseEntries.size()); ++i) {
+    for (int i = 0; i < static_cast<int>(list.size()); ++i) {
         // drawEntries spaces rows by kRowHeight; the frame needs whole cells, so draw one entry at a time.
-        drawEntries(renderer, font, kPauseEntries, i, 1, selected_, viewWidth,
-                    interiorTop + static_cast<float>(i * 2 + 1) * kCell);
+        drawEntries(renderer, font, list, i, 1, selected_, viewWidth, interiorTop + static_cast<float>(i * 2 + 1) * kCell);
     }
     if (!message_.empty()) {
         drawCentered(renderer, font, message_, viewWidth, interiorTop + static_cast<float>(rows + 2) * kCell,

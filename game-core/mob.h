@@ -3,6 +3,7 @@
 #include "geometry.h"
 
 #include <functional>
+#include <span>
 
 class DroppedItems;
 class Events;
@@ -28,11 +29,14 @@ public:
     using Blocked = std::function<bool(const Rect& box, const Mob* self)>;
     struct World {
         TileMap& map;
-        Player& player;
+        std::span<Player* const> players;  // the living players on this level
         Events& events;
         Random& rng;
         Projectiles& projectiles;
         const Blocked& blocked;
+
+        // The player closest to `from`, or null when nobody is on the level.
+        Player* nearestPlayer(Vec2 from) const;
     };
 
     virtual ~Mob() = default;

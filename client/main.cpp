@@ -1,10 +1,12 @@
 #include "audio.h"
 #include "camera.h"
+#include "chat_box.h"
 #include "collision.h"
 #include "container_menu.h"
 #include "crafting_menu.h"
 #include "debug_overlay.h"
 #include "effects.h"
+#include "enet_util.h"
 #include "font.h"
 #include "game_menu.h"
 #include "hud.h"
@@ -12,6 +14,7 @@
 #include "item_icons.h"
 #include "lighting.h"
 #include "map_screen.h"
+#include "network_client.h"
 #include "recipe.h"
 #include "simulation.h"
 #include "sprite_renderer.h"
@@ -25,6 +28,7 @@
 #include <imgui_impl_sdlrenderer3.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <optional>
@@ -32,8 +36,13 @@
 #include <utility>
 #include <vector>
 
-// The client: window, input, menus, saves, sound and drawing around the Simulation, which it advances in fixed
-// 60 Hz ticks and whose events it turns into sounds, effects and screens.
+// The client: window, input, menus, saves, sound and drawing around the Simulation.
+//
+// Single-player and multiplayer run the game the same way: the world only changes through ticks (TickInput), each
+// holding what every player did. Offline, the game makes a tick itself 60 times a second from the keyboard.
+// Online, the server makes them from everyone's keys and sends them; the game sends its keys and commands to the
+// server and simulates the ticks as they arrive. Either way, what the simulation reports (events) becomes sounds,
+// effects and screens.
 class Game {
 public:
     // Minimum view in world pixels; the window is scaled up by the largest whole factor that still fits it.
@@ -45,6 +54,7 @@ public:
     static constexpr float kFadeSeconds = 0.5f;  // the black fade after taking the stairs
     static constexpr float kSleepFadeSeconds = 1.5f;
     static constexpr float kNoteSeconds = 2.5f;
+    static constexpr std::size_t kCatchUpTicks = 30;  // this far behind the server (just joined): fast-forward
 
     bool init() {
         if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -79,6 +89,7 @@ public:
             !menu_.load(renderer, sprites + "title.png")) {
             return false;
         }
+        if (!enet_.ok()) SDL_Log("ENet failed to start: multiplayer won't work");
         menu_.openTitle(saves_.list());
         return true;
     }
@@ -96,6 +107,7 @@ public:
             update(dt);
             draw();
         }
+        net_.disconnect();
     }
 
 private:
@@ -109,29 +121,40 @@ private:
         return path / "saves";
     }
 
-    Level& level() { return sim_.level(); }
-    const Level& level() const { return sim_.level(); }
+    // This client's player, or null while joining a multiplayer world (before the Join tick arrives).
+    Player* me() { return sim_.findPlayer(localId_); }
+    const Player* me() const { return sim_.findPlayer(localId_); }
 
-    // The client's side of a fresh session: effects, screens and timers.
+    // Something the player did once (from a menu). Offline it goes into the next tick; online, to the server,
+    // which puts it into the next tick for everyone.
+    void send(const PlayerCommand& command) {
+        if (online_) net_.sendCommand(command);
+        else localCommands_.push_back(command);
+    }
+
+    // The client's side of a fresh world: effects, screens and timers.
     void resetView() {
         effects_.clear();
         closeMenus();
+        chat_.clear();
         fadeTimer_ = 0.0f;
         notes_.clear();
         tickAccumulator_ = 0.0f;
         attackPressed_ = false;
+        localCommands_.clear();
+        lastSentInput_ = {};
     }
 
-    void enterWorld(std::string name) {
-        worldName_ = std::move(name);
-        inWorld_ = true;
-        menu_.close();
-    }
+    // ---------------------------------------------------------------------------------------------------------
+    // Single-player worlds (saved to files)
 
     void createWorld(std::string name, std::uint32_t seed) {
-        sim_.startNewWorld(seed);
         resetView();
-        enterWorld(std::move(name));
+        sim_.startNewWorld(seed);
+        sim_.singlePlayer = true;
+        localId_ = 0;
+        sim_.addPlayer(localId_, "");
+        enterWorld(std::move(name), false);
         saveWorld();  // so the new world is listed under Load World right away
     }
 
@@ -140,6 +163,7 @@ private:
         if (!data) return false;
         resetView();
         sim_.resetSession(data->seed ^ static_cast<std::uint64_t>(data->secondsPlayed));
+        sim_.singlePlayer = true;
         World& world = sim_.world();
         if (data->levels.size() == World::kLevelCount) {
             for (int i = 0; i < World::kLevelCount; ++i) {
@@ -159,26 +183,31 @@ private:
             world.restoreLevel(World::kSurfaceIndex, data->seed, std::move(data->levels[0].tiles),
                                std::move(data->levels[0].data));
             world.linkStairs();
-            sim_.inventory().add(ItemType::PowerGlove);
         }
-        world.setCurrent(data->currentLevel);
-        world.spawnBoss(sim_.rng());
-        Player& player = sim_.player();
+        localId_ = 0;
+        Player& player = sim_.addPlayer(localId_, "");
+        // Older saves had no power glove: keep the one a new player gets. Newer ones carry their own.
+        if (data->levels.size() == World::kLevelCount) player.inventory().clear();
+        for (const auto& stack : data->inventory) player.inventory().add(stack);
+        player.setLevel(data->currentLevel);
         player.setPosition(data->playerX, data->playerY);
         player.restoreStats(data->health, data->energy, data->hunger, data->armor, data->armorPoints);
+        player.setSpawn(data->spawnLevel, {data->spawnX, data->spawnY});
+        player.setOnStairs(true);  // don't take the stairs straight away if the save was made on them
+        world.spawnBoss(sim_.rng());
         sim_.dayNight().restore(data->dayTick, data->pastDay1);
-        for (const auto& stack : data->inventory) sim_.inventory().add(stack);
-        sim_.setSpawn(data->spawnLevel, {data->spawnX, data->spawnY});
-        sim_.setTicksPlayed(data->secondsPlayed * Simulation::kTicksPerSecond);
-        sim_.setOnStairs(true);  // don't take the stairs straight away if the save was made on them
-        enterWorld(std::move(name));
+        sim_.setTickCount(data->secondsPlayed * Simulation::kTicksPerSecond);
+        enterWorld(std::move(name), false);
         return true;
     }
 
-    bool saveWorld() const {
+    bool saveWorld() {
+        Player* player = me();
+        if (online_ || !player) return false;
+        // Never save a dead player: respawn them first.
+        if (player->waitingToRespawn()) sim_.tick({sim_.tickCount() + 1, {{localId_, {}, {PlayerCommand::respawn()}}}});
         const World& world = sim_.world();
-        const Player& player = sim_.player();
-        const Rect bounds = player.bounds();
+        const Rect bounds = player->bounds();
         WorldSaveData data;
         data.seed = world.seed();
         data.width = World::kSize;
@@ -191,68 +220,136 @@ private:
             }
             data.levels.push_back(std::move(saved));
         }
-        data.currentLevel = world.currentIndex();
+        data.currentLevel = player->level();
         data.playerX = bounds.x;
         data.playerY = bounds.y;
-        data.health = std::max(1, player.health());
-        data.energy = player.energy();
-        data.hunger = player.hunger();
-        data.armor = player.armor();
-        data.armorPoints = player.armorPoints();
-        data.spawnLevel = sim_.spawnLevel();
-        data.spawnX = sim_.spawnPoint().x;
-        data.spawnY = sim_.spawnPoint().y;
+        data.health = std::max(1, player->health());
+        data.energy = player->energy();
+        data.hunger = player->hunger();
+        data.armor = player->armor();
+        data.armorPoints = player->armorPoints();
+        data.spawnLevel = player->spawnLevel();
+        data.spawnX = player->spawnPoint().x;
+        data.spawnY = player->spawnPoint().y;
         data.dayTick = sim_.dayNight().tick();
         data.pastDay1 = sim_.dayNight().pastDay1();
         data.airWizardBeaten = world.airWizardBeaten;
         data.secondsPlayed = sim_.secondsPlayed();
         // The item in hand isn't in the inventory; save it as part of it so it isn't lost.
-        Inventory carried = sim_.inventory();
-        if (const auto& held = player.heldItem()) carried.add(*held);
+        Inventory carried = player->inventory();
+        if (const auto& held = player->heldItem()) carried.add(*held);
         data.inventory = carried.stacks();
         return saves_.save(worldName_, data);
     }
 
-    void handleMenuAction(const GameMenu::Action& action) {
-        using Kind = GameMenu::Action::Kind;
-        switch (action.kind) {
-            case Kind::CreateWorld: createWorld(action.worldName, action.seed); break;
-            case Kind::LoadWorld:
-                if (!loadWorld(action.worldName)) menu_.showMessage("Could not load world", kErrorColor);
-                break;
-            case Kind::Resume:
-                menu_.close();
-                audio_.play(Sound::Craft);
-                break;
-            case Kind::Save:
-                if (saveWorld()) menu_.showMessage("World saved!", kSavedColor);
-                else menu_.showMessage("Could not save!", kErrorColor);
-                break;
-            case Kind::SaveAndQuit:
-                if (sim_.player().isDead()) respawn();  // never save a dead player
-                if (!saveWorld()) {
-                    menu_.showMessage("Could not save!", kErrorColor);
-                    break;
-                }
-                inWorld_ = false;
-                menu_.openTitle(saves_.list());
-                break;
-            case Kind::Respawn:
-                respawn();
-                menu_.close();
-                break;
-            case Kind::ToggleSound: audio_.toggleMuted(); break;
-            case Kind::VolumeDown: audio_.setVolume(audio_.volume() - 1); break;
-            case Kind::VolumeUp: audio_.setVolume(audio_.volume() + 1); break;
-            case Kind::Quit: running_ = false; break;
-            case Kind::None: break;
-        }
-        menu_.setSoundSettings(audio_.muted(), audio_.volume());
+    void enterWorld(std::string name, bool online) {
+        worldName_ = std::move(name);
+        inWorld_ = true;
+        online_ = online;
+        menu_.setOnline(online);
+        menu_.close();
     }
 
-    void respawn() {
-        sim_.respawn();
-        playEvents();
+    void leaveWorld() {
+        inWorld_ = false;
+        online_ = false;
+        menu_.setOnline(false);
+        resetView();
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Multiplayer
+
+    // What the server sent since the last frame: the lobby list, entering a world, chat, errors, a lost connection.
+    void pollNetwork() {
+        net_.poll();
+        if (net_.takeConnectionLost()) {
+            const bool wasPlaying = inWorld_ && online_;
+            if (wasPlaying) leaveWorld();
+            menu_.openConnect();
+            menu_.showMessage(wasPlaying ? "Lost connection to the server" : "Could not connect", kErrorColor);
+            return;
+        }
+        if (auto lobbies = net_.takeLobbies()) {
+            std::vector<GameMenu::LobbyEntry> entries;
+            for (const auto& lobby : *lobbies) {
+                entries.push_back({lobby.id, lobby.name + " (" + std::to_string(lobby.players) + ")"});
+            }
+            menu_.setLobbies(std::move(entries));
+            if (!inWorld_ && menu_.screen() == GameMenu::Screen::Connecting) menu_.openLobbies();
+        }
+        if (auto joined = net_.takeJoined()) {
+            // A new world: generated from the lobby's seed, then the history replayed to catch up with everyone.
+            resetView();
+            sim_.startNewWorld(joined->seed);
+            sim_.singlePlayer = false;
+            localId_ = net_.playerId();
+            auto& ticks = net_.ticks();
+            ticks.insert(ticks.begin(), joined->history.begin(), joined->history.end());
+            enterWorld(joined->lobbyName, true);
+        }
+        for (const auto& line : net_.takeChat()) chat_.add(line.from, line.text);
+        if (auto error = net_.takeError()) menu_.showMessage(*error, kErrorColor);
+    }
+
+    // Simulates the ticks the server sent. Just after joining there's the whole history to replay: then it
+    // fast-forwards (as many ticks as fit in a few milliseconds per frame, without their sounds and effects).
+    void updateOnline() {
+        // The keys go to the server whenever they change; a fresh press always goes.
+        const PlayerInput input = readInput();
+        const bool changed = input.moveX != lastSentInput_.moveX || input.moveY != lastSentInput_.moveY ||
+                             input.attack != lastSentInput_.attack;
+        if (changed || input.attackPressed) {
+            net_.sendInput(input);
+            lastSentInput_ = input;
+        }
+        attackPressed_ = false;
+
+        auto& ticks = net_.ticks();
+        const bool catchingUp = ticks.size() > kCatchUpTicks;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(12);
+        while (!ticks.empty() && (!catchingUp || std::chrono::steady_clock::now() < deadline)) {
+            sim_.tick(ticks.front());
+            ticks.pop_front();
+            if (catchingUp) {
+                sim_.events().take();  // old news
+                continue;
+            }
+            playEvents();
+            // Once a second, the world's fingerprint goes to the server, which compares everyone's.
+            if (sim_.tickCount() % Simulation::kTicksPerSecond == 0) {
+                net_.sendStateHash(sim_.tickCount(), sim_.stateHash());
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Playing
+
+    // Offline: a tick every 1/60 s from this player's keys and commands.
+    void updateOffline(float dt) {
+        tickAccumulator_ += dt;
+        while (tickAccumulator_ >= kTick) {
+            tickAccumulator_ -= kTick;
+            sim_.tick({sim_.tickCount() + 1, {{localId_, readInput(), std::exchange(localCommands_, {})}}});
+            attackPressed_ = false;
+            playEvents();
+        }
+    }
+
+    // The keyboard as the simulation's input. While a menu or the chat is open, or typing in the debug panel, keys
+    // don't move the player.
+    PlayerInput readInput() const {
+        PlayerInput input;
+        if (ImGui::GetIO().WantCaptureKeyboard || menuOpen() || menu_.isOpen() || chat_.isOpen()) return input;
+        const bool* keys = SDL_GetKeyboardState(nullptr);
+        if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) input.moveY -= 1;
+        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) input.moveY += 1;
+        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) input.moveX -= 1;
+        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) input.moveX += 1;
+        input.attack = keys[SDL_SCANCODE_SPACE];
+        input.attackPressed = attackPressed_;
+        return input;
     }
 
     void notify(std::string text) {
@@ -265,9 +362,20 @@ private:
         if (notes_.size() > 3) notes_.erase(notes_.begin());
     }
 
-    // Turns what the simulation recorded into sounds, effects, notes, fades and screens.
+    // Turns what the simulation recorded into sounds, effects, notes, fades and screens. Only what concerns this
+    // player: things happening on their level, and the personal events addressed to them.
     void playEvents() {
+        const Player* player = me();
+        const int myLevel = player ? player->level() : -1;
         for (const GameEvent& event : sim_.events().take()) {
+            const bool forSomeoneElse = event.player != -1 && event.player != localId_;
+            if (forSomeoneElse) {
+                if (event.kind == GameEvent::Kind::PlayerDied) {
+                    if (const Player* other = sim_.findPlayer(event.player)) notify(other->name() + " died");
+                }
+                continue;
+            }
+            if (event.level != myLevel && event.kind != GameEvent::Kind::BossDefeated) continue;
             switch (event.kind) {
                 case GameEvent::Kind::Sound: audio_.play(event.sound); break;
                 case GameEvent::Kind::Smash: effects_.addSmash(event.tileX, event.tileY); break;
@@ -294,15 +402,58 @@ private:
         }
     }
 
-    // Closing the inventory without choosing another item puts the item that was in hand back in hand.
-    void reequipStowedItem() {
-        const auto stowed = std::exchange(stowedHeld_, std::nullopt);
-        if (!stowed || sim_.player().heldItem()) return;
-        const auto& stacks = sim_.inventory().stacks();
-        if (stowed->slot < static_cast<int>(stacks.size()) &&
-            stacks[static_cast<std::size_t>(stowed->slot)].type == stowed->type) {
-            sim_.holdSlot(stowed->slot);
+    // ---------------------------------------------------------------------------------------------------------
+    // Menus
+
+    void handleMenuAction(const GameMenu::Action& action) {
+        using Kind = GameMenu::Action::Kind;
+        switch (action.kind) {
+            case Kind::CreateWorld: createWorld(action.worldName, action.seed); break;
+            case Kind::LoadWorld:
+                if (!loadWorld(action.worldName)) menu_.showMessage("Could not load world", kErrorColor);
+                break;
+            case Kind::Resume:
+                menu_.close();
+                audio_.play(Sound::Craft);
+                break;
+            case Kind::Save:
+                if (saveWorld()) menu_.showMessage("World saved!", kSavedColor);
+                else menu_.showMessage("Could not save!", kErrorColor);
+                break;
+            case Kind::SaveAndQuit:
+                if (!saveWorld()) {
+                    menu_.showMessage("Could not save!", kErrorColor);
+                    break;
+                }
+                leaveWorld();
+                menu_.openTitle(saves_.list());
+                break;
+            case Kind::Respawn:
+                send(PlayerCommand::respawn());
+                menu_.close();
+                break;
+            case Kind::Connect:
+                if (net_.connect(action.address, action.playerName)) menu_.openConnecting();
+                else menu_.showMessage("Unknown server address", kErrorColor);
+                break;
+            case Kind::Disconnect:
+                net_.disconnect();
+                menu_.openTitle(saves_.list());
+                break;
+            case Kind::CreateLobby: net_.createLobby(); break;
+            case Kind::JoinLobby: net_.joinLobby(action.lobbyId); break;
+            case Kind::LeaveGame:
+                net_.leaveLobby();
+                leaveWorld();
+                menu_.openLobbies();  // the server sends the lobby list again
+                break;
+            case Kind::ToggleSound: audio_.toggleMuted(); break;
+            case Kind::VolumeDown: audio_.setVolume(audio_.volume() - 1); break;
+            case Kind::VolumeUp: audio_.setVolume(audio_.volume() + 1); break;
+            case Kind::Quit: running_ = false; break;
+            case Kind::None: break;
         }
+        menu_.setSoundSettings(audio_.muted(), audio_.volume());
     }
 
     bool menuOpen() const {
@@ -314,30 +465,35 @@ private:
         craftingMenu_.close();
         containerMenu_.close();
         mapScreen_.close();
-        stowedHeld_.reset();
     }
 
     // The player leaving a screen: Minicraft plays the craft sound whenever a display exits (Game.exitDisplay).
+    // Closing the inventory without choosing an item puts the item that was in hand back in hand.
     void exitMenus() {
         if (!menuOpen()) return;
-        if (inventoryMenu_.isOpen()) reequipStowedItem();
+        if (inventoryMenu_.isOpen()) send(PlayerCommand::reequipHeld());
         closeMenus();
         audio_.play(Sound::Craft);
     }
 
     // E while facing furniture uses it (Furniture.use): a crafting station opens its recipes, a chest its
-    // contents, a bed lets the player sleep. Returns false if there's no furniture to use there.
+    // contents, a bed lets the player sleep. The menu opens right away; what changes in the world (the held item
+    // put away, the night skipped) happens in the next tick. Returns false if there's no furniture to use.
     bool useFurniture() {
-        const Simulation::FurnitureUse use = sim_.useFurniture();
-        using Kind = Simulation::FurnitureUse::Kind;
-        switch (use.kind) {
-            case Kind::None: return false;
-            case Kind::Chest: containerMenu_.open(use.tile.x, use.tile.y, use.deathChest ? "Death Chest" : "Chest"); break;
-            case Kind::Station: craftingMenu_.open(Recipe::stationRecipes(use.station), itemName(use.station)); break;
-            case Kind::Slept:
-            case Kind::CantSleep: break;
+        const Player* player = me();
+        if (!player) return false;
+        const Point target = player->interactionTile();
+        const Furniture::Piece* piece = sim_.levelOf(*player).furniture.at(target.x, target.y);
+        if (!piece) return false;
+        if (piece->isContainer()) {
+            containerMenu_.open(target.x, target.y, piece->deathChest ? "Death Chest" : "Chest");
+        } else if (piece->type != ItemType::Bed) {
+            std::vector<Recipe> recipes = Recipe::stationRecipes(piece->type);
+            if (recipes.empty()) return false;  // a lantern: nothing to use
+            craftingStation_ = static_cast<int>(piece->type);
+            craftingMenu_.open(std::move(recipes), itemName(piece->type));
         }
-        playEvents();
+        send(PlayerCommand::useFurniture());
         return true;
     }
 
@@ -350,12 +506,17 @@ private:
             } else if (event.type == SDL_EVENT_KEY_DOWN) {
                 handleKey(event.key.key, event.key.repeat);
             } else if (event.type == SDL_EVENT_TEXT_INPUT) {
-                menu_.handleText(event.text.text);
+                if (chat_.isOpen()) chat_.handleText(event.text.text);
+                else menu_.handleText(event.text.text);
             }
         }
     }
 
     void handleKey(SDL_Keycode key, bool repeat) {
+        if (chat_.isOpen()) {
+            if (const auto line = chat_.handleKey(key)) net_.sendChat(*line);
+            return;
+        }
         if (menu_.isOpen()) {
             if (!ImGui::GetIO().WantCaptureKeyboard) handleMenuAction(menu_.handleKey(key, repeat));
             return;
@@ -363,6 +524,8 @@ private:
         if (repeat) return;
         if (key == DebugOverlay::kToggleKey) debug_.toggle();
         if (ImGui::GetIO().WantCaptureKeyboard) return;  // typing in the debug panel
+        const Player* player = me();
+        if (!player) return;  // still joining
         if (key == SDLK_M) {
             audio_.toggleMuted();
             menu_.setSoundSettings(audio_.muted(), audio_.volume());
@@ -371,7 +534,11 @@ private:
         }
         if (key == SDLK_ESCAPE) {
             if (menuOpen()) exitMenus();
-            else menu_.openPause();
+            else menu_.openPause();  // online, the world keeps going behind it
+            return;
+        }
+        if (online_ && key == ChatBox::kOpenKey && !menuOpen()) {
+            chat_.open();
             return;
         }
         if (mapScreen_.isOpen()) {
@@ -379,7 +546,7 @@ private:
             return;
         }
         if (key == MapScreen::kToggleKey && !menuOpen()) {
-            mapScreen_.open(renderer_.get(), level());
+            mapScreen_.open(renderer_.get(), sim_.levelOf(*player));
             audio_.play(Sound::Select);
             return;
         }
@@ -389,21 +556,19 @@ private:
                 return;
             }
             const SDL_Point tile = containerMenu_.chestTile();
-            const Furniture::Piece* chest = level().furniture.at(tile.x, tile.y);
+            const Furniture::Piece* chest = sim_.levelOf(*player).furniture.at(tile.x, tile.y);
             if (!chest) {
                 containerMenu_.close();
-            } else if (const auto move = containerMenu_.handleKey(key, chest->contents, sim_.inventory())) {
-                if (!sim_.transfer({tile.x, tile.y}, move->fromChest, move->index)) containerMenu_.close();
-                playEvents();
+            } else if (const auto move = containerMenu_.handleKey(key, chest->contents, player->inventory())) {
+                send(PlayerCommand::transfer(tile.x, tile.y, move->fromChest, move->index));
             }
             return;
         }
         if (craftingMenu_.isOpen()) {
             if (key == InventoryMenu::kToggleKey || key == CraftingMenu::kToggleKey) {
                 exitMenus();
-            } else if (const Recipe* recipe = craftingMenu_.handleKey(key, sim_.inventory())) {
-                sim_.craft(*recipe);
-                playEvents();
+            } else if (craftingMenu_.handleKey(key, player->inventory())) {
+                send(PlayerCommand::craft(craftingStation_, craftingMenu_.selectedIndex()));
             }
             return;
         }
@@ -413,24 +578,23 @@ private:
                 return;
             }
             // Selecting a slot puts that whole stack in the player's hand and closes the inventory.
-            if (const auto slot = inventoryMenu_.handleKey(key, sim_.inventory())) {
-                stowedHeld_.reset();
-                sim_.holdSlot(*slot);
-                exitMenus();
+            if (const auto slot = inventoryMenu_.handleKey(key, player->inventory())) {
+                send(PlayerCommand::holdSlot(*slot));
+                closeMenus();
+                audio_.play(Sound::Craft);
             }
             return;
         }
         if (key == InventoryMenu::kToggleKey) {
             if (useFurniture()) return;
             // The held item shows in the inventory while it's open, and goes back in hand when it closes.
-            const auto& held = sim_.player().heldItem();
-            const ItemType heldType = held ? held->type : ItemType{};
-            if (const auto slot = sim_.stowHeldItem()) stowedHeld_ = StowedItem{*slot, heldType};
+            send(PlayerCommand::stowHeld());
             inventoryMenu_.toggle();
             return;
         }
         if (key == CraftingMenu::kToggleKey) {
-            sim_.stowHeldItem();
+            send(PlayerCommand::stowHeld());
+            craftingStation_ = -1;  // by hand
             craftingMenu_.open(Recipe::personalRecipes(), "Crafting");
             return;
         }
@@ -439,52 +603,32 @@ private:
 
     void update(float dt) {
         menu_.update(dt);
-        // SDL text input (and the IME) is only on while a menu text field is selected.
+        chat_.update(dt);
+        pollNetwork();
+        // SDL text input (and the IME) is only on while a text field or the chat is in use.
         SDL_Window* window = window_.get();
-        if (menu_.wantsTextInput() != SDL_TextInputActive(window)) {
-            if (menu_.wantsTextInput()) SDL_StartTextInput(window);
+        const bool typing = menu_.wantsTextInput() || chat_.isOpen();
+        if (typing != SDL_TextInputActive(window)) {
+            if (typing) SDL_StartTextInput(window);
             else SDL_StopTextInput(window);
         }
-        if (inWorld_ && !menu_.isOpen()) updateWorld(dt);  // not on the title screens, nor paused
+        // Offline the world pauses behind any menu; online it never stops (the others keep playing).
+        if (inWorld_ && (online_ || !menu_.isOpen())) {
+            fadeTimer_ = std::max(0.0f, fadeTimer_ - dt);
+            for (auto& note : notes_) note.second -= dt;
+            std::erase_if(notes_, [](const auto& note) { return note.second <= 0.0f; });
+            if (online_) updateOnline();
+            else updateOffline(dt);
+            effects_.update(dt);
+        }
         updateView();
     }
 
-    // The keyboard as the simulation's input. While a menu is open or typing in the debug panel, keys don't move
-    // the player.
-    PlayerInput readInput() const {
-        PlayerInput input;
-        if (ImGui::GetIO().WantCaptureKeyboard || menuOpen()) return input;
-        const bool* keys = SDL_GetKeyboardState(nullptr);
-        if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) input.moveY -= 1;
-        if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) input.moveY += 1;
-        if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) input.moveX -= 1;
-        if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) input.moveX += 1;
-        input.attack = keys[SDL_SCANCODE_SPACE];
-        input.attackPressed = attackPressed_;
-        return input;
-    }
-
-    // How dark the current level is: the time of day on the surface, pitch black underground, bright in the sky.
-    float darkness() const {
-        if (debug_.fullBright() || level().isSky()) return 0.0f;
-        if (level().isUnderground()) return 1.0f;
+    // How dark a level is: the time of day on the surface, pitch black underground, bright in the sky.
+    float darkness(const Level& level) const {
+        if (debug_.fullBright() || level.isSky()) return 0.0f;
+        if (level.isUnderground()) return 1.0f;
         return sim_.dayNight().darkness();
-    }
-
-    void updateWorld(float dt) {
-        fadeTimer_ = std::max(0.0f, fadeTimer_ - dt);
-        for (auto& note : notes_) note.second -= dt;
-        std::erase_if(notes_, [](const auto& note) { return note.second <= 0.0f; });
-
-        // The simulation runs in fixed 60 Hz ticks, however fast the screen refreshes.
-        tickAccumulator_ += dt;
-        while (tickAccumulator_ >= kTick && !menu_.isOpen()) {
-            tickAccumulator_ -= kTick;
-            sim_.tick(readInput());
-            attackPressed_ = false;
-            playEvents();
-        }
-        effects_.update(dt);
     }
 
     // Picks the render scale for the window size and points the camera at the player.
@@ -494,12 +638,17 @@ private:
         SDL_GetCurrentRenderOutputSize(renderer_.get(), &outputWidth, &outputHeight);
         scale_ = static_cast<float>(std::max(1, std::min(outputWidth / kViewWidth, outputHeight / kViewHeight)));
         camera_.setView(static_cast<float>(outputWidth) / scale_, static_cast<float>(outputHeight) / scale_, scale_);
-        if (!inWorld_) return;
+        const Player* player = me();
+        if (!inWorld_ || !player) return;
         // Follow the position the player is actually drawn at (snapped), so the two never disagree by a pixel.
-        const Rect bounds = sim_.player().bounds();
+        const Rect bounds = player->bounds();
+        const Level& level = sim_.levelOf(*player);
         camera_.follow(camera_.snap(bounds.x) + bounds.w / 2.0f, camera_.snap(bounds.y) + bounds.h / 2.0f,
-                       level().map.pixelWidth(), level().map.pixelHeight());
+                       level.map.pixelWidth(), level.map.pixelHeight());
     }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Drawing
 
     void draw() {
         SDL_Renderer* renderer = renderer_.get();
@@ -508,50 +657,78 @@ private:
 
         // World: drawn in world pixels, scaled up by a whole factor.
         SDL_SetRenderScale(renderer, scale_, scale_);
-        if (inWorld_) drawWorld(renderer);
+        if (inWorld_) {
+            if (me()) drawWorld(renderer);
+            else drawJoining(renderer);
+        }
         menu_.draw(renderer, hud_, font_, camera_.width(), camera_.height());
 
         // Debug overlay and UI: drawn in screen pixels so lines stay thin.
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-        if (inWorld_) debug_.drawWorldOverlay(renderer, camera_, scale_, level().map, sim_.player(), level().mobs);
+        if (inWorld_ && me()) {
+            debug_.drawWorldOverlay(renderer, camera_, scale_, sim_.levelOf(*me()).map, *me(), sim_.levelOf(*me()).mobs);
+        }
 
         // ImGui runs every frame (even without the debug panel) so its keyboard capture state stays current.
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        if (inWorld_) drawDebugPanel();
+        if (inWorld_ && me()) drawDebugPanel();
         ImGui::Render();
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
 
         SDL_RenderPresent(renderer);
     }
 
+    // While joining a multiplayer world: replaying what happened before we arrived.
+    void drawJoining(SDL_Renderer* renderer) const {
+        const std::string title = "Joining " + worldName_ + "...";
+        const std::string behind = std::to_string(net_.ticksWaiting()) + " ticks to catch up";
+        const float width = camera_.width();
+        const float middle = std::floor(camera_.height() / 2.0f);
+        font_.draw(renderer, title, std::floor((width - Font::textWidth(title)) / 2.0f), middle - 8.0f,
+                   SDL_Color{255, 255, 255, 255});
+        font_.draw(renderer, behind, std::floor((width - Font::textWidth(behind)) / 2.0f), middle + 4.0f,
+                   SDL_Color{153, 153, 153, 255});
+    }
+
     void drawWorld(SDL_Renderer* renderer) {
-        const Level& here = level();
-        const Player& player = sim_.player();
+        const Player& player = *me();
+        const Level& here = sim_.levelOf(player);
         tiles_.draw(renderer, camera_, here.map, time_);
         sprites_.drawDrops(renderer, camera_, here.drops, itemIcons_);
         const float playerY = player.center().y;
         sprites_.drawFurniture(renderer, camera_, here.furniture, playerY, true);
         sprites_.drawMobs(renderer, camera_, here.mobs, playerY, true);
-        sprites_.drawPlayer(renderer, camera_, player);
-        if (player.isCarryingFurniture()) {
-            const Vec2 carried = player.carriedFurniturePosition();
-            sprites_.drawFurnitureSprite(renderer, camera_, player.heldItem()->type, carried.x, carried.y);
+        // Everyone on this level (other players first, so this player is drawn on top).
+        for (const auto& other : sim_.players()) {
+            if (other.get() != &player && other->level() == player.level() && !other->waitingToRespawn()) {
+                drawPlayer(renderer, *other);
+            }
         }
+        drawPlayer(renderer, player);
         sprites_.drawFurniture(renderer, camera_, here.furniture, playerY, false);
         sprites_.drawMobs(renderer, camera_, here.mobs, playerY, false);
         sprites_.drawProjectiles(renderer, camera_, here.projectiles);
         effects_.draw(renderer, camera_, font_);
 
-        // Darkness (night on the surface, always underground) with circles of light around the player, lanterns,
+        // Darkness (night on the surface, always underground) with circles of light around the players, lanterns,
         // torches and lava (Minicraft's LightOverlay).
-        lighting_.draw(renderer, camera_, darkness(), sim_.lights());
+        lighting_.draw(renderer, camera_, darkness(here), sim_.lights(player.level()));
+
+        // Other players' names, above the darkness so they can always be found. Small text (see textScale).
+        SDL_SetRenderScale(renderer, textScale(), textScale());
+        for (const auto& other : sim_.players()) {
+            if (other.get() != &player && other->level() == player.level() && !other->waitingToRespawn()) {
+                drawNameTag(renderer, *other);
+            }
+        }
+        SDL_SetRenderScale(renderer, scale_, scale_);
 
         // UI in view pixels (same scale, not moved by the camera).
         const float viewWidth = std::floor(camera_.width());
         const float viewHeight = std::floor(camera_.height());
-        const Inventory& inventory = sim_.inventory();
+        const Inventory& inventory = player.inventory();
         hud_.drawStatus(renderer, itemIcons_, player, viewWidth, viewHeight);
         if (const auto& held = player.heldItem()) {
             hud_.drawHeldItem(renderer, font_, itemIcons_, *held, viewHeight);
@@ -563,13 +740,22 @@ private:
         if (const Mob* boss = here.mobs.boss()) {
             hud_.drawBossBar(renderer, font_, boss->health() * 100 / AirWizard::kMaxHealth, "Air Wizard", viewWidth);
         }
-        drawNotes(renderer, viewWidth);
+        drawNotes(renderer, viewWidth, here);
+        if (online_) {
+            // The chat in small text too, just above the hearts and bolts (the bottom 24 view pixels).
+            const float toText = scale_ / textScale();
+            SDL_SetRenderScale(renderer, textScale(), textScale());
+            chat_.draw(renderer, font_, (viewHeight - 24.0f) * toText);
+            SDL_SetRenderScale(renderer, scale_, scale_);
+        }
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory, viewHeight);
         craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory, viewHeight);
         if (containerMenu_.isOpen()) {
             const SDL_Point tile = containerMenu_.chestTile();
             if (const Furniture::Piece* chest = here.furniture.at(tile.x, tile.y)) {
                 containerMenu_.draw(renderer, hud_, font_, itemIcons_, chest->contents, inventory, viewHeight);
+            } else {
+                containerMenu_.close();  // emptied death chest, or someone picked the chest up
             }
         }
 
@@ -584,9 +770,33 @@ private:
         }
     }
 
+    void drawPlayer(SDL_Renderer* renderer, const Player& player) {
+        sprites_.drawPlayer(renderer, camera_, player);
+        if (player.isCarryingFurniture()) {
+            const Vec2 carried = player.carriedFurniturePosition();
+            sprites_.drawFurnitureSprite(renderer, camera_, player.heldItem()->type, carried.x, carried.y);
+        }
+    }
+
+    // Names and chat use half the world's pixel size, so they don't cover the game. The 8x8 font is drawn at a
+    // whole render scale (at least 1), so its letters stay sharp.
+    float textScale() const { return std::max(1.0f, std::floor(scale_ / 2.0f)); }
+
+    // A player's name centred just above their head (higher if they carry furniture over it). Called with the
+    // render scale at textScale(): view pixels are multiplied by `toText` to get there.
+    void drawNameTag(SDL_Renderer* renderer, const Player& player) const {
+        const float toText = scale_ / textScale();
+        const Rect bounds = player.bounds();
+        const float centerX = (camera_.snap(bounds.x) + bounds.w / 2.0f - camera_.x()) * toText;
+        const float top = (camera_.snap(bounds.y) - camera_.y() - (player.isCarryingFurniture() ? 13.0f : 1.0f)) * toText;
+        const float x = std::floor(centerX - Font::textWidth(player.name()) / 2.0f);
+        const float y = std::floor(top - Font::kGlyphSize - 1.0f);
+        font_.drawShadowed(renderer, player.name(), x, y, SDL_Color{255, 255, 255, 255});
+    }
+
     // Minicraft+'s notifications: short lines centred near the top, on a black background.
-    void drawNotes(SDL_Renderer* renderer, float viewWidth) const {
-        float y = level().mobs.boss() ? 24.0f : 4.0f;
+    void drawNotes(SDL_Renderer* renderer, float viewWidth, const Level& level) const {
+        float y = level.mobs.boss() ? 24.0f : 4.0f;
         for (const auto& [text, timeLeft] : notes_) {
             const float x = std::floor((viewWidth - Font::textWidth(text)) / 2.0f);
             const SDL_FRect background{x - 1.0f, y - 1.0f, Font::textWidth(text) + 2.0f, 10.0f};
@@ -598,36 +808,38 @@ private:
     }
 
     void drawDebugPanel() {
-        Level& here = level();
-        const auto actions = debug_.drawPanel(camera_, scale_, here.map, sim_.player(), sim_.inventory(),
-                                              here.drops.size(), here.mobs, sim_.dayNight(), here.name(),
-                                              sim_.world().currentIndex());
+        Player& player = *me();
+        Level& here = sim_.levelOf(player);
+        const auto actions = debug_.drawPanel(camera_, scale_, here.map, player, player.inventory(), here.drops.size(),
+                                              here.mobs, sim_.dayNight(), here.name(), player.level());
+        // In multiplayer every client must run exactly the same simulation, so the debug panel only looks.
+        if (online_) return;
         if (actions.regenerateSeed) {
             sim_.regenerate(*actions.regenerateSeed);
             effects_.clear();
             closeMenus();
         }
-        if (actions.refillStats) sim_.player().refillStats();
-        if (actions.clearInventory) sim_.inventory().clear();
-        for (const Inventory::Stack& stack : actions.giveItems) sim_.giveItems(stack.type, stack.count);
+        if (actions.refillStats) player.refillStats();
+        if (actions.clearInventory) player.inventory().clear();
+        for (const Inventory::Stack& stack : actions.giveItems) sim_.giveItems(player, stack.type, stack.count);
         if (actions.spawnMob) {
-            const Vec2 p = sim_.player().center();
+            const Vec2 p = player.center();
             here.mobs.spawnNear(actions.spawnMob->first, actions.spawnMob->second, here.map, here.furniture.hitboxes(),
                                 p.x, p.y, 3, 6, sim_.rng());
         }
         if (actions.clearMobs) here.mobs.clear();
         if (actions.setTime) sim_.dayNight().setTime(*actions.setTime);
         if (actions.gotoLevel) {
-            sim_.changeLevel(*actions.gotoLevel, false);
+            sim_.changeLevel(player, *actions.gotoLevel, false);
             // Clear a little room if the player landed inside rock (or over the edge of the sky).
-            TileMap& map = level().map;
-            const Vec2 c = sim_.player().center();
+            Level& level = sim_.levelOf(player);
+            const Vec2 c = player.center();
             const int tx = collision::tileIndex(c.x);
             const int ty = collision::tileIndex(c.y);
             for (int y = ty - 1; y <= ty + 1; ++y) {
                 for (int x = tx - 1; x <= tx + 1; ++x) {
-                    if (map.inBounds(x, y) && map.blocksMobsAt(x, y)) {
-                        map.setTile(x, y, level().isSky() ? Tile::Cloud : Tile::Dirt);
+                    if (level.map.inBounds(x, y) && level.map.blocksMobsAt(x, y)) {
+                        level.map.setTile(x, y, level.isSky() ? Tile::Cloud : Tile::Dirt);
                     }
                 }
             }
@@ -665,11 +877,13 @@ private:
 
     // Members are destroyed in reverse order: textures, ImGui and audio first, then renderer, window, and SDL_Quit.
     SdlQuit sdlQuit_;
+    EnetLibrary enet_;
     Audio audio_;
     std::unique_ptr<SDL_Window, WindowDeleter> window_;
     std::unique_ptr<SDL_Renderer, RendererDeleter> renderer_;
     ImGuiContextGuard imgui_;
     Simulation sim_;
+    NetworkClient net_;
     TileRenderer tiles_;
     SpriteRenderer sprites_;
     Effects effects_;
@@ -678,6 +892,7 @@ private:
     CraftingMenu craftingMenu_;
     ContainerMenu containerMenu_;
     MapScreen mapScreen_;
+    ChatBox chat_;
     Hud hud_;
     Font font_;
     ItemIcons itemIcons_;
@@ -685,20 +900,19 @@ private:
     DebugOverlay debug_;
     GameMenu menu_;
     WorldSaves saves_{savesDirectory()};
-    std::string worldName_;
-    bool inWorld_ = false;  // a world is loaded (playing or paused); false on the title screens
+    std::string worldName_;     // the save's name, or the lobby's
+    bool inWorld_ = false;      // a world is loaded (playing or paused); false on the title screens
+    bool online_ = false;       // that world is a multiplayer lobby
+    int localId_ = 0;           // this client's player in the simulation (0 offline; the server's id online)
+    std::vector<PlayerCommand> localCommands_;  // offline: what goes into the next tick
+    PlayerInput lastSentInput_;                 // online: the keys the server last heard about
+    int craftingStation_ = -1;  // whose recipes the crafting menu shows (an ItemType, -1 = by hand)
     float scale_ = 1.0f;
     float time_ = 0.0f;
     float tickAccumulator_ = 0.0f;
     bool attackPressed_ = false;  // Space went down since the last tick
     float fadeTimer_ = 0.0f;
     float fadeDuration_ = kFadeSeconds;
-    // Where the held item went when the inventory opened, to put it back in hand when the inventory closes.
-    struct StowedItem {
-        int slot;
-        ItemType type;
-    };
-    std::optional<StowedItem> stowedHeld_;
     std::vector<std::pair<std::string, float>> notes_;  // notifications and the seconds they have left
     bool running_ = true;
 };

@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <cstring>
 
 namespace {
 
@@ -15,7 +14,7 @@ namespace {
 // out.
 constexpr int kPunchHoldDelayTicks = 30;
 constexpr int kRapidPunchTicks = 3;  // 20 punches/s
-constexpr int kLightScanTiles = 24;  // torches and lava this far from the player give light
+constexpr int kLightScanTiles = 24;  // torches and lava this far from a player give light
 
 // FNV-1a, for stateHash.
 class Hasher {
@@ -37,187 +36,303 @@ private:
 
 }  // namespace
 
-Vec2 Simulation::surfaceSpawn() const { return world_.level(World::kSurfaceIndex).map.findSpawnPoint(); }
+// ---------------------------------------------------------------------------------------------------------------
+// The world and its players
 
 void Simulation::resetSession(std::uint64_t rngSeed) {
     rng_.reseed(rngSeed);
     events_.take();
-    inventory_.clear();
-    player_.setHeldItem(std::nullopt);
-    player_.refillStats();
-    player_.removeArmor();
+    players_.clear();
     dayNight_ = DayNight{};
-    spawnLevel_ = -1;
-    spawnPoint_ = {};
-    ticksPlayed_ = 0;
-    punchRepeatTicks_ = 0;
-    onStairs_ = false;
-    dead_ = false;
+    tick_ = 0;
 }
 
 void Simulation::startNewWorld(std::uint32_t seed) {
     resetSession(seed);
     world_.generate(seed, rng_);
-    const Vec2 spawn = surfaceSpawn();
-    player_.setPosition(spawn.x, spawn.y);
-    inventory_.add(ItemType::PowerGlove);  // like the original Minicraft, the player starts with the glove
 }
 
 void Simulation::regenerate(std::uint32_t seed) {
     rng_.reseed(seed);
     world_.generate(seed, rng_);
     const Vec2 spawn = surfaceSpawn();
-    player_.setPosition(spawn.x, spawn.y);
-    onStairs_ = false;
+    for (auto& player : players_) {
+        player->setLevel(World::kSurfaceIndex);
+        player->setPosition(spawn.x, spawn.y);
+        player->setOnStairs(false);
+    }
 }
 
-void Simulation::tick(const PlayerInput& input) {
-    if (dead_) return;
-    ++ticksPlayed_;
-    Level& here = level();
+Vec2 Simulation::surfaceSpawn() const { return world_.level(World::kSurfaceIndex).map.findSpawnPoint(); }
+
+Player& Simulation::addPlayer(int id, std::string name) {
+    auto player = std::make_unique<Player>(id, std::move(name));
+    const Vec2 spawn = surfaceSpawn();
+    player->setPosition(spawn.x, spawn.y);
+    player->setLevel(World::kSurfaceIndex);
+    player->inventory().add(ItemType::PowerGlove);  // like the original Minicraft, players start with the glove
+    players_.push_back(std::move(player));
+    return *players_.back();
+}
+
+void Simulation::removePlayer(int id) {
+    std::erase_if(players_, [&](const auto& player) { return player->id() == id; });
+}
+
+Player* Simulation::findPlayer(int id) {
+    for (auto& player : players_) {
+        if (player->id() == id) return player.get();
+    }
+    return nullptr;
+}
+
+const Player* Simulation::findPlayer(int id) const { return const_cast<Simulation*>(this)->findPlayer(id); }
+
+std::vector<Player*> Simulation::playersOn(int level, const Player* except) const {
+    std::vector<Player*> result;
+    for (const auto& player : players_) {
+        if (player->level() == level && !player->waitingToRespawn() && player.get() != except) {
+            result.push_back(player.get());
+        }
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// One tick
+
+void Simulation::tick(const TickInput& input) {
+    ++tick_;
+
+    // 1. Commands first: players joining and leaving, menus, respawns.
+    for (const PlayerTurn& turn : input.turns) {
+        for (const PlayerCommand& command : turn.commands) {
+            if (command.kind == PlayerCommand::Kind::Join) {
+                if (!findPlayer(turn.playerId)) addPlayer(turn.playerId, command.text);
+                continue;
+            }
+            if (command.kind == PlayerCommand::Kind::Leave) {
+                removePlayer(turn.playerId);
+                continue;
+            }
+            if (Player* player = findPlayer(turn.playerId)) applyCommand(*player, command);
+        }
+    }
+
+    // 2. Every player moves and acts, in the order the server listed them.
+    for (const PlayerTurn& turn : input.turns) {
+        Player* player = findPlayer(turn.playerId);
+        if (player && !player->waitingToRespawn()) movePlayer(*player, turn.input);
+    }
+
+    // 3. The world: time, then every level somebody is on.
+    dayNight_.step();
+    for (int level = 0; level < World::kLevelCount; ++level) {
+        if (!playersOn(level).empty()) tickLevel(level);
+    }
+
+    // 4. Whoever ran out of health dies.
+    for (auto& player : players_) {
+        if (player->isDead() && !player->waitingToRespawn()) die(*player);
+    }
+    events_.setContext(0, -1);
+}
+
+void Simulation::movePlayer(Player& player, const PlayerInput& input) {
+    Level& here = levelOf(player);
+    events_.setContext(player.level(), player.id());
     const std::vector<Rect> obstacles = here.furniture.hitboxes();
-    player_.tick(input, here.map, obstacles, events_);
+    player.tick(input, here.map, obstacles, events_);
 
     // Space: a fresh press always acts; held, it repeats after a short delay.
+    const auto act = [&] {
+        const std::vector<Player*> others = playersOn(player.level(), &player);
+        PlayerActions(here, player, others, events_, rng_).useOrPunch();
+    };
     if (input.attackPressed) {
-        useOrPunch();
-        punchRepeatTicks_ = kPunchHoldDelayTicks;
-    } else if (input.attack && --punchRepeatTicks_ <= 0) {
-        useOrPunch();
-        punchRepeatTicks_ += kRapidPunchTicks;
+        act();
+        player.setPunchRepeatTicks(kPunchHoldDelayTicks);
+    } else if (input.attack) {
+        player.setPunchRepeatTicks(player.punchRepeatTicks() - 1);
+        if (player.punchRepeatTicks() <= 0) {
+            act();
+            player.setPunchRepeatTicks(player.punchRepeatTicks() + kRapidPunchTicks);
+        }
     }
 
     // Stepping onto stairs takes them (Player.tick's onStairDelay): arriving on the other end doesn't send the
     // player straight back, since they have to step off the stairs first.
-    const Vec2 c = player_.center();
+    const Vec2 c = player.center();
     const int tx = collision::tileIndex(c.x);
     const int ty = collision::tileIndex(c.y);
     const Tile under = here.map.inBounds(tx, ty) ? here.map.tileAt(tx, ty) : Tile::Rock;
     const bool stairs = under == Tile::StairsDown || under == Tile::StairsUp;
-    if (stairs && !onStairs_) {
-        const int next = world_.currentIndex() + (under == Tile::StairsDown ? 1 : -1);
+    if (stairs && !player.onStairs()) {
+        const int next = player.level() + (under == Tile::StairsDown ? 1 : -1);
         if (next >= 0 && next < World::kLevelCount) {
-            changeLevel(next, true);
+            changeLevel(player, next, true);
             return;
         }
     }
-    onStairs_ = stairs;
+    player.setOnStairs(stairs);
+}
 
-    dayNight_.step();
-    const std::vector<Light> lightSources = lights();
-    const Mobs::Context context{here.map, player_, events_, rng_, here.drops, here.projectiles, obstacles};
-    const Mobs::SpawnRules rules{here.depth(), dayNight_.time() == DayNight::Time::Night, lightSources};
-    here.mobs.tick(context, rules);
+void Simulation::tickLevel(int index) {
+    Level& level = world_.level(index);
+    events_.setContext(index, -1);
+    const std::vector<Player*> players = playersOn(index);
+    const std::vector<Rect> obstacles = level.furniture.hitboxes();
+    const std::vector<Light> lightSources = lights(index);
+    const Mobs::Context context{level.map, players, events_, rng_, level.drops, level.projectiles, obstacles};
+    const Mobs::SpawnRules rules{level.depth(), dayNight_.time() == DayNight::Time::Night, lightSources};
+    level.mobs.tick(context, rules);
 
     // Level.tick: arrows and sparks, and Minicraft's random tile ticks (crops grow, grass spreads, liquids flow
     // into holes).
-    here.projectiles.tick(here.map, player_, here.mobs, events_, rng_);
-    here.map.tickRandomTiles(World::kSize / 2, World::kSize / 2, World::kSize / 2, World::kSize * World::kSize / 50,
-                             rng_);
+    level.projectiles.tick(level.map, players, level.mobs, events_, rng_);
+    level.map.tickRandomTiles(World::kSize / 2, World::kSize / 2, World::kSize / 2, World::kSize * World::kSize / 50,
+                              rng_);
+    if (level.drops.tick(level.map, players) > 0) events_.sound(Sound::Pickup);
 
-    if (here.drops.tick(here.map, player_.hitbox(), inventory_) > 0) events_.sound(Sound::Pickup);
-
-    if (here.mobs.takeBossDefeated()) {
+    if (level.mobs.takeBossDefeated()) {
         world_.airWizardBeaten = true;
         events_.push({.kind = GameEvent::Kind::BossDefeated});
     }
-    if (player_.isDead()) die();
 }
 
-void Simulation::useOrPunch() {
-    PlayerActions(level(), player_, inventory_, events_, rng_).useOrPunch();
-}
+// ---------------------------------------------------------------------------------------------------------------
+// Commands
 
-void Simulation::addOrDrop(const Inventory::Stack& stack) {
-    if (const int leftover = inventory_.add(stack); leftover > 0) {
-        const Vec2 middle = player_.center();
-        level().drops.spawn(stack.type, leftover, middle.x, middle.y, rng_, stack.durability);
+void Simulation::applyCommand(Player& player, const PlayerCommand& command) {
+    events_.setContext(player.level(), player.id());
+    using Kind = PlayerCommand::Kind;
+    switch (command.kind) {
+        case Kind::Respawn:
+            if (player.waitingToRespawn()) respawn(player);
+            break;
+        case Kind::Craft: craft(player, command.a, command.b); break;
+        case Kind::StowHeld: stowHeldItem(player); break;
+        case Kind::ReequipHeld: reequipHeldItem(player); break;
+        case Kind::HoldSlot: holdSlot(player, command.a); break;
+        case Kind::UseFurniture: useFurniture(player); break;
+        case Kind::Transfer: transfer(player, {command.a, command.b}, command.c != 0, command.d); break;
+        case Kind::Join:
+        case Kind::Leave: break;  // handled by tick()
     }
 }
 
-void Simulation::giveItems(ItemType type, int count) {
-    if (const int leftover = inventory_.add(type, count); leftover > 0) {
-        const Vec2 middle = player_.center();
-        level().drops.spawn(type, leftover, middle.x, middle.y, rng_);
+void Simulation::giveItems(Player& player, ItemType type, int count) {
+    if (const int leftover = player.inventory().add(type, count); leftover > 0) {
+        const Vec2 middle = player.center();
+        levelOf(player).drops.spawn(type, leftover, middle.x, middle.y, rng_);
     }
 }
 
-bool Simulation::craft(const Recipe& recipe) {
-    const int leftover = recipe.craft(inventory_);
-    if (leftover < 0) return false;
+void Simulation::craft(Player& player, int station, int recipe) {
+    // The same lists the menus show: by hand, or a station's.
+    const std::vector<Recipe> recipes =
+        station < 0 ? Recipe::personalRecipes() : Recipe::stationRecipes(static_cast<ItemType>(station));
+    if (recipe < 0 || recipe >= static_cast<int>(recipes.size())) return;
+    const int leftover = recipes[static_cast<std::size_t>(recipe)].craft(player.inventory());
+    if (leftover < 0) return;  // can't afford it
     events_.sound(Sound::Craft);
     if (leftover > 0) {
-        const Vec2 middle = player_.center();
-        level().drops.spawn(recipe.product(), leftover, middle.x, middle.y, rng_);
+        const Vec2 middle = player.center();
+        levelOf(player).drops.spawn(recipes[static_cast<std::size_t>(recipe)].product(), leftover, middle.x,
+                                    middle.y, rng_);
     }
-    return true;
 }
 
-std::optional<int> Simulation::stowHeldItem() {
-    const auto held = player_.heldItem();
+std::optional<int> Simulation::stowHeldItem(Player& player) {
+    // Minicraft's tryAddToInvOrDrop: back in the inventory, or dropped if there's no room.
+    const auto held = player.heldItem();
     if (!held) return std::nullopt;
-    player_.setHeldItem(std::nullopt);
-    if (const int leftover = inventory_.add(*held); leftover > 0) {
-        const Vec2 middle = player_.center();
-        level().drops.spawn(held->type, leftover, middle.x, middle.y, rng_, held->durability);
+    player.setHeldItem(std::nullopt);
+    Inventory& inventory = player.inventory();
+    if (const int leftover = inventory.add(*held); leftover > 0) {
+        const Vec2 middle = player.center();
+        levelOf(player).drops.spawn(held->type, leftover, middle.x, middle.y, rng_, held->durability);
         return std::nullopt;
     }
     // Stackable items merge into the stack of their type; tools go into a new last slot.
-    const auto& stacks = inventory_.stacks();
-    if (!isStackable(held->type)) return static_cast<int>(stacks.size()) - 1;
-    const auto it = std::find_if(stacks.begin(), stacks.end(), [&](const auto& s) { return s.type == held->type; });
-    return static_cast<int>(it - stacks.begin());
-}
-
-void Simulation::holdSlot(int index) {
-    if (index < 0 || index >= static_cast<int>(inventory_.stacks().size())) return;
-    player_.setHeldItem(inventory_.take(index));
-}
-
-Simulation::FurnitureUse Simulation::useFurniture() {
-    const Point target = player_.interactionTile();
-    Furniture::Piece* piece = level().furniture.at(target.x, target.y);
-    if (!piece) return {};
-    if (piece->isContainer()) {
-        stowHeldItem();
-        return {.kind = FurnitureUse::Kind::Chest, .tile = target, .deathChest = piece->deathChest};
+    const auto& stacks = inventory.stacks();
+    int slot = static_cast<int>(stacks.size()) - 1;
+    if (isStackable(held->type)) {
+        const auto it = std::find_if(stacks.begin(), stacks.end(), [&](const auto& s) { return s.type == held->type; });
+        slot = static_cast<int>(it - stacks.begin());
     }
+    player.stowedSlot = std::pair{slot, held->type};
+    return slot;
+}
+
+void Simulation::reequipHeldItem(Player& player) {
+    // Closing the inventory without choosing another item puts the item that was in hand back in hand.
+    const auto stowed = std::exchange(player.stowedSlot, std::nullopt);
+    if (!stowed || player.heldItem()) return;
+    const auto& stacks = player.inventory().stacks();
+    const auto [slot, type] = *stowed;
+    if (slot < static_cast<int>(stacks.size()) && stacks[static_cast<std::size_t>(slot)].type == type) {
+        holdSlot(player, slot);
+    }
+}
+
+void Simulation::holdSlot(Player& player, int slot) {
+    player.stowedSlot.reset();
+    if (slot < 0 || slot >= static_cast<int>(player.inventory().stacks().size())) return;
+    stowHeldItem(player);  // whatever was in hand goes back first
+    player.stowedSlot.reset();
+    if (slot >= static_cast<int>(player.inventory().stacks().size())) return;
+    player.setHeldItem(player.inventory().take(slot));
+}
+
+void Simulation::useFurniture(Player& player) {
+    // Furniture.use: a station or chest opens a menu (the client shows it; here the held item goes away), a bed
+    // is slept in.
+    const Point target = player.interactionTile();
+    const Furniture::Piece* piece = levelOf(player).furniture.at(target.x, target.y);
+    if (!piece) return;
     if (piece->type == ItemType::Bed) {
-        const DayNight::Time time = dayNight_.time();
-        if (time != DayNight::Time::Evening && time != DayNight::Time::Night) {
-            events_.notify("Can't sleep! Wait for the evening");
-            return {.kind = FurnitureUse::Kind::CantSleep};
-        }
-        sleep(*piece);
-        return {.kind = FurnitureUse::Kind::Slept};
+        sleep(player, *piece);
+        return;
     }
-    if (Recipe::stationRecipes(piece->type).empty()) return {};  // a lantern: nothing to use
-    stowHeldItem();
-    return {.kind = FurnitureUse::Kind::Station, .station = piece->type};
+    if (piece->isContainer() || !Recipe::stationRecipes(piece->type).empty()) stowHeldItem(player);
 }
 
-void Simulation::sleep(const Furniture::Piece& bed) {
-    // Bed.use: sleeping skips to the morning and makes the bed the respawn point.
-    spawnLevel_ = world_.currentIndex();
+void Simulation::sleep(Player& player, const Furniture::Piece& bed) {
+    // Bed.use: the bed becomes the respawn point. Alone, sleeping skips the night (only in the evening or at
+    // night); with others around, the night goes on for them.
+    const DayNight::Time time = dayNight_.time();
+    if (singlePlayer && time != DayNight::Time::Evening && time != DayNight::Time::Night) {
+        events_.notify("Can't sleep! Wait for the evening");
+        return;
+    }
     // Wake up just below the bed (or on it, if that tile is blocked).
+    Level& here = levelOf(player);
     const int tx = collision::tileIndex(bed.x);
     const int ty = collision::tileIndex(bed.y);
-    const bool below = !level().map.isSolidAt(tx, ty + 1) && !level().furniture.at(tx, ty + 1);
-    spawnPoint_ = {static_cast<float>(tx * TileMap::kTileSize),
-                   static_cast<float>((below ? ty + 1 : ty) * TileMap::kTileSize) - 3.0f};
+    const bool below = !here.map.isSolidAt(tx, ty + 1) && !here.furniture.at(tx, ty + 1);
+    const Vec2 spot{static_cast<float>(tx * TileMap::kTileSize),
+                    static_cast<float>((below ? ty + 1 : ty) * TileMap::kTileSize) - 3.0f};
+    player.setSpawn(player.level(), spot);
+    if (!singlePlayer) {
+        events_.notify("Respawn point set");
+        return;
+    }
     dayNight_.setTime(DayNight::Time::Morning);
-    player_.setPosition(spawnPoint_.x, spawnPoint_.y);
-    level().mobs.clearEnemies();  // the night's monsters are gone by morning
-    events_.push({.kind = GameEvent::Kind::Slept});
+    player.setPosition(spot.x, spot.y);
+    here.mobs.clearEnemies();  // the night's monsters are gone by morning
+    events_.push({.kind = GameEvent::Kind::Slept, .player = player.id()});
     events_.notify("You slept until morning");
 }
 
-bool Simulation::transfer(Point chestTile, bool fromChest, int index) {
-    Furniture::Piece* chest = level().furniture.at(chestTile.x, chestTile.y);
-    if (!chest || !chest->isContainer()) return false;
-    Inventory& from = fromChest ? chest->contents : inventory_;
-    Inventory& to = fromChest ? inventory_ : chest->contents;
-    if (index < 0 || index >= static_cast<int>(from.stacks().size())) return true;
+void Simulation::transfer(Player& player, Point chestTile, bool fromChest, int index) {
+    // Moves a stack between a chest and the inventory. What doesn't fit stays where it was.
+    Furniture& furniture = levelOf(player).furniture;
+    Furniture::Piece* chest = furniture.at(chestTile.x, chestTile.y);
+    if (!chest || !chest->isContainer()) return;
+    Inventory& from = fromChest ? chest->contents : player.inventory();
+    Inventory& to = fromChest ? player.inventory() : chest->contents;
+    if (index < 0 || index >= static_cast<int>(from.stacks().size())) return;
     const Inventory::Stack stack = from.take(index);
     if (const int leftover = to.add(stack); leftover > 0) {
         Inventory::Stack back = stack;
@@ -226,69 +341,73 @@ bool Simulation::transfer(Point chestTile, bool fromChest, int index) {
     }
     events_.sound(Sound::Pickup);
     // An emptied death chest disappears (DeathChest).
-    if (chest->deathChest && chest->contents.empty()) {
-        level().furniture.remove(chest);
-        return false;
-    }
-    return true;
+    if (chest->deathChest && chest->contents.empty()) furniture.remove(chest);
 }
 
-void Simulation::die() {
+void Simulation::die(Player& player) {
     // Player.die: everything the player carried goes into a death chest where they fell.
-    Inventory carried = inventory_;
-    if (const auto& held = player_.heldItem()) carried.add(*held);
-    if (const auto& armor = player_.armor()) carried.add(*armor, 1);
+    events_.setContext(player.level(), player.id());
+    Inventory carried = player.inventory();
+    if (const auto& held = player.heldItem()) carried.add(*held);
+    if (const auto& armor = player.armor()) carried.add(*armor, 1);
     if (!carried.empty()) {
-        const Vec2 c = player_.center();
-        level().furniture.addDeathChest(c.x, c.y, std::move(carried));
+        const Vec2 c = player.center();
+        levelOf(player).furniture.addDeathChest(c.x, c.y, std::move(carried));
     }
-    inventory_.clear();
-    player_.setHeldItem(std::nullopt);
-    player_.removeArmor();
-    dead_ = true;
+    player.inventory().clear();
+    player.setHeldItem(std::nullopt);
+    player.removeArmor();
+    player.setWaitingToRespawn(true);
     events_.sound(Sound::Death);
-    events_.push({.kind = GameEvent::Kind::PlayerDied, .value = secondsPlayed()});
+    events_.push({.kind = GameEvent::Kind::PlayerDied, .value = secondsPlayed(), .player = player.id()});
 }
 
-void Simulation::respawn() {
+void Simulation::respawn(Player& player) {
+    // Back at the bed the player last slept in, or the surface spawn point, with full stats.
     int index = World::kSurfaceIndex;
     Vec2 spawn = surfaceSpawn();
-    if (spawnLevel_ >= 0) {
-        index = spawnLevel_;
-        spawn = spawnPoint_;
+    if (player.spawnLevel() >= 0) {
+        index = player.spawnLevel();
+        spawn = player.spawnPoint();
     }
-    changeLevel(index, false);
-    player_.setPosition(spawn.x, spawn.y);
-    player_.refillStats();
-    onStairs_ = false;
-    dead_ = false;
+    player.setWaitingToRespawn(false);
+    changeLevel(player, index, false);
+    player.setPosition(spawn.x, spawn.y);
+    player.refillStats();
+    player.setOnStairs(false);
 }
 
-void Simulation::changeLevel(int index, bool viaStairs) {
-    if (index == world_.currentIndex() || index < 0 || index >= World::kLevelCount) return;
-    world_.setCurrent(index);
-    if (level().isSky()) world_.spawnBoss(rng_);
-    onStairs_ = viaStairs;
-    events_.push({.kind = GameEvent::Kind::LevelChanged, .value = index, .flag = viaStairs});
-    events_.notify(level().name());
+void Simulation::changeLevel(Player& player, int index, bool viaStairs) {
+    if (index == player.level() || index < 0 || index >= World::kLevelCount) return;
+    player.setLevel(index);
+    player.setOnStairs(viaStairs);
+    if (world_.level(index).isSky()) world_.spawnBoss(rng_);
+    events_.setContext(index, player.id());
+    events_.push({.kind = GameEvent::Kind::LevelChanged, .value = index, .flag = viaStairs, .player = player.id()});
+    events_.notify(world_.level(index).name());
 }
 
-std::vector<Light> Simulation::lights() const {
-    std::vector<Light> lights = level().furniture.lights();
-    const Vec2 p = player_.center();
-    lights.push_back({p.x - 1.0f, p.y - 4.0f, player_.lightRadius()});
-    const TileMap& map = level().map;
-    const int px = collision::tileIndex(p.x);
-    const int py = collision::tileIndex(p.y);
-    for (int ty = py - kLightScanTiles; ty <= py + kLightScanTiles; ++ty) {
-        for (int tx = px - kLightScanTiles; tx <= px + kLightScanTiles; ++tx) {
-            if (!map.inBounds(tx, ty)) continue;
-            const Tile tile = map.tileAt(tx, ty);
-            // TorchTile: 5, LavaTile: 6 (x 8 px), centred on the tile.
-            const int radius = tile == Tile::Torch ? 5 : tile == Tile::Lava ? 6 : 0;
-            if (radius == 0) continue;
-            lights.push_back({static_cast<float>(tx * TileMap::kTileSize + 8),
-                              static_cast<float>(ty * TileMap::kTileSize + 8), static_cast<float>(radius * 8)});
+// ---------------------------------------------------------------------------------------------------------------
+// Light and the state hash
+
+std::vector<Light> Simulation::lights(int level) const {
+    std::vector<Light> lights = world_.level(level).furniture.lights();
+    const TileMap& map = world_.level(level).map;
+    for (const Player* player : playersOn(level)) {
+        const Vec2 p = player->center();
+        lights.push_back({p.x - 1.0f, p.y - 4.0f, player->lightRadius()});
+        const int px = collision::tileIndex(p.x);
+        const int py = collision::tileIndex(p.y);
+        for (int ty = py - kLightScanTiles; ty <= py + kLightScanTiles; ++ty) {
+            for (int tx = px - kLightScanTiles; tx <= px + kLightScanTiles; ++tx) {
+                if (!map.inBounds(tx, ty)) continue;
+                const Tile tile = map.tileAt(tx, ty);
+                // TorchTile: 5, LavaTile: 6 (x 8 px), centred on the tile.
+                const int radius = tile == Tile::Torch ? 5 : tile == Tile::Lava ? 6 : 0;
+                if (radius == 0) continue;
+                lights.push_back({static_cast<float>(tx * TileMap::kTileSize + 8),
+                                  static_cast<float>(ty * TileMap::kTileSize + 8), static_cast<float>(radius * 8)});
+            }
         }
     }
     return lights;
@@ -296,21 +415,24 @@ std::vector<Light> Simulation::lights() const {
 
 std::uint64_t Simulation::stateHash() const {
     Hasher h;
-    const Rect p = player_.bounds();
-    h.value(p.x);
-    h.value(p.y);
-    h.value(player_.health());
-    h.value(player_.energy());
-    h.value(player_.hunger());
-    h.value(player_.armorPoints());
-    for (const auto& stack : inventory_.stacks()) {
-        h.value(static_cast<int>(stack.type));
-        h.value(stack.count);
-        h.value(stack.durability);
-    }
+    h.value(tick_);
     h.value(dayNight_.tick());
-    h.value(world_.currentIndex());
-    h.value(ticksPlayed_);
+    for (const auto& player : players_) {
+        const Rect p = player->bounds();
+        h.value(player->id());
+        h.value(player->level());
+        h.value(p.x);
+        h.value(p.y);
+        h.value(player->health());
+        h.value(player->energy());
+        h.value(player->hunger());
+        h.value(player->armorPoints());
+        for (const auto& stack : player->inventory().stacks()) {
+            h.value(static_cast<int>(stack.type));
+            h.value(stack.count);
+            h.value(stack.durability);
+        }
+    }
     for (int i = 0; i < World::kLevelCount; ++i) {
         const Level& level = world_.level(i);
         const auto& tiles = level.map.tiles();

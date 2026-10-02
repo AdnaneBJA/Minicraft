@@ -25,7 +25,7 @@ public:
     // What the mobs act on during an update.
     struct Context {
         TileMap& map;
-        Player& player;
+        std::span<Player* const> players;  // the living players on this level
         Events& events;
         Random& rng;
         DroppedItems& drops;

@@ -68,7 +68,7 @@ void Mobs::tick(const Context& context, const SpawnRules& rules) {
     const Mob::Blocked blocked = [&](const Rect& box, const Mob* self) {
         return occupied(box, self, context.obstacles);
     };
-    const Mob::World world{context.map, context.player, context.events, context.rng, context.projectiles, blocked};
+    const Mob::World world{context.map, context.players, context.events, context.rng, context.projectiles, blocked};
     for (std::size_t i = 0; i < mobs_.size(); ++i) {
         mobs_[i]->tick(world);
         if (mobs_[i]->kind() == MobKind::Creeper) {
@@ -80,8 +80,7 @@ void Mobs::tick(const Context& context, const SpawnRules& rules) {
         }
     }
 
-    // Dead mobs drop their loot; mobs far from the player despawn (surface enemies sooner during the day).
-    const Vec2 p = context.player.center();
+    // Dead mobs drop their loot; mobs far from every player despawn (surface enemies sooner during the day).
     std::erase_if(mobs_, [&](const std::unique_ptr<Mob>& mob) {
         if (mob->isDead()) {
             mob->dropLoot(context.drops, context.rng);
@@ -93,7 +92,9 @@ void Mobs::tick(const Context& context, const SpawnRules& rules) {
         }
         if (mob->kind() == MobKind::AirWizard) return false;  // the boss never leaves
         const Vec2 c = mob->center();
-        const float distance = std::hypot(c.x - p.x, c.y - p.y);
+        const Player* nearest = world.nearestPlayer(c);
+        if (!nearest) return false;
+        const float distance = std::hypot(c.x - nearest->center().x, c.y - nearest->center().y);
         if (distance > kDespawnDistance) return true;
         return rules.depth == 0 && isEnemy(mob->kind()) && !rules.night && distance > kDaytimeDespawnDistance;
     });
@@ -102,7 +103,10 @@ void Mobs::tick(const Context& context, const SpawnRules& rules) {
 }
 
 void Mobs::trySpawn(const Context& context, const SpawnRules& rules) {
-    const Vec2 p = context.player.center();
+    if (context.players.empty()) return;
+    // New mobs appear around one of the players on the level.
+    const int chosen = context.rng.nextInt(static_cast<int>(context.players.size()));
+    const Vec2 p = context.players[static_cast<std::size_t>(chosen)]->center();
     // Level.trySpawn: enemies at night on the surface, and anytime in the caves and the sky.
     const bool enemiesNow = rules.depth != 0 || rules.night;
     if (enemySpawning && enemiesNow && ++enemySpawnTimer_ >= kEnemySpawnTicks) {
@@ -154,9 +158,11 @@ void Mobs::explode(const Creeper& creeper, const Context& context) {
     };
     const int radius = creeper.level();
     const float reach = static_cast<float>((radius + 1) * TileMap::kTileSize);
-    const Vec2 p = context.player.center();
-    if (std::hypot(p.x - c.x, p.y - c.y) < reach) {
-        context.player.takeHit(blastAt(p), p.x < c.x ? -1 : 1, 0, context.events);
+    for (Player* player : context.players) {
+        const Vec2 p = player->center();
+        if (std::hypot(p.x - c.x, p.y - c.y) < reach) {
+            player->takeHit(blastAt(p), p.x < c.x ? -1 : 1, 0, context.events);
+        }
     }
     for (auto& mob : mobs_) {
         if (mob.get() == &creeper) continue;

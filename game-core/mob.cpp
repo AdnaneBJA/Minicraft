@@ -56,6 +56,20 @@ bool isEnemy(MobKind kind) { return kind != MobKind::Cow && kind != MobKind::Pig
 // ---------------------------------------------------------------------------------------------------------------
 // Mob
 
+Player* Mob::World::nearestPlayer(Vec2 from) const {
+    Player* nearest = nullptr;
+    float best = 0.0f;
+    for (Player* player : players) {
+        const Vec2 c = player->center();
+        const float distance = (c.x - from.x) * (c.x - from.x) + (c.y - from.y) * (c.y - from.y);
+        if (!nearest || distance < best) {
+            nearest = player;
+            best = distance;
+        }
+    }
+    return nearest;
+}
+
 Mob::Mob(MobKind kind, float x, float y, int level, int maxHealth, int ticksPerStep, int randomWalkTicks,
          int randomWalkChance)
     : randomWalkTicks_(randomWalkTicks),
@@ -94,9 +108,8 @@ bool Mob::move(float dx, float dy, const World& world, bool changeDirection) {
         }
         return world.map.blocksMobsAt(tx, ty);
     };
-    const Rect playerBox = world.player.hitbox();
     bool moved = false;
-    // Like Entity.move: each axis separately, stopped by tiles, other mobs, furniture and the player.
+    // Like Entity.move: each axis separately, stopped by tiles, other mobs, furniture and players.
     const auto tryAxis = [&](float delta, bool horizontal) {
         if (delta == 0.0f) return;
         Rect box = hitbox();
@@ -104,9 +117,11 @@ bool Mob::move(float dx, float dy, const World& world, bool changeDirection) {
                                          : collision::allowedMoveY(box, delta, solid);
         if (allowed == 0.0f) return;
         (horizontal ? box.x : box.y) += allowed;
-        if (intersects(box, playerBox)) {
-            touchPlayer(world.player, world.events);
-            return;
+        for (Player* player : world.players) {
+            if (intersects(box, player->hitbox())) {
+                touchPlayer(*player, world.events);
+                return;
+            }
         }
         if (world.blocked(box, this)) return;
         (horizontal ? x_ : y_) += allowed;
@@ -167,10 +182,13 @@ bool Mob::hitPlayer(Player& player, int damage, Events& events) const {
 }
 
 void Mob::chasePlayer(const World& world, int distance) {
-    // EnemyMob.tick: unless on a random walk, head for the player when within detectDist, else maybe wander.
+    // EnemyMob.tick: unless on a random walk, head for the nearest player when within detectDist, else maybe
+    // wander.
     if (randomWalkTime_ > 0) return;
     const Vec2 me = center();
-    const Vec2 them = world.player.center();
+    const Player* target = world.nearestPlayer(me);
+    if (!target) return;
+    const Vec2 them = target->center();
     const int xd = static_cast<int>(them.x) - static_cast<int>(me.x);
     const int yd = static_cast<int>(them.y) - static_cast<int>(me.y);
     if (xd * xd + yd * yd < distance * distance) {
@@ -236,11 +254,13 @@ void Skeleton::think(const World& world) {
     // Skeleton.tick: count down while the player is around, and shoot when within 100 px.
     --arrowTimer_;
     const Vec2 me = center();
-    const Vec2 them = world.player.center();
+    const Player* target = world.nearestPlayer(me);
+    if (!target) return;
+    const Vec2 them = target->center();
     const float xd = them.x - me.x;
     const float yd = them.y - me.y;
     if (xd * xd + yd * yd < 100.0f * 100.0f && arrowTimer_ < 1) {
-        world.projectiles.shootArrow(me.x, me.y, facing(), level(), false);
+        world.projectiles.shootArrow(me.x, me.y, facing(), level(), -1);
         arrowTimer_ = arrowDelay_;
     }
 }
@@ -299,8 +319,9 @@ void Creeper::think(const World& world) {
         moveX_ = 0;
         moveY_ = 0;
         const Vec2 me = center();
-        const Vec2 them = world.player.center();
-        if (std::abs(them.x - me.x) < kTriggerRadius && std::abs(them.y - me.y) < kTriggerRadius) {
+        const Player* target = world.nearestPlayer(me);
+        if (target && std::abs(target->center().x - me.x) < kTriggerRadius &&
+            std::abs(target->center().y - me.y) < kTriggerRadius) {
             exploding_ = true;  // Mobs runs the blast and removes the creeper
         } else {
             fuseLit_ = false;  // the player got away: calm down
@@ -386,7 +407,9 @@ void AirWizard::think(const World& world) {
     }
     if (randomWalkTime_ != 0) return;
     const Vec2 me = center();
-    const Vec2 them = world.player.center();
+    const Player* target = world.nearestPlayer(me);
+    if (!target) return;
+    const Vec2 them = target->center();
     float xd = them.x - me.x;
     float yd = them.y - me.y;
     constexpr float kTooClose = 32.0f;       // 2 tiles: back away

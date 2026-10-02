@@ -57,7 +57,13 @@ void PlayerActions::attack(Inventory::Stack* tool) {
     const int mobDamage = rng_.nextInt(2) + 1;
     const ToolInfo info = tool ? toolInfo(tool->type) : ToolInfo{};
     const int bonus = tool && tool->durability > 0 ? toolMobBonus(info, rng_) : 0;
-    const bool hitMob = level_.mobs.hit(player_.attackBox(), mobDamage + bonus, player_.facing(), events_);
+    const Rect reach = player_.attackBox();
+    bool hitMob = level_.mobs.hit(reach, mobDamage + bonus, player_.facing(), events_);
+    // PvP: other players in reach take the same hit, knocked back the way the attacker faces.
+    for (Player* other : others_) {
+        if (!intersects(reach, other->hitbox())) continue;
+        if (other->takeHit(mobDamage + bonus, player_.facing().x, player_.facing().y, events_)) hitMob = true;
+    }
     if (hitMob && bonus > 0) --tool->durability;
     const Point target = player_.interactionTile();
     TileMap& map = level_.map;
@@ -193,7 +199,7 @@ bool PlayerActions::shootBow(Inventory::Stack& bow) {
     if (!player_.tryPunch()) return false;
     inventory_.remove(ItemType::Arrow, 1);
     const Vec2 c = player_.center();
-    level_.projectiles.shootArrow(c.x, c.y - 2.0f, player_.facing(), toolInfo(bow.type).level, true);
+    level_.projectiles.shootArrow(c.x, c.y - 2.0f, player_.facing(), toolInfo(bow.type).level, player_.id());
     --bow.durability;
     return true;
 }
