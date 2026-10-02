@@ -1,14 +1,12 @@
 #pragma once
 
+#include "events.h"
+
 #include <SDL3/SDL.h>
 
 #include <array>
 #include <string>
 #include <vector>
-
-// Minicraft's sound effects (assets/audio/*.wav), referenced by ID.
-enum class Sound { BossDeath, Confirm, Craft, Death, Explode, Fuse, MonsterHurt, Pickup, PlayerHurt, Select };
-constexpr int kSoundCount = static_cast<int>(Sound::Select) + 1;
 
 // Plays the sound effects through SDL3 audio (Minicraft's Sound.play). Every sound has a few audio streams bound to
 // the playback device, so the same effect can overlap itself; the device mixes them. Muting and the volume apply

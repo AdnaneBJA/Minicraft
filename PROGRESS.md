@@ -28,6 +28,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Hit and menu sounds; no gem pickaxe hint while tired | 7917 |
 | 2026-10-01 | World map (Tab) | 8131 |
 | 2026-10-02 | Fixes: held item kept through the inventory, no walled-in stairs | 8172 |
+| 2026-10-02 | `game-core` extraction: deterministic simulation library + tests | 9116 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -334,5 +335,25 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     sky now gets the same small dirt room as stairs up (`World::linkStairs`), which also runs on load so older saves
     are fixed.
 
+- **2026-10-02: `game-core` extracted** (Phase 1 prerequisite for the server, bots and Python environment).
+  - **`game-core/`** is a static library (`game_core`, 4526 LOC) with the whole simulation: world generation, tiles,
+    items and recipes, player, mobs, furniture, drops, projectiles, day/night, and a new `Simulation` class holding
+    the rules that used to live in `main.cpp` (stairs, death and respawn, sleeping, crafting, chests, the held-Space
+    punch repeat). It has no SDL on its include path, so rendering, audio or file I/O can't creep in.
+  - **Deterministic:** a seeded `Random` (xoshiro128**) owned by the simulation replaces SDL's global random
+    numbers, and everything advances in fixed 60 Hz ticks: `Simulation::tick(PlayerInput)`. Same seed + same inputs
+    = same game; `Simulation::stateHash()` fingerprints the state (later useful to detect client/server desyncs).
+  - **Events instead of side effects:** the simulation records sounds, smash marks, damage numbers, notifications,
+    level changes, death and victory in `Simulation::events()`; the client plays them each frame.
+  - **Client** (`client/`): new `TileRenderer`, `SpriteRenderer` (player, mobs, furniture, drops, projectiles),
+    `Lighting` and `ItemIcons` hold all the drawing that was inside the game classes; `main.cpp` samples the keyboard
+    into a `PlayerInput`, ticks the simulation at 60 Hz and plays its events. Gameplay is unchanged.
+  - **Tests:** GoogleTest (`game_core_tests`, 478 LOC, 35 tests): determinism (same seed and inputs give the same
+    state hash, by day and at night; different seeds or one different keypress don't), world generation (stairs line
+    up on every level, ores, the boss, same seed same world) and the gameplay rules (mining, smelting, hard rock,
+    farming, saplings, liquids, torches, doors, bows, food and armour, hunger, the power glove, creepers, skeletons,
+    the Air Wizard, death chests). Seeded randomness made the old flaky creeper check deterministic.
+
 ## Next
-- Phase 1 leftovers: move the simulation into `game-core`, recipes/tiles/mobs as data, a WASM build.
+- Phase 1 leftovers: recipes/tiles/mobs as data (`assets/data/*.json`), a WASM build.
+- Phase 2: `net-common` UDP on Asio and a headless `server` running `Simulation` (milestone 1 of the networking plan).

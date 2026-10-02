@@ -4,6 +4,8 @@
 #include "player.h"
 #include "world.h"
 
+#include <SDL3/SDL.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>

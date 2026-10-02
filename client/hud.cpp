@@ -1,4 +1,5 @@
 #include "hud.h"
+#include "item_icons.h"
 
 #include "font.h"
 #include "player.h"

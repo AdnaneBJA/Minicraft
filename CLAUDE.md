@@ -65,41 +65,45 @@ Minicraft/
 ├── CLAUDE.md
 ├── README.md
 ├── PROGRESS.md        # after each task, record progress here so multiple agents can sync
-├── CMakeLists.txt     # single top-level CMake file; fetches SDL3 + Dear ImGui, copies assets/ next to the exe
+├── CMakeLists.txt     # single top-level CMake file; fetches SDL3, Dear ImGui and GoogleTest; builds game_core, Minicraft, game_core_tests
 ├── assets/
 │   ├── ASSETS.md      # source + license of every asset
 │   ├── audio/         # Minicraft+ sound effects (.wav)
 │   └── sprites/       # player, mob sheets (zombie, skeleton, slime, creeper, snake, air_wizard, cow, pig, sheep), tiles.png (atlas), hud.png, font.png, items.png, furniture.png, projectiles.png, inventory_counter.png, smash.png, title.png
-└── client/
-    ├── main.cpp       # Game class: window, loop, rendering; run the `Minicraft` target in CLion
-    ├── player.h/.cpp  # Player: sprite, movement, walk animation
-    ├── tile_map.h/.cpp  # TileMap: tiles + per-tile data, random tile ticks, tile rendering
-    ├── camera.h/.cpp  # Camera: follows the player, clamped to the map
-    ├── debug_overlay.h/.cpp  # F3 debug mode: outlines + ImGui panel
-    ├── effects.h/.cpp  # short-lived world effects (smash X, damage numbers)
-    ├── texture.h/.cpp  # shared PNG -> SDL texture loader
-    ├── font.h/.cpp     # Minicraft 8x8 bitmap font
-    ├── items.h/.cpp    # ItemType, Inventory, item icons
-    ├── bounce.h        # Minicraft toss/bounce motion (dropped items, damage numbers)
-    ├── dropped_items.h/.cpp  # items on the ground: physics, pickup, despawn
-    ├── hud.h/.cpp      # hearts, energy bolts, menu frame
-    ├── inventory_menu.h/.cpp  # inventory screen (E)
-    ├── recipe.h/.cpp   # Recipe: product + costs, crafted against an Inventory
-    ├── crafting_menu.h/.cpp  # crafting screen (Z): recipe list + Have/Cost boxes
-    ├── furniture.h/.cpp  # placed furniture (stations, chests, lanterns, beds, death chests)
-    ├── container_menu.h/.cpp  # chest screen (move stacks between a chest and the inventory)
-    ├── map_screen.h/.cpp  # Tab map of the current level: player, stairs, the way to the boss
-    ├── world.h/.cpp    # World: the 5 levels (sky, surface, 3 caves) and their stairs; Level = map + mobs + drops + furniture
-    ├── projectiles.h/.cpp  # arrows and the Air Wizard's sparks
+├── game-core/         # the simulation as a static library (`game_core`): no SDL, no rendering, no I/O, deterministic
+│   ├── simulation.h/.cpp  # Simulation: world + player + inventory + time; tick(PlayerInput) at 60 Hz; stairs, death, sleep, crafting, chests; stateHash()
+│   ├── events.h        # Sound IDs and GameEvents (sounds, smashes, damage numbers, notes, level change, death, victory) the client acts on
+│   ├── random.h/.cpp   # seeded xoshiro128** (no global randomness)
+│   ├── geometry.h      # Vec2, Point, Rect, intersects()
+│   ├── world.h/.cpp    # World: the 5 levels (sky, surface, 3 caves) and their stairs; Level = map + mobs + drops + furniture + projectiles
+│   ├── world_gen.h/.cpp  # original-Minicraft level generation: island surface, caves, sky
+│   ├── tile_map.h/.cpp  # TileMap: tiles + per-tile data, tile rules, random tile ticks
+│   ├── player.h/.cpp   # Player + PlayerInput: movement, energy, hunger, armour, hurt
+│   ├── player_actions.h/.cpp  # Space: punch, tools on tiles, bows, eating, armour, placing tiles/furniture, power glove
+│   ├── mob.h/.cpp      # Mob base + enemies (zombie, skeleton, slime, creeper, snake, Air Wizard) and animals
+│   ├── mobs.h/.cpp     # Mobs: one level's mobs: spawning by level/light, creeper blasts, the boss
+│   ├── items.h/.cpp    # ItemType, Inventory, tools, food, armour
+│   ├── recipe.h/.cpp   # Recipe: hand and station recipes
+│   ├── furniture.h/.cpp  # placed furniture (stations, chests, lanterns, beds, death chests)
+│   ├── dropped_items.h/.cpp  # items on the ground: physics, pickup, despawn
+│   ├── projectiles.h/.cpp  # arrows and the Air Wizard's sparks
+│   ├── day_night.h/.cpp  # day/night cycle; Light
+│   ├── collision.h, bounce.h  # tile collision; Minicraft's toss/bounce motion
+│   └── tests/          # GoogleTest: determinism, world generation, gameplay rules (`game_core_tests` target)
+└── client/             # the SDL3 game: window, input, menus, saves, sound, drawing (`Minicraft` target)
+    ├── main.cpp       # Game: runs the Simulation in fixed ticks, turns its events into sounds/effects/screens; run `Minicraft` in CLion
+    ├── tile_renderer.h/.cpp  # draws the tiles (connected borders, animated water/lava)
+    ├── sprite_renderer.h/.cpp  # draws the player, mobs, furniture, drops and projectiles (owns their sprite sheets)
+    ├── lighting.h/.cpp  # the darkness overlay with dithered light circles
+    ├── item_icons.h/.cpp  # 8x8 item icons
+    ├── effects.h/.cpp  # short-lived effects (smash X, damage numbers)
     ├── audio.h/.cpp    # SDL3 sound effects, mute and volume
-    ├── world_gen.h/.cpp  # original-Minicraft level generation: island surface, caves, sky
-    ├── day_night.h/.cpp  # day/night cycle and the night lighting overlay
-    ├── collision.h     # tile collision shared by the player and mobs
-    ├── mob.h/.cpp      # Mob base + enemies (zombie, skeleton, slime, creeper, snake, Air Wizard) and animals
-    ├── mobs.h/.cpp     # Mobs: one level's mobs: spawning by level/light, creeper blasts, the boss
-    ├── player_actions.h/.cpp  # Space: punch, tools on tiles, bows, eating, armour, placing tiles/furniture, power glove
+    ├── hud.h/.cpp      # hearts, energy, hunger, armour, boss bar, menu frame
+    ├── inventory_menu.h/.cpp, crafting_menu.h/.cpp, container_menu.h/.cpp, map_screen.h/.cpp  # E, Z, chest and Tab screens
     ├── game_menu.h/.cpp  # title, new/load world, options (sound), pause, death and victory screens
-    └── world_save.h/.cpp  # one binary save file per world (validated on load)
+    ├── world_save.h/.cpp  # one binary save file per world (validated on load)
+    ├── debug_overlay.h/.cpp  # F3 debug mode: outlines + ImGui panel
+    ├── camera.h/.cpp, font.h/.cpp, texture.h/.cpp
 ```
 
 **Target layout** (eventual destination; create each folder only when its phase starts):

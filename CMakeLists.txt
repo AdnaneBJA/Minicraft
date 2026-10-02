@@ -32,35 +32,63 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
+# The simulation, shared by the client (and later the server, the bots and the Python environment). No SDL, no
+# rendering, no I/O: it only links the standard library, so nothing platform-specific can creep in.
+add_library(game_core STATIC
+    game-core/random.cpp
+    game-core/items.cpp
+    game-core/recipe.cpp
+    game-core/tile_map.cpp
+    game-core/world_gen.cpp
+    game-core/day_night.cpp
+    game-core/dropped_items.cpp
+    game-core/furniture.cpp
+    game-core/mob.cpp
+    game-core/mobs.cpp
+    game-core/projectiles.cpp
+    game-core/player.cpp
+    game-core/player_actions.cpp
+    game-core/world.cpp
+    game-core/simulation.cpp)
+target_include_directories(game_core PUBLIC game-core)
+
+# Unit tests for the core rules (GoogleTest). Run the `game_core_tests` target, or `ctest` from the build folder.
+FetchContent_Declare(googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.15.2
+    GIT_SHALLOW TRUE)
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+enable_testing()
+add_executable(game_core_tests
+    game-core/tests/simulation_test.cpp
+    game-core/tests/world_test.cpp
+    game-core/tests/rules_test.cpp)
+target_link_libraries(game_core_tests PRIVATE game_core GTest::gtest_main)
+include(GoogleTest)
+gtest_discover_tests(game_core_tests)
+
 add_executable(Minicraft
     client/main.cpp
-    client/player.cpp
-    client/tile_map.cpp
+    client/tile_renderer.cpp
+    client/sprite_renderer.cpp
+    client/lighting.cpp
+    client/item_icons.cpp
     client/camera.cpp
     client/debug_overlay.cpp
     client/effects.cpp
     client/texture.cpp
     client/font.cpp
-    client/items.cpp
-    client/dropped_items.cpp
     client/hud.cpp
     client/inventory_menu.cpp
-    client/recipe.cpp
     client/crafting_menu.cpp
-    client/furniture.cpp
-    client/world_gen.cpp
-    client/mob.cpp
-    client/mobs.cpp
-    client/player_actions.cpp
-    client/day_night.cpp
+    client/container_menu.cpp
+    client/map_screen.cpp
     client/world_save.cpp
     client/game_menu.cpp
-    client/audio.cpp
-    client/world.cpp
-    client/projectiles.cpp
-    client/container_menu.cpp
-    client/map_screen.cpp)
-target_link_libraries(Minicraft PRIVATE SDL3::SDL3 imgui)
+    client/audio.cpp)
+target_link_libraries(Minicraft PRIVATE game_core SDL3::SDL3 imgui)
 
 # Copy assets next to the executable; the game finds them via SDL_GetBasePath().
 add_custom_command(TARGET Minicraft POST_BUILD
