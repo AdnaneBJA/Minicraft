@@ -12,6 +12,7 @@ namespace {
 constexpr float kSmashDuration = 10.0f / 60.0f;  // 10 ticks, like Minicraft's SmashParticle
 constexpr int kNumberLifetime = 60;               // ticks, like Minicraft's TextParticle
 constexpr float kTileSize = static_cast<float>(TileMap::kTileSize);
+constexpr float kTick = 1.0f / 60.0f;
 
 }  // namespace
 
@@ -24,8 +25,11 @@ void Effects::addSmash(int tx, int ty) {
     smashes_.push_back({static_cast<float>(tx) * kTileSize, static_cast<float>(ty) * kTileSize, kSmashDuration});
 }
 
-void Effects::addDamageNumber(int damage, float x, float y, SDL_Color color) {
-    numbers_.push_back({std::to_string(damage), Bounce::toss(x, y, 2.0f), 0, color});
+void Effects::addDamageNumber(int damage, float x, float y, NumberStyle style) {
+    SDL_Color color{255, 0, 0, 255};                                     // damage dealt
+    if (style == NumberStyle::PlayerDamage) color = {255, 0, 204, 255};  // Color.get(-1, 504)
+    if (style == NumberStyle::ArmorDamage) color = {153, 153, 153, 255};  // Color.GRAY
+    numbers_.push_back({std::to_string(damage), Bounce::toss(x, y, 2.0f, random_), 0, color});
 }
 
 void Effects::clear() {
@@ -40,8 +44,8 @@ void Effects::update(float dt) {
     std::erase_if(smashes_, [](const Smash& smash) { return smash.timeLeft <= 0.0f; });
 
     tickAccumulator_ += dt;
-    while (tickAccumulator_ >= Bounce::kTick) {
-        tickAccumulator_ -= Bounce::kTick;
+    while (tickAccumulator_ >= kTick) {
+        tickAccumulator_ -= kTick;
         for (DamageNumber& number : numbers_) {
             number.motion.tick();
             ++number.age;

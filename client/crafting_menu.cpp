@@ -3,7 +3,7 @@
 #include "audio.h"
 #include "font.h"
 #include "hud.h"
-#include "items.h"
+#include "item_icons.h"
 
 #include <algorithm>
 #include <cmath>

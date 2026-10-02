@@ -58,7 +58,7 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
         }
     }
 
-    const SDL_FRect bounds = player.bounds();
+    const Rect bounds = player.bounds();
     if (showTileUnderPlayer_) {
         const int tx = static_cast<int>((bounds.x + bounds.w / 2.0f) / tileSize);
         const int ty = static_cast<int>((bounds.y + bounds.h / 2.0f) / tileSize);
@@ -69,7 +69,7 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
     }
 
     if (showPunchTarget_) {
-        const SDL_Point target = player.interactionTile();
+        const Point target = player.interactionTile();
         const SDL_FRect targetRect{toScreenX(static_cast<float>(target.x) * tileSize),
                                    toScreenY(static_cast<float>(target.y) * tileSize), tileSize * scale,
                                    tileSize * scale};
@@ -86,7 +86,7 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
 
     if (showHitbox_) {
         // Same offset as the sprite so the box lines up with what is drawn.
-        const SDL_FRect hitbox = player.hitbox();
+        const Rect hitbox = player.hitbox();
         const float offsetX = camera.snap(bounds.x) - bounds.x;
         const float offsetY = camera.snap(bounds.y) - bounds.y;
         const SDL_FRect hitboxRect{toScreenX(hitbox.x + offsetX), toScreenY(hitbox.y + offsetY), hitbox.w * scale,
@@ -97,7 +97,7 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
 
     if (showHitbox_) {
         // Mob hitboxes, and the area the next punch reaches for mobs.
-        const auto worldRect = [&](const SDL_FRect& r) {
+        const auto worldRect = [&](const Rect& r) {
             return SDL_FRect{toScreenX(r.x), toScreenY(r.y), r.w * scale, r.h * scale};
         };
         SDL_SetRenderDrawColor(renderer, 255, 70, 200, 255);
@@ -139,7 +139,7 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
         ImGui::Checkbox("Info", &showInfo_);
 
         if (showInfo_) {
-            const SDL_FRect bounds = player.bounds();
+            const Rect bounds = player.bounds();
             const float centerX = bounds.x + bounds.w / 2.0f;
             const float centerY = bounds.y + bounds.h / 2.0f;
             const int tx = static_cast<int>(centerX) / TileMap::kTileSize;
@@ -148,7 +148,7 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
             ImGui::Text("FPS: %.0f", static_cast<double>(ImGui::GetIO().Framerate));
             ImGui::Text("Player: %.1f, %.1f px", static_cast<double>(bounds.x), static_cast<double>(bounds.y));
             ImGui::Text("Tile: %d, %d (%s)", tx, ty, map.inBounds(tx, ty) ? tileName(map.tileAt(tx, ty)) : "-");
-            const SDL_Point target = player.interactionTile();
+            const Point target = player.interactionTile();
             if (map.inBounds(target.x, target.y)) {
                 const Tile targetTile = map.tileAt(target.x, target.y);
                 if (maxHealth(targetTile) > 0) {

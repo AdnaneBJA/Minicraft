@@ -130,13 +130,13 @@ void MapScreen::draw(SDL_Renderer* renderer, const Hud& hud, const Font& font, c
     }
     const Mob* boss = level.mobs.boss();
     if (boss) {
-        const SDL_FPoint c = boss->center();
+        const Vec2 c = boss->center();
         const SDL_FPoint p = at(c.x / TileMap::kTileSize, c.y / TileMap::kTileSize);
         marker(renderer, kBossColor, p.x, p.y);
     }
     // The player blinks so they stand out from the stairs.
     const bool blinkOn = (SDL_GetTicks() / 300) % 2 == 0;
-    const SDL_FPoint c = player.center();
+    const Vec2 c = player.center();
     const SDL_FPoint p = at(c.x / TileMap::kTileSize, c.y / TileMap::kTileSize);
     if (blinkOn) marker(renderer, kPlayerColor, p.x, p.y);
 
