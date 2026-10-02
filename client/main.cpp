@@ -27,6 +27,7 @@
 #include <array>
 #include <cmath>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -169,6 +170,7 @@ private:
                 }
             }
             world_.airWizardBeaten = data->airWizardBeaten;
+            world_.linkStairs();  // older saves have stairs down walled in by rock
         } else {
             // A save from before the caves: generate the other levels and fit the stairs into the saved surface.
             world_.generate(data->seed);
@@ -336,13 +338,31 @@ private:
 
     // Opening a menu puts the held item back in the inventory, or drops it if there's no room (Minicraft's
     // tryAddToInvOrDrop).
-    void stowHeldItem() {
+    // tryAddToInvOrDrop). Returns the slot it went into, or nothing if there was no held item or it was dropped.
+    std::optional<int> stowHeldItem() {
         const auto held = player_.heldItem();
-        if (!held) return;
+        if (!held) return std::nullopt;
         player_.setHeldItem(std::nullopt);
         if (const int leftover = inventory_.add(*held); leftover > 0) {
             const SDL_FPoint middle = player_.center();
             level().drops.spawn(held->type, leftover, middle.x, middle.y, held->durability);
+            return std::nullopt;
+        }
+        // Stackable items merge into the stack of their type; tools go into a new last slot.
+        const auto& stacks = inventory_.stacks();
+        if (!isStackable(held->type)) return static_cast<int>(stacks.size()) - 1;
+        const auto it = std::find_if(stacks.begin(), stacks.end(), [&](const auto& s) { return s.type == held->type; });
+        return static_cast<int>(it - stacks.begin());
+    }
+
+    // Closing the inventory without choosing another item puts the item that was in hand back in hand.
+    void reequipStowedItem() {
+        const auto stowed = std::exchange(stowedHeld_, std::nullopt);
+        if (!stowed || player_.heldItem()) return;
+        const auto& stacks = inventory_.stacks();
+        if (stowed->slot < static_cast<int>(stacks.size()) &&
+            stacks[static_cast<std::size_t>(stowed->slot)].type == stowed->type) {
+            player_.setHeldItem(inventory_.take(stowed->slot));
         }
     }
 
@@ -365,11 +385,13 @@ private:
         craftingMenu_.close();
         containerMenu_.close();
         mapScreen_.close();
+        stowedHeld_.reset();
     }
 
     // The player leaving a screen: Minicraft plays the craft sound whenever a display exits (Game.exitDisplay).
     void exitMenus() {
         if (!menuOpen()) return;
+        if (inventoryMenu_.isOpen()) reequipStowedItem();
         closeMenus();
         audio_.play(Sound::Craft);
     }
@@ -512,6 +534,7 @@ private:
             }
             // Selecting a slot puts that whole stack in the player's hand and closes the inventory.
             if (const auto slot = inventoryMenu_.handleKey(key, inventory_)) {
+                stowedHeld_.reset();
                 player_.setHeldItem(inventory_.take(*slot));
                 exitMenus();
             }
@@ -519,7 +542,9 @@ private:
         }
         if (key == InventoryMenu::kToggleKey) {
             if (useFurniture()) return;
-            stowHeldItem();
+            // The held item shows in the inventory while it's open, and goes back in hand when it closes.
+            const ItemType heldType = player_.heldItem() ? player_.heldItem()->type : ItemType{};
+            if (const auto slot = stowHeldItem()) stowedHeld_ = StowedItem{*slot, heldType};
             inventoryMenu_.toggle();
             return;
         }
@@ -855,6 +880,12 @@ private:
     float fadeTimer_ = 0.0f;
     float fadeDuration_ = kFadeSeconds;
     bool onStairs_ = false;  // standing on stairs (stepping onto them takes them)
+    // Where the held item went when the inventory opened, to put it back in hand when the inventory closes.
+    struct StowedItem {
+        int slot;
+        ItemType type;
+    };
+    std::optional<StowedItem> stowedHeld_;
     int spawnLevel_ = -1;    // the bed the player respawns at (World index), or -1 for the surface spawn
     SDL_FPoint spawnPoint_{0.0f, 0.0f};
     std::vector<std::pair<std::string, float>> notes_;  // notifications and the seconds they have left

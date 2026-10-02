@@ -68,6 +68,15 @@ void World::linkStairs() {
                 } else if (below.tileAt(x, y) == Tile::StairsUp && above.tileAt(x, y) != Tile::StairsDown) {
                     above.setTile(x, y, Tile::StairsDown);
                 }
+                // Stairs down are cut into solid rock; climbing up onto them from below would leave the player
+                // walled in, so they get a dirt room too (not in the sky, whose stairs already sit on clouds).
+                if (i - 1 != kSkyIndex && above.tileAt(x, y) == Tile::StairsDown) {
+                    for (int yy = y - 1; yy <= y + 1; ++yy) {
+                        for (int xx = x - 1; xx <= x + 1; ++xx) {
+                            if (above.tileAt(xx, yy) == Tile::Rock) above.setTile(xx, yy, Tile::Dirt);
+                        }
+                    }
+                }
             }
         }
     }

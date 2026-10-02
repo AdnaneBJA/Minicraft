@@ -27,6 +27,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | Gameplay loop: caves, sky, boss, audio, stations, farming, saves v3 | 7880 |
 | 2026-10-01 | Hit and menu sounds; no gem pickaxe hint while tired | 7917 |
 | 2026-10-01 | World map (Tab) | 8131 |
+| 2026-10-02 | Fixes: held item kept through the inventory, no walled-in stairs | 8172 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -325,6 +326,13 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
   (shrunk to fit the view), with markers: the player (blinking), stairs down, and on the surface the stairs up to the
   sky where the Air Wizard waits (stairs up in the caves; the Air Wizard himself in the sky), plus a legend. Tab or
   Esc closes it; the world keeps running behind it like the other screens.
+
+- **2026-10-02: Fixes.**
+  - Opening the inventory no longer unequips the held item: it shows in the list while the inventory is open and
+    goes back in hand on close (unless another item was picked).
+  - Taking stairs up out of a cave no longer lands the player in a pocket of solid rock: every stairs down below the
+    sky now gets the same small dirt room as stairs up (`World::linkStairs`), which also runs on load so older saves
+    are fixed.
 
 ## Next
 - Phase 1 leftovers: move the simulation into `game-core`, recipes/tiles/mobs as data, a WASM build.

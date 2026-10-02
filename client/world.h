@@ -57,7 +57,8 @@ public:
     void restoreLevel(int index, std::uint32_t seed, std::vector<Tile> tiles, std::vector<std::uint8_t> data);
     // Makes the stairs match up between neighbouring levels (Level's stair check): stairs down above become stairs
     // up below with a room around them (hard rock under the sky, dirt in the caves), and stairs up below get stairs
-    // down above. Used after generating, and to fit older saves that had no caves.
+    // down above. Stairs down (below the sky) get a dirt room too, so arriving on them from below never walls the
+    // player in. Used after generating and after loading a save.
     void linkStairs();
     // Puts the Air Wizard in the middle of the sky if it hasn't been beaten and isn't there.
     void spawnBoss();
