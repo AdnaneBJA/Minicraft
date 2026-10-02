@@ -2,13 +2,14 @@
 
 #include "geometry.h"
 #include "items.h"
+#include "player.h"
 #include "tile_map.h"
 
 #include <optional>
+#include <span>
 
 class Events;
 class Level;
-class Player;
 class Random;
 
 // What a swing or a use does (Minicraft's Player.attack / Item.interactOn): punching bare-handed, swinging a tool
@@ -17,8 +18,10 @@ class Random;
 // own; what the player should see or hear goes into the events.
 class PlayerActions {
 public:
-    PlayerActions(Level& level, Player& player, Inventory& inventory, Events& events, Random& rng)
-        : level_(level), player_(player), inventory_(inventory), events_(events), rng_(rng) {}
+    // `others`: the other living players on the same level, who punches, tools and arrows can hit (PvP).
+    PlayerActions(Level& level, Player& player, std::span<Player* const> others, Events& events, Random& rng)
+        : level_(level), player_(player), inventory_(player.inventory()), others_(others), events_(events),
+          rng_(rng) {}
 
     // Space: punch with an empty hand, otherwise use or swing the held item.
     void useOrPunch();
@@ -44,6 +47,7 @@ private:
     Level& level_;
     Player& player_;
     Inventory& inventory_;
+    std::span<Player* const> others_;
     Events& events_;
     Random& rng_;
 };

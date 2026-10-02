@@ -26,8 +26,9 @@ std::vector<PlayerInput> script(int ticks) {
 std::uint64_t play(std::uint32_t seed, const std::vector<PlayerInput>& inputs, int night = 0) {
     Simulation sim;
     sim.startNewWorld(seed);
+    sim.addPlayer(0, "Paul");
     if (night) sim.dayNight().setTime(DayNight::Time::Night);  // zombies, skeletons, creepers...
-    for (const PlayerInput& input : inputs) sim.tick(input);
+    for (const PlayerInput& input : inputs) sim.tick({.tick = sim.tickCount() + 1, .turns = {{0, input, {}}}});
     return sim.stateHash();
 }
 
@@ -59,15 +60,19 @@ TEST(Simulation, TicksAdvanceTheClockAndTimePlayed) {
     Simulation sim;
     sim.startNewWorld(3);
     const int start = sim.dayNight().tick();
-    for (int i = 0; i < Simulation::kTicksPerSecond * 2; ++i) sim.tick({});
+    for (int i = 0; i < Simulation::kTicksPerSecond * 2; ++i) sim.tick({});  // nobody playing: time still passes
     EXPECT_EQ(sim.dayNight().tick(), start + 120);
     EXPECT_EQ(sim.secondsPlayed(), 2);
 }
 
-TEST(Simulation, NewWorldStartsWithThePowerGloveOnTheSurface) {
+TEST(Simulation, PlayersStartOnTheSurfaceWithThePowerGlove) {
     Simulation sim;
     sim.startNewWorld(5);
-    EXPECT_EQ(sim.world().currentIndex(), World::kSurfaceIndex);
-    EXPECT_EQ(sim.inventory().count(ItemType::PowerGlove), 1);
-    EXPECT_EQ(sim.player().health(), Player::kMaxHealth);
+    sim.tick({.tick = 1, .turns = {{7, {}, {PlayerCommand::join("Alice")}}}});
+    const Player* alice = sim.findPlayer(7);
+    ASSERT_NE(alice, nullptr);
+    EXPECT_EQ(alice->name(), "Alice");
+    EXPECT_EQ(alice->level(), World::kSurfaceIndex);
+    EXPECT_EQ(alice->inventory().count(ItemType::PowerGlove), 1);
+    EXPECT_EQ(alice->health(), Player::kMaxHealth);
 }

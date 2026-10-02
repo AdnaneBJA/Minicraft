@@ -37,7 +37,6 @@ void World::generate(std::uint32_t seed, Random& rng) {
     }
     linkStairs();
     airWizardBeaten = false;
-    currentIndex_ = kSurfaceIndex;
     spawnBoss(rng);
 }
 
@@ -84,11 +83,6 @@ void World::spawnBoss(Random& rng) {
     for (int radius = 0; radius < kSize / 2; radius += 2) {
         if (sky.mobs.spawnNear(MobKind::AirWizard, 1, sky.map, {}, middle, middle, radius, radius, rng)) return;
     }
-}
-
-void World::setCurrent(int index) {
-    current().projectiles.clear();
-    currentIndex_ = index;
 }
 
 void World::clearEntities() {

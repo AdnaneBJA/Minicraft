@@ -12,18 +12,19 @@ constexpr int kSoundCount = static_cast<int>(Sound::Select) + 1;
 // (grey).
 enum class NumberStyle { Damage, PlayerDamage, ArmorDamage };
 
-// Something the simulation wants the player to see or hear. The simulation never plays sounds or draws; it records
-// events during a tick and the client (or, later, the server sending them to clients) acts on them.
+// Something the simulation wants a player to see or hear. The simulation never plays sounds or draws; it records
+// events during a tick and each client acts on the ones that concern its own player: everything that happens on
+// the level they're on, and the personal events addressed to them.
 struct GameEvent {
     enum class Kind {
         Sound,         // `sound`
         Smash,         // the smash X over tile (tileX, tileY)
         Number,        // `value` popping out of (x, y), drawn in `style`
         Notification,  // `text`
-        LevelChanged,  // the player is now on World level `value` (viaStairs: `flag`)
-        Slept,         // slept until morning
-        PlayerDied,
-        BossDefeated,
+        LevelChanged,  // `player` is now on World level `value` (viaStairs: `flag`)
+        Slept,         // `player` slept (until morning in single-player)
+        PlayerDied,    // `player` died (`value`: seconds played)
+        BossDefeated,  // the Air Wizard is dead: everyone has won
     };
     Kind kind;
     Sound sound = Sound::Select;
@@ -35,18 +36,32 @@ struct GameEvent {
     int value = 0;
     bool flag = false;
     std::string text;
+    int level = 0;    // the World level it happened on
+    int player = -1;  // the player it's for; -1 = everyone on that level
 };
 
-// The events recorded since the client last took them.
+// The events recorded since the client last took them. While the simulation works on one level (or one player's
+// actions) it sets the context, and every event recorded meanwhile is stamped with it.
 class Events {
 public:
+    void setContext(int level, int player) {
+        level_ = level;
+        player_ = player;
+    }
+
     void sound(Sound sound) { push({.kind = GameEvent::Kind::Sound, .sound = sound}); }
     void smash(int tileX, int tileY) { push({.kind = GameEvent::Kind::Smash, .tileX = tileX, .tileY = tileY}); }
     void number(int value, float x, float y, NumberStyle style = NumberStyle::Damage) {
         push({.kind = GameEvent::Kind::Number, .style = style, .x = x, .y = y, .value = value});
     }
-    void notify(std::string text) { push({.kind = GameEvent::Kind::Notification, .text = std::move(text)}); }
-    void push(GameEvent event) { events_.push_back(std::move(event)); }
+    // A note for the player in the context (or everyone on the level, if none).
+    void notify(std::string text) {
+        push({.kind = GameEvent::Kind::Notification, .text = std::move(text), .player = player_});
+    }
+    void push(GameEvent event) {
+        event.level = level_;
+        events_.push_back(std::move(event));
+    }
 
     // Hands over everything recorded so far and starts a new list.
     std::vector<GameEvent> take() { return std::exchange(events_, {}); }
@@ -54,4 +69,6 @@ public:
 
 private:
     std::vector<GameEvent> events_;
+    int level_ = 0;
+    int player_ = -1;
 };

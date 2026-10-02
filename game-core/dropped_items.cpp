@@ -1,5 +1,6 @@
 #include "dropped_items.h"
 
+#include "player.h"
 #include "random.h"
 #include "tile_map.h"
 
@@ -33,7 +34,7 @@ void DroppedItems::spawn(ItemType type, int count, float centerX, float centerY,
     }
 }
 
-int DroppedItems::tick(const TileMap& map, const Rect& pickupBox, Inventory& inventory) {
+int DroppedItems::tick(const TileMap& map, std::span<Player* const> players) {
     int pickedUp = 0;
     for (Item& item : items_) {
         ++item.age;
@@ -49,10 +50,13 @@ int DroppedItems::tick(const TileMap& map, const Rect& pickupBox, Inventory& inv
         if (item.age >= item.lifetime) return true;
         if (item.age <= kPickupDelay) return false;
         const Rect box{item.motion.x - kRadius, item.motion.y - kRadius, kRadius * 2.0f, kRadius * 2.0f};
-        if (intersects(box, pickupBox) && inventory.canAdd(item.type)) {
-            inventory.add(Inventory::Stack{item.type, 1, item.durability});
-            ++pickedUp;
-            return true;
+        for (Player* player : players) {
+            Inventory& inventory = player->inventory();
+            if (intersects(box, player->hitbox()) && inventory.canAdd(item.type)) {
+                inventory.add(Inventory::Stack{item.type, 1, item.durability});
+                ++pickedUp;
+                return true;
+            }
         }
         return false;
     });

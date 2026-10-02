@@ -62,11 +62,6 @@ public:
 
     Level& level(int index) { return levels_[static_cast<std::size_t>(index)]; }
     const Level& level(int index) const { return levels_[static_cast<std::size_t>(index)]; }
-    Level& current() { return level(currentIndex_); }
-    const Level& current() const { return level(currentIndex_); }
-    int currentIndex() const { return currentIndex_; }
-    // Moves the player's view to another level (they keep their position).
-    void setCurrent(int index);
     std::uint32_t seed() const { return seed_; }
     void clearEntities();
 
@@ -74,6 +69,5 @@ public:
 
 private:
     std::array<Level, kLevelCount> levels_;
-    int currentIndex_ = kSurfaceIndex;
     std::uint32_t seed_ = 0;
 };

@@ -29,6 +29,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-01 | World map (Tab) | 8131 |
 | 2026-10-02 | Fixes: held item kept through the inventory, no walled-in stairs | 8172 |
 | 2026-10-02 | `game-core` extraction: deterministic simulation library + tests | 9116 |
+| 2026-10-02 | Multiplayer over ENet: server, lobbies, chat, PvP | 11061 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -354,6 +355,32 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     farming, saplings, liquids, torches, doors, bows, food and armour, hunger, the power glove, creepers, skeletons,
     the Air Wizard, death chests). Seeded randomness made the old flaky creeper check deterministic.
 
+- **2026-10-02: Multiplayer over ENet** (`minicraft-server`, `net-common/`, see
+  `docs/adr/0001-multiplayer-lockstep-over-enet.md`).
+  - **How it works:** lockstep through a relay. The server runs no game; per lobby, 60 times a second, it gathers
+    every player's held keys and one-off commands into a `TickInput` and sends it to everyone in the lobby. Every
+    client runs the same deterministic `Simulation` on the same ticks, so they all compute the same world.
+  - **Server** (`server/`): ENet host on port 7777; `Hello` (name) -> lobby list; create or join a lobby; each
+    `Lobby` keeps its tick history so a player joining a running world replays it (about 11k ticks/s in Debug);
+    chat relayed to the lobby with join/leave notes; clients report `stateHash()` every 60 ticks and the first
+    mismatch is announced ("Desync detected at tick N!").
+  - **Core:** the simulation now holds many `Player`s (each with an id, name, inventory, level and respawn point).
+    Joining, leaving, crafting, chest transfers, holding/stowing items, beds and respawning are `PlayerCommand`s
+    inside ticks. Every level with a living player is simulated; mobs chase the nearest player; drops go to
+    whoever touches them; events carry their level and, for personal ones, the player they're for. **PvP:**
+    punches and tools hit other players in reach, and arrows hit everyone but their shooter. In multiplayer a bed
+    only sets the respawn point (no night skip).
+  - **Client:** Title -> Multiplayer (name + server address) -> lobby list ("Create new world" or join one). Other
+    players are drawn with name tags; Enter opens the chat; the world never pauses online (Esc opens a Menu with
+    Leave Game; death and victory screens don't stop it); the debug panel only looks. Single-player runs through
+    the same tick path (the game makes its own ticks).
+  - **Tests:** 41 (new: players joining/leaving, punch and arrow PvP, several levels at once, beds, and lockstep:
+    two simulations fed the same 2400 ticks stay identical and a late joiner replaying them matches). End to end:
+    a real server with three headless bots (one joining late) walking, punching, sending commands and chatting
+    ends with identical state hashes; a deliberately altered world is reported as a desync.
+  - Not yet: client-side prediction (input lag = one round trip), saving multiplayer worlds, reconnecting to your
+    old character, snapshot-based joins (history grows with the lobby's age).
+
 ## Next
 - Phase 1 leftovers: recipes/tiles/mobs as data (`assets/data/*.json`), a WASM build.
-- Phase 2: `net-common` UDP on Asio and a headless `server` running `Simulation` (milestone 1 of the networking plan).
+- Multiplayer polish: client-side prediction, saving lobby worlds, snapshot joins, reconnecting.

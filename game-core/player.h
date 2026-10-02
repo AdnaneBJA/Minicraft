@@ -2,22 +2,17 @@
 
 #include "geometry.h"
 #include "items.h"
+#include "tick_input.h"
 
 #include <optional>
 #include <span>
+#include <string>
 
 class Events;
 class TileMap;
 
-// What the player asks for during one tick: the client fills it from the keyboard; later, the server receives it
-// from each client.
-struct PlayerInput {
-    int moveX = 0;               // -1, 0, 1
-    int moveY = 0;
-    bool attack = false;         // Space held
-    bool attackPressed = false;  // Space went down since the last tick
-};
-
+// One player in the world: who they are, their body (position, health, energy, hunger, armour), what they carry,
+// and which level they're on. In multiplayer every player is one of these, in every client's simulation.
 class Player {
 public:
     enum class Direction { Down, Up, Left, Right };
@@ -32,6 +27,35 @@ public:
     static constexpr int kMaxHunger = 10;
     static constexpr int kMaxArmor = 100;
     static constexpr float kLightRadius = 40.0f;  // Player.getLightRadius: 5 (x 8 px)
+
+    Player(int id, std::string name) : id_(id), name_(std::move(name)) {}
+
+    int id() const { return id_; }
+    const std::string& name() const { return name_; }
+    Inventory& inventory() { return inventory_; }
+    const Inventory& inventory() const { return inventory_; }
+
+    // The World level the player is on (World::kSurfaceIndex to start with).
+    int level() const { return level_; }
+    void setLevel(int level) { level_ = level; }
+    // Where they respawn: the bed they last slept in (a level and a position), or level -1 for the surface spawn.
+    int spawnLevel() const { return spawnLevel_; }
+    Vec2 spawnPoint() const { return spawnPoint_; }
+    void setSpawn(int level, Vec2 point) {
+        spawnLevel_ = level;
+        spawnPoint_ = point;
+    }
+    // Standing on stairs: stepping onto them takes them, but arriving on stairs doesn't take them straight back.
+    bool onStairs() const { return onStairs_; }
+    void setOnStairs(bool onStairs) { onStairs_ = onStairs; }
+    // Dead and waiting for the Respawn command (the simulation leaves them alone meanwhile).
+    bool waitingToRespawn() const { return waitingToRespawn_; }
+    void setWaitingToRespawn(bool waiting) { waitingToRespawn_ = waiting; }
+    // Held Space: ticks until the next automatic punch.
+    int punchRepeatTicks() const { return punchRepeatTicks_; }
+    void setPunchRepeatTicks(int ticks) { punchRepeatTicks_ = ticks; }
+    // Where the held item went when a menu opened (slot and type), to put it back in hand when the menu closes.
+    std::optional<std::pair<int, ItemType>> stowedSlot;
 
     void setPosition(float x, float y);
     // One 60 Hz tick: stats (energy, hunger, drowning, lava), knockback, then a step in the input's direction.
@@ -107,6 +131,16 @@ public:
     int ticks() const { return ticks_; }                         // drives the swimming ripple
 
 private:
+    int id_;
+    std::string name_;
+    Inventory inventory_;
+    int level_ = 1;
+    int spawnLevel_ = -1;
+    Vec2 spawnPoint_;
+    bool onStairs_ = false;
+    bool waitingToRespawn_ = false;
+    int punchRepeatTicks_ = 0;
+
     // Moves along one axis, stopping flush against the first solid tile in the way.
     void moveX(float delta, const TileMap& map, std::span<const Rect> obstacles);
     void moveY(float delta, const TileMap& map, std::span<const Rect> obstacles);
