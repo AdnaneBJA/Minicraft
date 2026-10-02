@@ -30,6 +30,7 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
 | 2026-10-02 | Fixes: held item kept through the inventory, no walled-in stairs | 8172 |
 | 2026-10-02 | `game-core` extraction: deterministic simulation library + tests | 9116 |
 | 2026-10-02 | Multiplayer over ENet: server, lobbies, chat, PvP | 11061 |
+| 2026-10-02 | Smaller name tags and chat | 11076 |
 
 ## Done
 - **2026-09-30: Bare-bones bootstrap.** A single `CMakeLists.txt` fetches SDL3 via FetchContent.
@@ -378,6 +379,8 @@ Update after every task: `git ls-files -co --exclude-standard -- '*.cpp' '*.h' |
     two simulations fed the same 2400 ticks stay identical and a late joiner replaying them matches). End to end:
     a real server with three headless bots (one joining late) walking, punching, sending commands and chatting
     ends with identical state hashes; a deliberately altered world is reported as a desync.
+  - Name tags and chat are drawn at half the world's pixel size (`Game::textScale`), so they stay sharp but
+    don't cover the game.
   - Not yet: client-side prediction (input lag = one round trip), saving multiplayer worlds, reconnecting to your
     old character, snapshot-based joins (history grows with the lobby's age).
 

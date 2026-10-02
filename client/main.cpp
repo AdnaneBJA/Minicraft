@@ -716,12 +716,14 @@ private:
         // torches and lava (Minicraft's LightOverlay).
         lighting_.draw(renderer, camera_, darkness(here), sim_.lights(player.level()));
 
-        // Other players' names, above the darkness so they can always be found.
+        // Other players' names, above the darkness so they can always be found. Small text (see textScale).
+        SDL_SetRenderScale(renderer, textScale(), textScale());
         for (const auto& other : sim_.players()) {
             if (other.get() != &player && other->level() == player.level() && !other->waitingToRespawn()) {
                 drawNameTag(renderer, *other);
             }
         }
+        SDL_SetRenderScale(renderer, scale_, scale_);
 
         // UI in view pixels (same scale, not moved by the camera).
         const float viewWidth = std::floor(camera_.width());
@@ -739,7 +741,13 @@ private:
             hud_.drawBossBar(renderer, font_, boss->health() * 100 / AirWizard::kMaxHealth, "Air Wizard", viewWidth);
         }
         drawNotes(renderer, viewWidth, here);
-        if (online_) chat_.draw(renderer, font_, viewHeight);
+        if (online_) {
+            // The chat in small text too, just above the hearts and bolts (the bottom 24 view pixels).
+            const float toText = scale_ / textScale();
+            SDL_SetRenderScale(renderer, textScale(), textScale());
+            chat_.draw(renderer, font_, (viewHeight - 24.0f) * toText);
+            SDL_SetRenderScale(renderer, scale_, scale_);
+        }
         inventoryMenu_.draw(renderer, hud_, font_, itemIcons_, inventory, viewHeight);
         craftingMenu_.draw(renderer, hud_, font_, itemIcons_, inventory, viewHeight);
         if (containerMenu_.isOpen()) {
@@ -770,12 +778,19 @@ private:
         }
     }
 
-    // A player's name centred above their head (higher if they carry furniture over it).
+    // Names and chat use half the world's pixel size, so they don't cover the game. The 8x8 font is drawn at a
+    // whole render scale (at least 1), so its letters stay sharp.
+    float textScale() const { return std::max(1.0f, std::floor(scale_ / 2.0f)); }
+
+    // A player's name centred just above their head (higher if they carry furniture over it). Called with the
+    // render scale at textScale(): view pixels are multiplied by `toText` to get there.
     void drawNameTag(SDL_Renderer* renderer, const Player& player) const {
+        const float toText = scale_ / textScale();
         const Rect bounds = player.bounds();
-        const float x = std::floor(camera_.snap(bounds.x) + bounds.w / 2.0f - Font::textWidth(player.name()) / 2.0f -
-                                   camera_.x());
-        const float y = camera_.snap(bounds.y) - camera_.y() - (player.isCarryingFurniture() ? 22.0f : 10.0f);
+        const float centerX = (camera_.snap(bounds.x) + bounds.w / 2.0f - camera_.x()) * toText;
+        const float top = (camera_.snap(bounds.y) - camera_.y() - (player.isCarryingFurniture() ? 13.0f : 1.0f)) * toText;
+        const float x = std::floor(centerX - Font::textWidth(player.name()) / 2.0f);
+        const float y = std::floor(top - Font::kGlyphSize - 1.0f);
         font_.drawShadowed(renderer, player.name(), x, y, SDL_Color{255, 255, 255, 255});
     }
 

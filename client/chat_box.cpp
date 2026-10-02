@@ -47,9 +47,9 @@ void ChatBox::update(float dt) {
     blink_ += dt;
 }
 
-void ChatBox::draw(SDL_Renderer* renderer, const Font& font, float viewHeight) const {
-    // Above the hearts and bolts (the bottom 3 rows of 8 px), newest at the bottom.
-    float y = viewHeight - 3.0f * 8.0f - kLineHeight - 2.0f;
+void ChatBox::draw(SDL_Renderer* renderer, const Font& font, float bottom) const {
+    // Newest at the bottom, going up.
+    float y = bottom - kLineHeight - 1.0f;
     if (open_) {
         const std::string prompt = "> " + typing_ + (std::fmod(blink_, 1.0f) < 0.5f ? "_" : "");
         const SDL_FRect background{0.0f, y - 1.0f, Font::textWidth(prompt) + 2.0f, kLineHeight};

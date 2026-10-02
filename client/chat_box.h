@@ -29,8 +29,8 @@ public:
     std::optional<std::string> handleKey(SDL_Keycode key);
 
     void update(float dt);
-    // Draws in view pixels, just above the status bar.
-    void draw(SDL_Renderer* renderer, const Font& font, float viewHeight) const;
+    // Draws from the left edge, the newest line just above `bottom` (in the current render scale's pixels).
+    void draw(SDL_Renderer* renderer, const Font& font, float bottom) const;
     void clear();
 
 private:
