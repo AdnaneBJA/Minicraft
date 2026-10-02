@@ -4,6 +4,12 @@ project(Minicraft LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# MinGW: put the C++ runtime inside the executables, so they start from Explorer or any terminal without MinGW's
+# DLLs on the PATH.
+if(MINGW)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+endif()
+
 # SDL3 is downloaded and built as part of the project on first configure.
 include(FetchContent)
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
