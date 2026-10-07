@@ -4,7 +4,6 @@
 
 #include <SDL3/SDL.h>
 
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,35 +13,22 @@ class Audio;
 class Font;
 class Hud;
 
-// The menus around the game, modelled on Minicraft+'s displays: the title screen (Play / Multiplayer / Options /
-// Quit), the Play choice (Load World / New World), world creation (name + seed), world selection, the multiplayer
-// screens (name and server address, connecting, the lobby list), the options (sound and volume), the in-game pause
-// menu, and the death and victory screens. The menu only collects choices; the game acts on the returned Action.
+// The menus around the game, modelled on Minicraft+'s displays: the start screen (logo, a name, and the way into the
+// server's world), connecting, the in-game menu (the world keeps going underneath), the options (sound and volume),
+// and the death and victory screens. The menu only collects choices; the game acts on the returned Action.
 class GameMenu {
 public:
-    enum class Screen { None, Title, Play, NewWorld, LoadWorld, Connect, Connecting, Lobbies, Pause, Options, Dead, Won };
-
-    // A lobby as the list shows it.
-    struct LobbyEntry {
-        int id;
-        std::string label;  // "Alice's world (2)"
-    };
+    enum class Screen { None, Connect, Connecting, Pause, Options, Dead, Won };
 
     struct Action {
         enum class Kind {
-            None, CreateWorld, LoadWorld, Resume, Save, SaveAndQuit, Quit, ToggleSound, VolumeDown, VolumeUp, Respawn,
-            Connect,      // playerName, address
-            Disconnect,   // back out of the multiplayer screens
-            CreateLobby,
-            JoinLobby,    // lobbyId
-            LeaveGame,    // leave the multiplayer world (back to the lobby list)
+            None, Resume, Respawn, ToggleSound, VolumeDown, VolumeUp,
+            Connect,    // playerName, address
+            LeaveGame,  // leave the world, or stop connecting: back to the start screen
         };
         Kind kind = Kind::None;
-        std::string worldName;   // CreateWorld, LoadWorld
-        std::uint32_t seed = 0;  // CreateWorld
         std::string playerName;  // Connect
         std::string address;     // Connect
-        int lobbyId = 0;         // JoinLobby
     };
 
     bool load(SDL_Renderer* renderer, const std::string& logoPath);
@@ -54,21 +40,13 @@ public:
         volume_ = volume;
     }
 
-    // Opens the title screen. `worlds` are the saved world names, most recent first.
-    void openTitle(std::vector<std::string> worlds);
-    void openPause();
-    // Multiplayer: name and server address.
-    void openConnect() { open(Screen::Connect); }
-    // The web version has one server: the connect screen then only asks for a name.
+    // The start screen: a name (and, on the desktop, the server's address).
+    void openConnect();
+    void openConnecting() { open(Screen::Connecting); }
+    void openPause() { open(Screen::Pause); }
+    // The web version has one server: the start screen then only asks for a name.
     void setFixedServer(std::string url) { fixedServer_ = std::move(url); }
     void setPlayerName(std::string name) { playerName_ = std::move(name); }
-    // False in a browser, where there's nothing to quit to: the title screen has no "Quit".
-    void setCanQuit(bool canQuit) { canQuit_ = canQuit; }
-    void openConnecting() { open(Screen::Connecting); }
-    void openLobbies() { open(Screen::Lobbies); }
-    void setLobbies(std::vector<LobbyEntry> lobbies);
-    // In a multiplayer game the world never pauses, and the menus offer "Leave Game" instead of saving.
-    void setOnline(bool online) { online_ = online; }
     // "You died! Aww :(" with the time survived (PlayerDeathDisplay).
     void openDeath(int secondsPlayed);
     // "You won! Yay :)" after beating the Air Wizard, with the time it took (EndGameDisplay).
@@ -76,14 +54,14 @@ public:
     void close() { open(Screen::None); }
     bool isOpen() const { return screen_ != Screen::None; }
     Screen screen() const { return screen_; }
-    // True while a text field (world name or seed) is selected, so the game turns on SDL text input.
+    // True while a text field is selected, so the game turns on SDL text input.
     bool wantsTextInput() const;
 
     // Key repeats only scroll and delete; they never select.
     Action handleKey(SDL_Keycode key, bool repeat);
     // Typed text (UTF-8) for the selected text field; characters a field doesn't accept are dropped.
     void handleText(const char* text);
-    // A short-lived line of text: an error under the world list, or "World saved!" under the pause menu.
+    // A short-lived line of text: an error on the start screen, say.
     void showMessage(std::string message, SDL_Color color);
 
     void update(float dt);
@@ -94,19 +72,12 @@ private:
     void open(Screen screen);
     int entryCount() const;
     Action select();
-    // Why the typed name can't be used yet, or empty if it can.
-    std::string nameProblem() const;
-    // The connect screen's rows: name, server address (unless the server is fixed), then "Connect".
-    int connectRow() const { return fixedServer_ ? 1 : 2; }
-    int titleEntryCount() const { return canQuit_ ? 4 : 3; }
+    // The start screen's rows: name, server address (unless the server is fixed), then "Play".
+    int playRow() const { return fixedServer_ ? 1 : 2; }
 
-    void drawTitle(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
-    void drawNewWorld(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
-    void drawLoadWorld(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
-    void drawPause(SDL_Renderer* renderer, const Hud& hud, const Font& font, float viewWidth, float viewHeight) const;
     void drawConnect(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
-    void drawLobbies(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
-    // A framed list of entries with a title in the top edge (the pause menu, options, death and victory screens).
+    void drawPause(SDL_Renderer* renderer, const Hud& hud, const Font& font, float viewWidth, float viewHeight) const;
+    // A framed list of entries with a title in the top edge (the menu, options, death and victory screens).
     void drawFramedList(SDL_Renderer* renderer, const Hud& hud, const Font& font, std::string_view title,
                         const std::vector<std::string>& entries, const std::vector<std::string>& lines,
                         float viewWidth, float viewHeight) const;
@@ -116,23 +87,15 @@ private:
     Audio* audio_ = nullptr;
     bool muted_ = false;
     int volume_ = 0;
-    Screen optionsReturn_ = Screen::Title;  // where Escape leaves the options screen to
     int secondsPlayed_ = 0;
     TexturePtr logo_;
     float logoWidth_ = 0.0f;
     float logoHeight_ = 0.0f;
     Screen screen_ = Screen::None;
     int selected_ = 0;
-    int listOffset_ = 0;  // first world shown in the scrolling world list
-    std::vector<std::string> worlds_;
-    std::string name_;  // world creation fields
-    std::string seed_;
-    std::string playerName_ = "Player";  // multiplayer fields
+    std::string playerName_ = "Player";
     std::string serverAddress_ = "localhost";
     std::optional<std::string> fixedServer_;
-    bool canQuit_ = true;
-    std::vector<LobbyEntry> lobbies_;
-    bool online_ = false;
     std::string message_;
     SDL_Color messageColor_{255, 255, 255, 255};
     float messageTimer_ = 0.0f;

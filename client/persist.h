@@ -2,7 +2,7 @@
 
 #include <filesystem>
 
-// Where the game keeps what must outlive it: saves and the last multiplayer name.
+// Where the game keeps what must outlive it: the last player name.
 //
 // On the desktop that's the per-user data folder (e.g. %APPDATA%/Minicraft/Minicraft on Windows). In a browser it's
 // /persist, a folder Emscripten keeps in the browser's IndexedDB: persistMount() loads it when the page opens,

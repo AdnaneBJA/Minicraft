@@ -91,37 +91,13 @@ void InputMessage::read(ByteReader& in) { input = unpackInput(in.u8()); }
 void CommandMessage::write(ByteWriter& out) const { writeCommand(out, command); }
 void CommandMessage::read(ByteReader& in) { command = readCommand(in); }
 
-void LobbyList::write(ByteWriter& out) const {
-    out.i32(static_cast<std::int32_t>(lobbies.size()));
-    for (const LobbyInfo& lobby : lobbies) {
-        out.i32(lobby.id);
-        out.string(lobby.name);
-        out.i32(lobby.players);
-    }
-}
-
-void LobbyList::read(ByteReader& in) {
-    const int count = in.count(kMaxPlayers);
-    for (int i = 0; i < count && in.ok(); ++i) {
-        LobbyInfo lobby;
-        lobby.id = in.i32();
-        lobby.name = in.string(kMaxLobbyNameLength);
-        lobby.players = in.i32();
-        lobbies.push_back(std::move(lobby));
-    }
-}
-
 void Joined::write(ByteWriter& out) const {
-    out.i32(lobbyId);
-    out.string(lobbyName);
     out.i32(static_cast<std::int32_t>(seed));
     out.i32(static_cast<std::int32_t>(history.size()));
     for (const TickInput& tick : history) writeTick(out, tick);
 }
 
 void Joined::read(ByteReader& in) {
-    lobbyId = in.i32();
-    lobbyName = in.string(kMaxLobbyNameLength);
     seed = static_cast<std::uint32_t>(in.i32());
     const int count = in.count(kMaxHistory);
     history.reserve(static_cast<std::size_t>(count));

@@ -8,15 +8,13 @@
 #include <string>
 #include <vector>
 
-// One world on the server, and the players in it. The server doesn't simulate the world: it only decides, 60 times
+// The world on the server, and the players in it. The server doesn't simulate the world: it only decides, 60 times
 // a second, what every player did during that tick (nextTick), and keeps every tick so far so that a player who
 // joins later can replay them.
 class Lobby {
 public:
-    Lobby(int id, std::string name, std::uint32_t seed) : id_(id), name_(std::move(name)), seed_(seed) {}
+    explicit Lobby(std::uint32_t seed) : seed_(seed) {}
 
-    int id() const { return id_; }
-    const std::string& name() const { return name_; }
     std::uint32_t seed() const { return seed_; }
     const std::vector<TickInput>& history() const { return history_; }
     std::vector<int> memberIds() const;
@@ -49,8 +47,6 @@ private:
         std::vector<PlayerCommand> commands;  // done since the last tick
     };
 
-    int id_;
-    std::string name_;
     std::uint32_t seed_;
     std::map<int, Member> members_;  // by player id, so every tick lists the players in the same order
     std::vector<int> leaving_;       // players who left since the last tick

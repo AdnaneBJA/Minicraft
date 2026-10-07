@@ -35,20 +35,15 @@ public:
     bool takeConnectionLost() { return std::exchange(connectionLost_, false); }
 
     // --- What arrived.
-    // The latest lobby list, when a new one came in.
-    std::optional<std::vector<protocol::LobbyInfo>> takeLobbies() { return std::exchange(lobbies_, std::nullopt); }
-    // Entering a lobby: its seed and the history to replay.
+    // Entering the world (or a fresh one, when it resets): its seed and the history to replay.
     std::optional<protocol::Joined> takeJoined() { return std::exchange(joined_, std::nullopt); }
-    // The lobby's ticks, in order, waiting to be simulated.
+    // The world's ticks, in order, waiting to be simulated.
     std::deque<TickInput>& ticks() { return ticks_; }
     std::size_t ticksWaiting() const { return ticks_.size(); }
     std::vector<protocol::ChatLine> takeChat() { return std::exchange(chat_, {}); }
     std::optional<std::string> takeError() { return std::exchange(error_, std::nullopt); }
 
-    // --- What to send.
-    void createLobby();
-    void joinLobby(int lobbyId);
-    void leaveLobby();
+    // --- What to send. (Leaving the world is disconnect().)
     void sendInput(const PlayerInput& input);
     void sendCommand(const PlayerCommand& command);
     void sendChat(const std::string& text);
@@ -62,12 +57,11 @@ private:
     std::unique_ptr<ClientSocket> socket_;
     std::chrono::steady_clock::time_point connectStarted_;
     std::chrono::steady_clock::time_point lastHeard_;  // the last message from the server
-    bool inLobby_ = false;  // in a world: ticks arrive 60 times a second, so silence means the server is gone
+    bool inWorld_ = false;  // ticks arrive 60 times a second, so silence means the server is gone
     State state_ = State::Offline;
     std::string playerName_;
     int playerId_ = 0;
     bool connectionLost_ = false;
-    std::optional<std::vector<protocol::LobbyInfo>> lobbies_;
     std::optional<protocol::Joined> joined_;
     std::deque<TickInput> ticks_;
     std::vector<protocol::ChatLine> chat_;

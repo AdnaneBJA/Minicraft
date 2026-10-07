@@ -11,11 +11,11 @@
 
 // The messages the client and minicraft-server exchange over WebSockets, and how they look as bytes.
 //
-// How multiplayer works: the server runs no game. Each lobby is one world, and every client in it runs the same
+// How multiplayer works: the server runs no game. It hosts one world, and every client in it runs the same
 // Simulation. 60 times a second the server gathers what each player did (Input and Command messages) into one
-// TickInput and sends it to everyone in the lobby (Tick). Because the simulation is deterministic, every client
-// computes the same world from the same ticks. A player joining a running lobby gets the lobby's whole tick history
-// (Joined) and replays it to catch up.
+// TickInput and sends it to everyone (Tick). Because the simulation is deterministic, every client computes the same
+// world from the same ticks. Saying Hello puts a player in the world: they get its whole tick history (Joined) and
+// replay it to catch up. Leaving is closing the connection.
 //
 // Every message starts with one byte, its MessageType, and travels as one binary WebSocket message: reliable and
 // in order.
@@ -25,24 +25,19 @@ constexpr std::uint16_t kDefaultPort = 7777;
 constexpr int kMaxPlayers = 32;     // per server
 constexpr int kMaxNameLength = 12;
 constexpr int kMaxChatLength = 80;
-constexpr int kMaxLobbyNameLength = 24;
 constexpr int kMaxCommandsPerTurn = 16;
 
 enum class MessageType : std::uint8_t {
     // Client -> server
-    Hello,        // my name, sent right after connecting
-    CreateLobby,  // start a new world and join it
-    JoinLobby,
-    LeaveLobby,
+    Hello,        // my name, sent right after connecting; it puts me in the world
     Input,        // the keys I hold (sent whenever they change)
     Command,      // something I did once, usually from a menu
     Chat,
     StateHash,    // my world's fingerprint at a tick, to catch clients that went out of sync
     // Server -> client
     Welcome,      // your player id
-    LobbyList,
-    Joined,       // you're in a lobby: its seed and the history to replay
-    Tick,         // what everyone in your lobby did during one tick
+    Joined,       // you're in the world: its seed and the history to replay (again when the world resets)
+    Tick,         // what everyone did during one tick
     ChatLine,     // a chat message (or a note from the server)
     Error,
 };
@@ -54,25 +49,6 @@ struct Hello {
     std::string name;
     void write(ByteWriter& out) const { out.string(name); }
     void read(ByteReader& in) { name = in.string(kMaxNameLength); }
-};
-
-struct CreateLobby {
-    static constexpr MessageType kType = MessageType::CreateLobby;
-    void write(ByteWriter&) const {}
-    void read(ByteReader&) {}
-};
-
-struct JoinLobby {
-    static constexpr MessageType kType = MessageType::JoinLobby;
-    int lobbyId = 0;
-    void write(ByteWriter& out) const { out.i32(lobbyId); }
-    void read(ByteReader& in) { lobbyId = in.i32(); }
-};
-
-struct LeaveLobby {
-    static constexpr MessageType kType = MessageType::LeaveLobby;
-    void write(ByteWriter&) const {}
-    void read(ByteReader&) {}
 };
 
 struct InputMessage {
@@ -119,23 +95,8 @@ struct Welcome {
     void read(ByteReader& in) { playerId = in.i32(); }
 };
 
-struct LobbyInfo {
-    int id = 0;
-    std::string name;
-    int players = 0;
-};
-
-struct LobbyList {
-    static constexpr MessageType kType = MessageType::LobbyList;
-    std::vector<LobbyInfo> lobbies;
-    void write(ByteWriter& out) const;
-    void read(ByteReader& in);
-};
-
 struct Joined {
     static constexpr MessageType kType = MessageType::Joined;
-    int lobbyId = 0;
-    std::string lobbyName;
     std::uint32_t seed = 0;
     std::vector<TickInput> history;  // every tick so far, to replay
     void write(ByteWriter& out) const;
