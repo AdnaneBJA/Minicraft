@@ -13,10 +13,6 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -43,6 +39,11 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request'
     needs: build
+    # One deploy at a time, and a newer one waits instead of cancelling the one in progress. Pull requests never
+    # get here, so they can't hold up or cancel a deploy.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment:
       name: github-pages

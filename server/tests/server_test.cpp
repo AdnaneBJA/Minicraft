@@ -6,6 +6,7 @@
 #include "server.h"
 
 #include <ixwebsocket/IXNetSystem.h>
+#include <ixwebsocket/IXWebSocket.h>
 #include <ixwebsocket/IXWebSocketServer.h>
 
 #include <gtest/gtest.h>
@@ -45,8 +46,9 @@ bool sameTick(const TickInput& a, const TickInput& b) {
 class ServerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        static int nextPort = 27777;
-        port = nextPort++;
+        // A port of its own per test (ctest may run several test processes at once).
+        const std::string name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
+        port = 30000 + static_cast<int>(std::hash<std::string>{}(name) % 20000);
         ASSERT_TRUE(server.start(static_cast<std::uint16_t>(port)));
         thread = std::jthread([this] { server.run(); });
     }
@@ -198,6 +200,56 @@ TEST_F(ServerTest, DisconnectDuringTicksIsHarmless) {
     NetworkClient c;
     connect(c, "Carol");
     EXPECT_GT(c.playerId(), 0);
+}
+
+TEST_F(ServerTest, UnresponsiveClientIsDropped) {
+    // Ghost's connection stays open but stops answering pings, like a laptop that went to sleep mid-game.
+    ix::WebSocket ghost;
+    ghost.setUrl("ws://localhost:" + std::to_string(port));
+    ghost.disablePong();
+    ghost.disableAutomaticReconnection();
+    ghost.setOnMessageCallback([&ghost](const ix::WebSocketMessagePtr& message) {
+        if (message->type != ix::WebSocketMessageType::Open) return;
+        for (const auto& bytes : {protocol::encode(protocol::Hello{"Ghost"}), protocol::encode(protocol::CreateLobby{})}) {
+            ghost.sendBinary(std::string(bytes.begin(), bytes.end()));
+        }
+    });
+    NetworkClient alice;
+    connect(alice, "Alice");
+    ghost.start();
+    std::optional<std::vector<protocol::LobbyInfo>> list;
+    ASSERT_TRUE(pump({&alice}, [&] {
+        list = alice.takeLobbies();
+        return list && list->size() == 1;
+    }));
+    // Once the server gives up on Ghost, the world closes and Alice's lobby list empties.
+    EXPECT_TRUE(pump({&alice}, [&] {
+        list = alice.takeLobbies();
+        return list && list->empty();
+    }, 25000ms));
+    ghost.stop();
+}
+
+TEST(NetworkClientConnect, SilentServerReportsLost) {
+    // A server that lets the player into a world and then goes quiet: no ticks, no close.
+    ix::initNetSystem();
+    ix::WebSocketServer silent(28778, "127.0.0.1");
+    silent.setOnClientMessageCallback(
+        [](std::shared_ptr<ix::ConnectionState>, ix::WebSocket& socket, const ix::WebSocketMessagePtr& message) {
+            if (message->type != ix::WebSocketMessageType::Message) return;
+            for (const auto& bytes : {protocol::encode(protocol::Welcome{1}),
+                                      protocol::encode(protocol::Joined{.lobbyId = 1, .lobbyName = "Quiet", .seed = 7})}) {
+                socket.sendBinary(std::string(bytes.begin(), bytes.end()));
+            }
+        });
+    ASSERT_TRUE(silent.listen().first);
+    silent.start();
+
+    NetworkClient client;
+    ASSERT_TRUE(client.connect("ws://127.0.0.1:28778", "Alice"));
+    ASSERT_TRUE(pump({&client}, [&] { return client.takeJoined().has_value(); }));
+    EXPECT_TRUE(pump({&client}, [&] { return client.takeConnectionLost(); }, 15000ms));
+    silent.stop();
 }
 
 TEST(NetworkClientConnect, UnreachableServerReportsLost) {

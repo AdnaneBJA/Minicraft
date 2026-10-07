@@ -6,6 +6,8 @@ namespace {
 
 // No answer this long after connecting: give up, as if the connection had dropped.
 constexpr auto kConnectTimeout = std::chrono::seconds(5);
+// In a world, nothing from the server for this long (no ticks): the connection died without closing.
+constexpr auto kSilenceTimeout = std::chrono::seconds(10);
 
 }  // namespace
 
@@ -36,6 +38,7 @@ bool NetworkClient::connect(const std::string& address, const std::string& playe
 void NetworkClient::disconnect() {
     socket_.reset();  // closes the connection
     state_ = State::Offline;
+    inLobby_ = false;
     playerId_ = 0;
     ticks_.clear();
     lobbies_.reset();
@@ -50,14 +53,20 @@ void NetworkClient::poll() {
                 state_ = State::Online;
                 send(protocol::Hello{playerName_});  // the first thing the server wants to hear
                 break;
-            case SocketEvent::Kind::Message: handleMessage(event.bytes); break;
+            case SocketEvent::Kind::Message:
+                lastHeard_ = std::chrono::steady_clock::now();
+                handleMessage(event.bytes);
+                break;
             case SocketEvent::Kind::Closed:
                 disconnect();
                 connectionLost_ = true;
                 return;
         }
     }
-    if (state_ == State::Connecting && std::chrono::steady_clock::now() - connectStarted_ > kConnectTimeout) {
+    const auto now = std::chrono::steady_clock::now();
+    const bool connectTimedOut = state_ == State::Connecting && now - connectStarted_ > kConnectTimeout;
+    const bool serverWentSilent = inLobby_ && now - lastHeard_ > kSilenceTimeout;
+    if (connectTimedOut || serverWentSilent) {
         disconnect();
         connectionLost_ = true;
     }
@@ -78,6 +87,7 @@ void NetworkClient::handleMessage(std::span<const std::uint8_t> bytes) {
             if (auto joined = protocol::decode<protocol::Joined>(bytes)) {
                 ticks_.clear();
                 joined_ = std::move(*joined);
+                inLobby_ = true;
             }
             break;
         case MessageType::Tick:
@@ -103,6 +113,7 @@ void NetworkClient::joinLobby(int lobbyId) { send(protocol::JoinLobby{lobbyId});
 void NetworkClient::leaveLobby() {
     send(protocol::LeaveLobby{});
     ticks_.clear();
+    inLobby_ = false;
 }
 void NetworkClient::sendInput(const PlayerInput& input) { send(protocol::InputMessage{input}); }
 void NetworkClient::sendCommand(const PlayerCommand& command) { send(protocol::CommandMessage{command}); }

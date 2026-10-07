@@ -70,7 +70,7 @@ What this does:
 Check it:
 ```sh
 docker compose logs -f server     # "minicraft-server listening on port 7777", then players connecting
-curl -i https://minicraft-yourname.duckdns.org -H "Connection: Upgrade" -H "Upgrade: websocket" \
+curl -i --http1.1 https://minicraft-yourname.duckdns.org -H "Connection: Upgrade" -H "Upgrade: websocket" \
      -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=="
 # expect: HTTP/1.1 101 Switching Protocols
 ```

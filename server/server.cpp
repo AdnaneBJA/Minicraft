@@ -15,6 +15,9 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr auto kTickLength = std::chrono::microseconds(1'000'000 / 60);
 constexpr int kListenBacklog = 16;
+// Every connection is pinged this often, and closed if the previous ping got no answer: a player whose laptop
+// went to sleep leaves the game after 5-10 seconds instead of whenever TCP gives up (many minutes).
+constexpr int kPingIntervalSeconds = 5;
 
 }  // namespace
 
@@ -27,8 +30,10 @@ Server::~Server() {
 
 bool Server::start(std::uint16_t port) {
     ix::initNetSystem();
-    socketServer_ = std::make_unique<ix::WebSocketServer>(port, "0.0.0.0", kListenBacklog,
-                                                          static_cast<std::size_t>(protocol::kMaxPlayers));
+    socketServer_ = std::make_unique<ix::WebSocketServer>(
+        port, "0.0.0.0", kListenBacklog, static_cast<std::size_t>(protocol::kMaxPlayers),
+        ix::WebSocketServer::kDefaultHandShakeTimeoutSecs, ix::SocketServer::kDefaultAddressFamily,
+        kPingIntervalSeconds);
     // A new connection gets an id; from then on its thread only queues what it hears.
     socketServer_->setOnConnectionCallback(
         [this](std::weak_ptr<ix::WebSocket> weakSocket, std::shared_ptr<ix::ConnectionState>) {

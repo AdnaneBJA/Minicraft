@@ -61,6 +61,8 @@ private:
 
     std::unique_ptr<ClientSocket> socket_;
     std::chrono::steady_clock::time_point connectStarted_;
+    std::chrono::steady_clock::time_point lastHeard_;  // the last message from the server
+    bool inLobby_ = false;  // in a world: ticks arrive 60 times a second, so silence means the server is gone
     State state_ = State::Offline;
     std::string playerName_;
     int playerId_ = 0;
