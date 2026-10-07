@@ -1,10 +1,8 @@
 build/
-cmake-build-*/
-.idea/
-PROGRESS.md
-CLAUDE.md
 build-web/
-deploy/.env
+cmake-build-*/
+.git/
+.idea/
 .superpowers/
+docs/
 web/smoke/node_modules/
-web/smoke/out/

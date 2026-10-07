@@ -1,0 +1,30 @@
+# The hosted server: minicraft-server behind Caddy, which adds TLS (wss://) with a free certificate.
+#   cd deploy && echo DOMAIN=yourname.duckdns.org > .env && docker compose up -d --build
+# See deploy/README.md for the whole setup.
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "7777"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the server's domain name}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

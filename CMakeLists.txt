@@ -4,39 +4,50 @@ project(Minicraft LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# What to build. The server's Docker image builds without the game (no SDL); the web build has no tests.
+option(MINICRAFT_BUILD_CLIENT "Build the game (downloads and builds SDL3 and Dear ImGui)" ON)
+if(EMSCRIPTEN)
+    set(MINICRAFT_BUILD_TESTS OFF)
+else()
+    option(MINICRAFT_BUILD_TESTS "Build the unit and server tests (GoogleTest)" ON)
+endif()
+
 # MinGW: put the C++ runtime inside the executables, so they start from Explorer or any terminal without MinGW's
 # DLLs on the PATH.
 if(MINGW)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
 endif()
 
-# SDL3 is downloaded and built as part of the project on first configure.
 include(FetchContent)
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
-set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(SDL3
-    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG release-3.4.16
-    GIT_SHALLOW TRUE)
-FetchContent_MakeAvailable(SDL3)
 
-# Dear ImGui (debug UI). It has no CMake build of its own, so compile the sources we need here.
-FetchContent_Declare(imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.92.9b
-    GIT_SHALLOW TRUE)
-FetchContent_MakeAvailable(imgui)
-add_library(imgui STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
-target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
-target_link_libraries(imgui PUBLIC SDL3::SDL3)
+# SDL3 and Dear ImGui (the debug UI), downloaded and built as part of the project on first configure.
+if(MINICRAFT_BUILD_CLIENT)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(SDL3
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+        GIT_TAG release-3.4.16
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(SDL3)
+
+    # Dear ImGui has no CMake build of its own, so compile the sources we need here.
+    FetchContent_Declare(imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG v1.92.9b
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(imgui)
+    add_library(imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
+    target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+    target_link_libraries(imgui PUBLIC SDL3::SDL3)
+endif()
 
 # The simulation, shared by the client (and later the server, the bots and the Python environment). No SDL, no
 # rendering, no I/O: it only links the standard library, so nothing platform-specific can creep in.
@@ -95,51 +106,55 @@ if(NOT EMSCRIPTEN)
     target_link_libraries(minicraft-server PRIVATE server_lib)
 endif()
 
-# The game.
-add_executable(Minicraft
-    client/main.cpp
-    client/tile_renderer.cpp
-    client/sprite_renderer.cpp
-    client/lighting.cpp
-    client/item_icons.cpp
-    client/camera.cpp
-    client/debug_overlay.cpp
-    client/effects.cpp
-    client/texture.cpp
-    client/font.cpp
-    client/hud.cpp
-    client/inventory_menu.cpp
-    client/crafting_menu.cpp
-    client/container_menu.cpp
-    client/map_screen.cpp
-    client/world_save.cpp
-    client/game_menu.cpp
-    client/audio.cpp
-    client/chat_box.cpp)
-target_link_libraries(Minicraft PRIVATE game_core net_client SDL3::SDL3 imgui)
+if(MINICRAFT_BUILD_CLIENT)
+    # The game.
+    add_executable(Minicraft
+        client/main.cpp
+        client/tile_renderer.cpp
+        client/sprite_renderer.cpp
+        client/lighting.cpp
+        client/item_icons.cpp
+        client/camera.cpp
+        client/debug_overlay.cpp
+        client/effects.cpp
+        client/texture.cpp
+        client/font.cpp
+        client/hud.cpp
+        client/inventory_menu.cpp
+        client/crafting_menu.cpp
+        client/container_menu.cpp
+        client/map_screen.cpp
+        client/world_save.cpp
+        client/game_menu.cpp
+        client/audio.cpp
+        client/chat_box.cpp)
+    target_link_libraries(Minicraft PRIVATE game_core net_client SDL3::SDL3 imgui)
 
-# Unit tests for the core rules (GoogleTest). Run the `game_core_tests` target, or `ctest` from the build folder.
-FetchContent_Declare(googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.15.2
-    GIT_SHALLOW TRUE)
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
-enable_testing()
-add_executable(game_core_tests
-    game-core/tests/simulation_test.cpp
-    game-core/tests/world_test.cpp
-    game-core/tests/rules_test.cpp
-    game-core/tests/multiplayer_test.cpp)
-target_link_libraries(game_core_tests PRIVATE game_core GTest::gtest_main)
-# The server and the client's connection, end to end over localhost WebSockets.
-add_executable(server_tests server/tests/server_test.cpp)
-target_link_libraries(server_tests PRIVATE server_lib net_client GTest::gtest_main)
-include(GoogleTest)
-gtest_discover_tests(game_core_tests)
-gtest_discover_tests(server_tests DISCOVERY_TIMEOUT 30)
+    # Copy assets next to the executable; the game finds them via SDL_GetBasePath().
+    add_custom_command(TARGET Minicraft POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Minicraft>/assets)
+endif()
 
-# Copy assets next to the executable; the game finds them via SDL_GetBasePath().
-add_custom_command(TARGET Minicraft POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Minicraft>/assets)
+if(MINICRAFT_BUILD_TESTS)
+    # Unit tests for the core rules (GoogleTest). Run the `game_core_tests` target, or `ctest` from the build folder.
+    FetchContent_Declare(googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.15.2
+        GIT_SHALLOW TRUE)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+    enable_testing()
+    add_executable(game_core_tests
+        game-core/tests/simulation_test.cpp
+        game-core/tests/world_test.cpp
+        game-core/tests/rules_test.cpp
+        game-core/tests/multiplayer_test.cpp)
+    target_link_libraries(game_core_tests PRIVATE game_core GTest::gtest_main)
+    # The server and the client's connection, end to end over localhost WebSockets.
+    add_executable(server_tests server/tests/server_test.cpp)
+    target_link_libraries(server_tests PRIVATE server_lib net_client GTest::gtest_main)
+    include(GoogleTest)
+    gtest_discover_tests(game_core_tests)
+    gtest_discover_tests(server_tests DISCOVERY_TIMEOUT 30)
+endif()
