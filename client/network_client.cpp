@@ -38,10 +38,9 @@ bool NetworkClient::connect(const std::string& address, const std::string& playe
 void NetworkClient::disconnect() {
     socket_.reset();  // closes the connection
     state_ = State::Offline;
-    inLobby_ = false;
+    inWorld_ = false;
     playerId_ = 0;
     ticks_.clear();
-    lobbies_.reset();
     joined_.reset();
 }
 
@@ -65,7 +64,7 @@ void NetworkClient::poll() {
     }
     const auto now = std::chrono::steady_clock::now();
     const bool connectTimedOut = state_ == State::Connecting && now - connectStarted_ > kConnectTimeout;
-    const bool serverWentSilent = inLobby_ && now - lastHeard_ > kSilenceTimeout;
+    const bool serverWentSilent = inWorld_ && now - lastHeard_ > kSilenceTimeout;
     if (connectTimedOut || serverWentSilent) {
         disconnect();
         connectionLost_ = true;
@@ -80,14 +79,11 @@ void NetworkClient::handleMessage(std::span<const std::uint8_t> bytes) {
         case MessageType::Welcome:
             if (const auto welcome = protocol::decode<protocol::Welcome>(bytes)) playerId_ = welcome->playerId;
             break;
-        case MessageType::LobbyList:
-            if (auto list = protocol::decode<protocol::LobbyList>(bytes)) lobbies_ = std::move(list->lobbies);
-            break;
         case MessageType::Joined:
             if (auto joined = protocol::decode<protocol::Joined>(bytes)) {
                 ticks_.clear();
                 joined_ = std::move(*joined);
-                inLobby_ = true;
+                inWorld_ = true;
             }
             break;
         case MessageType::Tick:
@@ -108,13 +104,6 @@ void NetworkClient::send(const Message& message) {
     if (socket_ && state_ == State::Online) socket_->send(protocol::encode(message));
 }
 
-void NetworkClient::createLobby() { send(protocol::CreateLobby{}); }
-void NetworkClient::joinLobby(int lobbyId) { send(protocol::JoinLobby{lobbyId}); }
-void NetworkClient::leaveLobby() {
-    send(protocol::LeaveLobby{});
-    ticks_.clear();
-    inLobby_ = false;
-}
 void NetworkClient::sendInput(const PlayerInput& input) { send(protocol::InputMessage{input}); }
 void NetworkClient::sendCommand(const PlayerCommand& command) { send(protocol::CommandMessage{command}); }
 void NetworkClient::sendChat(const std::string& text) { send(protocol::ChatMessage{text}); }

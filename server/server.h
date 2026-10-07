@@ -17,14 +17,19 @@ class WebSocket;
 class WebSocketServer;
 }  // namespace ix
 
-// minicraft-server: accepts players over WebSockets, lets them create and join lobbies, and runs every lobby's
-// 60 Hz tick: gathering what its players did and sending it to all of them. Chat goes through here too.
+// minicraft-server: accepts players over WebSockets and runs the one world they all play in. Its 60 Hz tick gathers
+// what every player did and sends it to all of them. Chat goes through here too.
+//
+// The world starts when the first player arrives and ends when the last one leaves. A world that has run for
+// resetAfterTicks is replaced by a fresh one for everyone, so joining (which replays the whole history) stays quick.
 //
 // IXWebSocket serves every connection on its own thread. Those threads only queue what happened (NetEvent); run()
 // handles the queue on its own thread, so everything else here is single-threaded.
 class Server {
 public:
-    Server();
+    static constexpr int kDefaultResetAfterTicks = 60 * 60 * 60 * 3;  // 3 hours
+
+    explicit Server(int resetAfterTicks = kDefaultResetAfterTicks);
     ~Server();
     // Listens on `port` (all network interfaces). False if the port can't be opened.
     bool start(std::uint16_t port);
@@ -39,8 +44,7 @@ private:
     struct Client {
         std::weak_ptr<ix::WebSocket> socket;  // gone once the connection has closed
         int id = 0;
-        std::string name;  // empty until their Hello arrives
-        int lobbyId = 0;   // 0 = not in a lobby (looking at the lobby list)
+        std::string name;  // empty until their Hello is accepted; from then on they're in the world
     };
 
     // What a connection's thread saw, waiting for run().
@@ -59,19 +63,19 @@ private:
     void sendTo(const Client& client, const Message& message);
     void disconnect(Client& client);
 
-    void createLobby(Client& client);
-    void joinLobby(Client& client, int lobbyId);
-    void leaveLobby(Client& client);
+    // A player whose name was accepted enters the world (starting it if nobody is playing).
+    void enterWorld(Client& client);
     void chat(Client& client, const std::string& text);
-    // Everyone in a lobby gets a line of chat (from "" = a note from the server).
-    void tellLobby(const Lobby& lobby, const std::string& from, const std::string& text);
-    // Everyone not in a lobby gets the current lobby list.
-    void sendLobbyList(Client* only = nullptr);
-    // Every lobby moves on by one tick, and every member hears about it.
-    void tickLobbies();
+    // Everyone in the world gets a line of chat (from "" = a note from the server).
+    void tellEveryone(const std::string& from, const std::string& text);
+    // The world moves on by one tick, and every player hears about it.
+    void tickWorld();
+    // A fresh world, with everyone in it.
+    void resetWorld();
+    static std::unique_ptr<Lobby> newWorld();
 
     Client* clientOf(int clientId);
-    Lobby* lobbyOf(const Client& client);
+    bool nameInUse(const std::string& name) const;
 
     std::unique_ptr<ix::WebSocketServer> socketServer_;
     std::mutex eventsMutex_;
@@ -81,6 +85,7 @@ private:
     std::atomic<int> nextClientId_{1};
 
     std::map<int, Client> clients_;  // by client id
-    std::map<int, std::unique_ptr<Lobby>> lobbies_;
-    int nextLobbyId_ = 1;
+    std::unique_ptr<Lobby> world_;   // null while nobody is playing
+    int resetAfterTicks_;
+    bool resetWarned_ = false;
 };

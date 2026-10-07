@@ -60,7 +60,14 @@ public:
     // True once after the Air Wizard died (the game shows the win screen).
     bool takeBossDefeated();
     const std::vector<std::unique_ptr<Mob>>& all() const { return mobs_; }
-    void clear() { mobs_.clear(); }
+    // Back to an empty level: no mobs, and the spawn timers start over (a new world must not inherit the old one's
+    // timing, or a client that reused its simulation would spawn mobs on different ticks than everyone else).
+    void clear() {
+        mobs_.clear();
+        enemySpawnTimer_ = 0;
+        animalSpawnTimer_ = 0;
+        bossDefeated_ = false;
+    }
     // Removes every hostile mob (the night's monsters, gone after sleeping), keeping animals and the boss.
     void clearEnemies();
 

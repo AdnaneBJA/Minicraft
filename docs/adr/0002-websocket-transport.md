@@ -30,7 +30,7 @@ replay and desync detection are unchanged.
 - **The web build:**
   - one page on GitHub Pages, built by GitHub Actions;
   - the server URL is compiled in (`MINICRAFT_SERVER_URL`), so the multiplayer screen only asks for a name;
-  - saves go to the browser's IndexedDB.
+  - saves went to the browser's IndexedDB at first. The game has since become online only, with no saves; IndexedDB now only remembers the player's name.
 
 ## Consequences
 - **Good:**

@@ -1,6 +1,6 @@
 # ADR 0001: Multiplayer as lockstep through a relay server, over ENet
 
-> **Transport superseded by [ADR 0002](0002-websocket-transport.md):** the game now talks WebSockets so it can run in a browser. Everything else here still holds.
+> **Transport superseded by [ADR 0002](0002-websocket-transport.md):** the game now talks WebSockets so it can run in a browser. Since then the game is also online only: each server hosts **one world** (no lobbies), which ends when the last player leaves and resets for everyone after 3 hours, so a late joiner's replay stays short. Everything else here still holds.
 
 ## Context
 - `game-core` is deterministic: the same seed and the same inputs give the same world, tick for tick (tested by `stateHash()`).

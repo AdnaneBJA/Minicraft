@@ -6,6 +6,7 @@
 #include <ixwebsocket/IXWebSocket.h>
 #include <ixwebsocket/IXWebSocketServer.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <random>
@@ -21,7 +22,7 @@ constexpr int kPingIntervalSeconds = 5;
 
 }  // namespace
 
-Server::Server() = default;
+Server::Server(int resetAfterTicks) : resetAfterTicks_(resetAfterTicks) {}
 
 Server::~Server() {
     stop();
@@ -85,7 +86,7 @@ void Server::run() {
     while (running_) {
         const auto now = Clock::now();
         if (now >= nextTick) {
-            tickLobbies();
+            tickWorld();
             nextTick += kTickLength;
             if (now - nextTick > std::chrono::seconds(1)) nextTick = now;  // fell far behind: don't try to catch up
             continue;
@@ -133,37 +134,33 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
     using protocol::MessageType;
     const auto type = protocol::typeOf(bytes);
     if (!type) return;
-    // Until a player has said who they are, Hello is the only thing they can do.
+    // Until a player is in the world, Hello is the only thing they can do.
     if (client.name.empty() && *type != MessageType::Hello) return;
     switch (*type) {
         case MessageType::Hello:
             if (const auto hello = protocol::decode<protocol::Hello>(bytes); hello && client.name.empty()) {
+                // A refused name leaves the connection open: the player can try another one.
                 if (!protocol::isValidName(hello->name)) {
                     sendTo(client, protocol::ErrorMessage{"Invalid name"});
                     return;
                 }
+                if (nameInUse(hello->name)) {
+                    sendTo(client, protocol::ErrorMessage{"Name already in use"});
+                    return;
+                }
                 client.name = hello->name;
                 std::printf("Player %d is %s\n", client.id, client.name.c_str());
-                sendLobbyList(&client);
+                enterWorld(client);
             }
             break;
-        case MessageType::CreateLobby:
-            if (protocol::decode<protocol::CreateLobby>(bytes)) createLobby(client);
-            break;
-        case MessageType::JoinLobby:
-            if (const auto join = protocol::decode<protocol::JoinLobby>(bytes)) joinLobby(client, join->lobbyId);
-            break;
-        case MessageType::LeaveLobby:
-            if (protocol::decode<protocol::LeaveLobby>(bytes)) leaveLobby(client);
-            break;
         case MessageType::Input:
-            if (const auto input = protocol::decode<protocol::InputMessage>(bytes)) {
-                if (Lobby* lobby = lobbyOf(client)) lobby->setInput(client.id, input->input);
+            if (const auto input = protocol::decode<protocol::InputMessage>(bytes); input && world_) {
+                world_->setInput(client.id, input->input);
             }
             break;
         case MessageType::Command:
-            if (const auto command = protocol::decode<protocol::CommandMessage>(bytes)) {
-                if (Lobby* lobby = lobbyOf(client)) lobby->addCommand(client.id, command->command);
+            if (const auto command = protocol::decode<protocol::CommandMessage>(bytes); command && world_) {
+                world_->addCommand(client.id, command->command);
             }
             break;
         case MessageType::Chat:
@@ -171,10 +168,9 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
             break;
         case MessageType::StateHash:
             if (const auto report = protocol::decode<protocol::StateHashMessage>(bytes)) {
-                Lobby* lobby = lobbyOf(client);
-                if (lobby && lobby->reportHash(client.id, report->tick, report->hash)) {
-                    std::printf("Lobby %d went out of sync at tick %d\n", lobby->id(), report->tick);
-                    tellLobby(*lobby, "", "Desync detected at tick " + std::to_string(report->tick) + "!");
+                if (world_ && world_->reportHash(client.id, report->tick, report->hash)) {
+                    std::printf("The world went out of sync at tick %d\n", report->tick);
+                    tellEveryone("", "Desync detected at tick " + std::to_string(report->tick) + "!");
                 }
             }
             break;
@@ -184,83 +180,74 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
 
 void Server::disconnect(Client& client) {
     std::printf("Player %d (%s) disconnected\n", client.id, client.name.c_str());
-    leaveLobby(client);
-    clients_.erase(client.id);
+    const int id = client.id;
+    const std::string name = client.name;
+    clients_.erase(id);
+    if (name.empty() || !world_) return;  // never got into the world
+    world_->removeMember(id);
+    if (world_->empty()) {
+        std::printf("Everyone left: the world ends\n");
+        world_.reset();
+        resetWarned_ = false;
+    } else {
+        tellEveryone("", name + " left the game");
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Lobbies
+// The world
 
-void Server::createLobby(Client& client) {
-    if (client.lobbyId != 0) return;
+std::unique_ptr<Lobby> Server::newWorld() {
     std::random_device random;
-    auto lobby = std::make_unique<Lobby>(nextLobbyId_++, client.name + "'s world", random());
-    const int id = lobby->id();
-    std::printf("%s created lobby %d (seed %u)\n", client.name.c_str(), id, lobby->seed());
-    lobbies_[id] = std::move(lobby);
-    joinLobby(client, id);
+    auto world = std::make_unique<Lobby>(random());
+    std::printf("A new world begins (seed %u)\n", world->seed());
+    return world;
 }
 
-void Server::joinLobby(Client& client, int lobbyId) {
-    if (client.lobbyId != 0) return;  // already playing
-    const auto it = lobbies_.find(lobbyId);
-    if (it == lobbies_.end()) {
-        sendTo(client, protocol::ErrorMessage{"That lobby is gone"});
-        return;
-    }
-    Lobby& lobby = *it->second;
+void Server::enterWorld(Client& client) {
+    if (!world_) world_ = newWorld();
     // The newcomer gets the world's seed and every tick so far; their own Join comes with the next tick.
-    sendTo(client, protocol::Joined{lobby.id(), lobby.name(), lobby.seed(), lobby.history()});
-    lobby.addMember(client.id, client.name);
-    client.lobbyId = lobby.id();
-    tellLobby(lobby, "", client.name + " joined the game");
-    sendLobbyList();
+    sendTo(client, protocol::Joined{world_->seed(), world_->history()});
+    world_->addMember(client.id, client.name);
+    tellEveryone("", client.name + " joined the game");
 }
 
-void Server::leaveLobby(Client& client) {
-    Lobby* lobby = lobbyOf(client);
-    if (!lobby) return;
-    lobby->removeMember(client.id);
-    client.lobbyId = 0;
-    if (lobby->empty()) {
-        std::printf("Lobby %d closed\n", lobby->id());
-        lobbies_.erase(lobby->id());
-    } else {
-        tellLobby(*lobby, "", client.name + " left the game");
+void Server::resetWorld() {
+    world_ = newWorld();
+    resetWarned_ = false;
+    for (const auto& [id, client] : clients_) {
+        if (client.name.empty()) continue;
+        sendTo(client, protocol::Joined{world_->seed(), world_->history()});
+        world_->addMember(client.id, client.name);
     }
-    sendLobbyList();
 }
 
 void Server::chat(Client& client, const std::string& text) {
-    const Lobby* lobby = lobbyOf(client);
     const std::string clean = protocol::cleanChat(text);
-    if (!lobby || clean.empty()) return;
-    std::printf("[%s] %s: %s\n", lobby->name().c_str(), client.name.c_str(), clean.c_str());
-    tellLobby(*lobby, client.name, clean);
+    if (!world_ || clean.empty()) return;
+    std::printf("%s: %s\n", client.name.c_str(), clean.c_str());
+    tellEveryone(client.name, clean);
 }
 
-void Server::tellLobby(const Lobby& lobby, const std::string& from, const std::string& text) {
+void Server::tellEveryone(const std::string& from, const std::string& text) {
     for (const auto& [id, client] : clients_) {
-        if (client.lobbyId == lobby.id()) sendTo(client, protocol::ChatLine{from, text});
+        if (!client.name.empty()) sendTo(client, protocol::ChatLine{from, text});
     }
 }
 
-void Server::sendLobbyList(Client* only) {
-    protocol::LobbyList list;
-    for (const auto& [id, lobby] : lobbies_) list.lobbies.push_back({id, lobby->name(), lobby->size()});
-    for (const auto& [id, client] : clients_) {
-        const bool browsing = !client.name.empty() && client.lobbyId == 0;
-        if (browsing && (!only || only == &client)) sendTo(client, list);
+void Server::tickWorld() {
+    if (!world_) return;
+    const protocol::TickMessage message{world_->nextTick()};
+    for (const int memberId : world_->memberIds()) {
+        if (const Client* client = clientOf(memberId)) sendTo(*client, message);
     }
-}
-
-void Server::tickLobbies() {
-    for (auto& [id, lobby] : lobbies_) {
-        const protocol::TickMessage message{lobby->nextTick()};
-        for (const int memberId : lobby->memberIds()) {
-            if (const Client* client = clientOf(memberId)) sendTo(*client, message);
-        }
+    const int age = static_cast<int>(world_->history().size());
+    constexpr int kWarningTicks = 60 * 60;  // a minute before the reset
+    if (!resetWarned_ && age >= resetAfterTicks_ - kWarningTicks) {
+        resetWarned_ = true;
+        tellEveryone("", "The world resets in 1 minute!");
     }
+    if (age >= resetAfterTicks_) resetWorld();
 }
 
 Server::Client* Server::clientOf(int clientId) {
@@ -268,7 +255,6 @@ Server::Client* Server::clientOf(int clientId) {
     return it == clients_.end() ? nullptr : &it->second;
 }
 
-Lobby* Server::lobbyOf(const Client& client) {
-    const auto it = lobbies_.find(client.lobbyId);
-    return it == lobbies_.end() ? nullptr : it->second.get();
+bool Server::nameInUse(const std::string& name) const {
+    return std::any_of(clients_.begin(), clients_.end(), [&](const auto& entry) { return entry.second.name == name; });
 }

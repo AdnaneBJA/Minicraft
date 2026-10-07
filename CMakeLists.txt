@@ -124,7 +124,6 @@ if(MINICRAFT_BUILD_CLIENT)
         client/crafting_menu.cpp
         client/container_menu.cpp
         client/map_screen.cpp
-        client/world_save.cpp
         client/game_menu.cpp
         client/audio.cpp
         client/chat_box.cpp

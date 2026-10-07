@@ -113,7 +113,7 @@ void DebugOverlay::drawWorldOverlay(SDL_Renderer* renderer, const Camera& camera
 
 DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float scale, const TileMap& map,
                                                    const Player& player, const Inventory& inventory,
-                                                   std::size_t droppedItemCount, Mobs& mobs,
+                                                   std::size_t droppedItemCount, const Mobs& mobs,
                                                    const DayNight& dayNight, const std::string& levelName,
                                                    int levelIndex) {
     if (!enabled_) return {};
@@ -238,9 +238,9 @@ DebugOverlay::PanelActions DebugOverlay::drawPanel(const Camera& camera, float s
                     mobs.count(MobKind::Slime), mobs.count(MobKind::Skeleton), mobs.count(MobKind::Creeper),
                     mobs.count(MobKind::Snake));
         if (const Mob* boss = mobs.boss()) ImGui::Text("Air Wizard: %d / %d", boss->health(), boss->maxHealth());
-        ImGui::Checkbox("Spawn enemies", &mobs.enemySpawning);
-        ImGui::SameLine();
-        ImGui::Checkbox("Spawn animals", &mobs.animalSpawning);
+        // Shown, not editable: every client must run exactly the same simulation.
+        ImGui::Text("Spawning: enemies %s, animals %s", mobs.enemySpawning ? "on" : "off",
+                    mobs.animalSpawning ? "on" : "off");
         if (ImGui::BeginCombo("Mob", mobName(static_cast<MobKind>(spawnKind_)))) {
             for (int i = 0; i < kMobKinds; ++i) {
                 if (ImGui::Selectable(mobName(static_cast<MobKind>(i)), i == spawnKind_)) spawnKind_ = i;

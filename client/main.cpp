@@ -19,7 +19,6 @@
 #include "simulation.h"
 #include "sprite_renderer.h"
 #include "tile_renderer.h"
-#include "world_save.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -53,9 +52,7 @@ public:
     // Minimum view in world pixels; the window is scaled up by the largest whole factor that still fits it.
     static constexpr int kViewWidth = 240;
     static constexpr int kViewHeight = 135;
-    static constexpr SDL_Color kSavedColor{0, 255, 0, 255};
     static constexpr SDL_Color kErrorColor{255, 0, 0, 255};
-    static constexpr float kTick = 1.0f / Simulation::kTicksPerSecond;
     static constexpr float kFadeSeconds = 0.5f;  // the black fade after taking the stairs
     static constexpr float kSleepFadeSeconds = 1.5f;
     static constexpr float kNoteSeconds = 2.5f;
@@ -95,16 +92,15 @@ public:
             return false;
         }
 #ifdef __EMSCRIPTEN__
-        // The browser version has one server, and remembers the name from the last visit.
-        menu_.setFixedServer(MINICRAFT_SERVER_URL);
-        menu_.setCanQuit(false);
+        menu_.setFixedServer(MINICRAFT_SERVER_URL);  // the browser version has one server
+#endif
+        // The name from the last visit is already typed in.
         if (std::ifstream file{persistDirectory() / kPlayerNameFile}) {
             std::string name;
             std::getline(file, name);
             if (protocol::isValidName(name)) menu_.setPlayerName(name);
         }
-#endif
-        menu_.openTitle(saves_.list());
+        menu_.openConnect();
         lastFrameNs_ = SDL_GetTicksNS();
         return true;
     }
@@ -128,16 +124,13 @@ public:
 private:
     static constexpr const char* kPlayerNameFile = "player_name.txt";
 
-    // This client's player, or null while joining a multiplayer world (before the Join tick arrives).
+    // This client's player, or null while joining the world (before the Join tick arrives).
     Player* me() { return sim_.findPlayer(localId_); }
     const Player* me() const { return sim_.findPlayer(localId_); }
 
-    // Something the player did once (from a menu). Offline it goes into the next tick; online, to the server,
-    // which puts it into the next tick for everyone.
-    void send(const PlayerCommand& command) {
-        if (online_) net_.sendCommand(command);
-        else localCommands_.push_back(command);
-    }
+    // Something the player did once (from a menu). It goes to the server, which puts it into the next tick for
+    // everyone.
+    void send(const PlayerCommand& command) { net_.sendCommand(command); }
 
     // The client's side of a fresh world: effects, screens and timers.
     void resetView() {
@@ -146,126 +139,22 @@ private:
         chat_.clear();
         fadeTimer_ = 0.0f;
         notes_.clear();
-        tickAccumulator_ = 0.0f;
         attackPressed_ = false;
-        localCommands_.clear();
         lastSentInput_ = {};
     }
 
-    // ---------------------------------------------------------------------------------------------------------
-    // Single-player worlds (saved to files)
-
-    void createWorld(std::string name, std::uint32_t seed) {
-        resetView();
-        sim_.startNewWorld(seed);
-        sim_.singlePlayer = true;
-        localId_ = 0;
-        sim_.addPlayer(localId_, "");
-        enterWorld(std::move(name), false);
-        saveWorld();  // so the new world is listed under Load World right away
-    }
-
-    bool loadWorld(std::string name) {
-        auto data = saves_.load(name);
-        if (!data) return false;
-        resetView();
-        sim_.resetSession(data->seed ^ static_cast<std::uint64_t>(data->secondsPlayed));
-        sim_.singlePlayer = true;
-        World& world = sim_.world();
-        if (data->levels.size() == World::kLevelCount) {
-            for (int i = 0; i < World::kLevelCount; ++i) {
-                auto& saved = data->levels[static_cast<std::size_t>(i)];
-                world.restoreLevel(i, data->seed, std::move(saved.tiles), std::move(saved.data));
-                for (auto& piece : saved.furniture) {
-                    Furniture::Piece restored{piece.type, piece.x, piece.y, piece.deathChest};
-                    for (const auto& stack : piece.contents) restored.contents.add(stack);
-                    world.level(i).furniture.restore(std::move(restored));
-                }
-            }
-            world.airWizardBeaten = data->airWizardBeaten;
-            world.linkStairs();  // older saves have stairs down walled in by rock
-        } else {
-            // A save from before the caves: generate the other levels and fit the stairs into the saved surface.
-            world.generate(data->seed, sim_.rng());
-            world.restoreLevel(World::kSurfaceIndex, data->seed, std::move(data->levels[0].tiles),
-                               std::move(data->levels[0].data));
-            world.linkStairs();
-        }
-        localId_ = 0;
-        Player& player = sim_.addPlayer(localId_, "");
-        // Older saves had no power glove: keep the one a new player gets. Newer ones carry their own.
-        if (data->levels.size() == World::kLevelCount) player.inventory().clear();
-        for (const auto& stack : data->inventory) player.inventory().add(stack);
-        player.setLevel(data->currentLevel);
-        player.setPosition(data->playerX, data->playerY);
-        player.restoreStats(data->health, data->energy, data->hunger, data->armor, data->armorPoints);
-        player.setSpawn(data->spawnLevel, {data->spawnX, data->spawnY});
-        player.setOnStairs(true);  // don't take the stairs straight away if the save was made on them
-        world.spawnBoss(sim_.rng());
-        sim_.dayNight().restore(data->dayTick, data->pastDay1);
-        sim_.setTickCount(data->secondsPlayed * Simulation::kTicksPerSecond);
-        enterWorld(std::move(name), false);
-        return true;
-    }
-
-    bool saveWorld() {
-        Player* player = me();
-        if (online_ || !player) return false;
-        // Never save a dead player: respawn them first.
-        if (player->waitingToRespawn()) sim_.tick({sim_.tickCount() + 1, {{localId_, {}, {PlayerCommand::respawn()}}}});
-        const World& world = sim_.world();
-        const Rect bounds = player->bounds();
-        WorldSaveData data;
-        data.seed = world.seed();
-        data.width = World::kSize;
-        data.height = World::kSize;
-        for (int i = 0; i < World::kLevelCount; ++i) {
-            const Level& source = world.level(i);
-            WorldSaveData::Level saved{source.map.tiles(), source.map.data(), {}};
-            for (const auto& piece : source.furniture.all()) {
-                saved.furniture.push_back({piece.type, piece.x, piece.y, piece.deathChest, piece.contents.stacks()});
-            }
-            data.levels.push_back(std::move(saved));
-        }
-        data.currentLevel = player->level();
-        data.playerX = bounds.x;
-        data.playerY = bounds.y;
-        data.health = std::max(1, player->health());
-        data.energy = player->energy();
-        data.hunger = player->hunger();
-        data.armor = player->armor();
-        data.armorPoints = player->armorPoints();
-        data.spawnLevel = player->spawnLevel();
-        data.spawnX = player->spawnPoint().x;
-        data.spawnY = player->spawnPoint().y;
-        data.dayTick = sim_.dayNight().tick();
-        data.pastDay1 = sim_.dayNight().pastDay1();
-        data.airWizardBeaten = world.airWizardBeaten;
-        data.secondsPlayed = sim_.secondsPlayed();
-        // The item in hand isn't in the inventory; save it as part of it so it isn't lost.
-        Inventory carried = player->inventory();
-        if (const auto& held = player->heldItem()) carried.add(*held);
-        data.inventory = carried.stacks();
-        return saves_.save(worldName_, data);
-    }
-
-    void enterWorld(std::string name, bool online) {
-        worldName_ = std::move(name);
+    void enterWorld() {
         inWorld_ = true;
-        online_ = online;
-        menu_.setOnline(online);
         menu_.close();
     }
 
     void leaveWorld() {
         inWorld_ = false;
-        online_ = false;
-        menu_.setOnline(false);
         resetView();
     }
 
     // ---------------------------------------------------------------------------------------------------------
-    // Multiplayer
+    // The server
 
     // The next visit starts with this name typed in.
     static void rememberPlayerName(const std::string& name) {
@@ -273,37 +162,42 @@ private:
         persistFlush();
     }
 
-    // What the server sent since the last frame: the lobby list, entering a world, chat, errors, a lost connection.
+    // What the server sent since the last frame: entering the world, chat, errors, a lost connection.
     void pollNetwork() {
         net_.poll();
         if (net_.takeConnectionLost()) {
-            const bool wasPlaying = inWorld_ && online_;
+            const bool wasPlaying = inWorld_;
             if (wasPlaying) leaveWorld();
             menu_.openConnect();
             menu_.showMessage(wasPlaying ? "Lost connection to the server" : "Could not connect", kErrorColor);
             return;
         }
-        if (auto lobbies = net_.takeLobbies()) {
-            std::vector<GameMenu::LobbyEntry> entries;
-            for (const auto& lobby : *lobbies) {
-                entries.push_back({lobby.id, lobby.name + " (" + std::to_string(lobby.players) + ")"});
-            }
-            menu_.setLobbies(std::move(entries));
-            if (!inWorld_ && menu_.screen() == GameMenu::Screen::Connecting) menu_.openLobbies();
+        if (auto error = net_.takeError()) {
+            // A refused name, say: back to the start screen to pick another.
+            net_.disconnect();
+            if (inWorld_) leaveWorld();
+            menu_.openConnect();
+            menu_.showMessage(*error, kErrorColor);
+            return;
         }
         if (auto joined = net_.takeJoined()) {
-            // A new world: generated from the lobby's seed, then the history replayed to catch up with everyone.
+            // The world (or, when it resets, a fresh one): generated from its seed, then the history replayed to
+            // catch up with everyone.
+            const bool reset = inWorld_;
             resetView();
             sim_.startNewWorld(joined->seed);
             sim_.singlePlayer = false;
             localId_ = net_.playerId();
             auto& ticks = net_.ticks();
             ticks.insert(ticks.begin(), joined->history.begin(), joined->history.end());
-            enterWorld(joined->lobbyName, true);
+            enterWorld();
+            if (reset) notify("A new world begins!");
         }
         for (const auto& line : net_.takeChat()) chat_.add(line.from, line.text);
-        if (auto error = net_.takeError()) menu_.showMessage(*error, kErrorColor);
     }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Playing
 
     // Simulates the ticks the server sent. Just after joining there's the whole history to replay: then it
     // fast-forwards (as many ticks as fit in a few milliseconds per frame, without their sounds and effects).
@@ -333,20 +227,6 @@ private:
             if (sim_.tickCount() % Simulation::kTicksPerSecond == 0) {
                 net_.sendStateHash(sim_.tickCount(), sim_.stateHash());
             }
-        }
-    }
-
-    // ---------------------------------------------------------------------------------------------------------
-    // Playing
-
-    // Offline: a tick every 1/60 s from this player's keys and commands.
-    void updateOffline(float dt) {
-        tickAccumulator_ += dt;
-        while (tickAccumulator_ >= kTick) {
-            tickAccumulator_ -= kTick;
-            sim_.tick({sim_.tickCount() + 1, {{localId_, readInput(), std::exchange(localCommands_, {})}}});
-            attackPressed_ = false;
-            playEvents();
         }
     }
 
@@ -421,25 +301,9 @@ private:
     void handleMenuAction(const GameMenu::Action& action) {
         using Kind = GameMenu::Action::Kind;
         switch (action.kind) {
-            case Kind::CreateWorld: createWorld(action.worldName, action.seed); break;
-            case Kind::LoadWorld:
-                if (!loadWorld(action.worldName)) menu_.showMessage("Could not load world", kErrorColor);
-                break;
             case Kind::Resume:
                 menu_.close();
                 audio_.play(Sound::Craft);
-                break;
-            case Kind::Save:
-                if (saveWorld()) menu_.showMessage("World saved!", kSavedColor);
-                else menu_.showMessage("Could not save!", kErrorColor);
-                break;
-            case Kind::SaveAndQuit:
-                if (!saveWorld()) {
-                    menu_.showMessage("Could not save!", kErrorColor);
-                    break;
-                }
-                leaveWorld();
-                menu_.openTitle(saves_.list());
                 break;
             case Kind::Respawn:
                 send(PlayerCommand::respawn());
@@ -453,21 +317,14 @@ private:
                     menu_.showMessage(action.address.empty() ? "No server configured" : "No server address", kErrorColor);
                 }
                 break;
-            case Kind::Disconnect:
-                net_.disconnect();
-                menu_.openTitle(saves_.list());
-                break;
-            case Kind::CreateLobby: net_.createLobby(); break;
-            case Kind::JoinLobby: net_.joinLobby(action.lobbyId); break;
             case Kind::LeaveGame:
-                net_.leaveLobby();
-                leaveWorld();
-                menu_.openLobbies();  // the server sends the lobby list again
+                net_.disconnect();
+                if (inWorld_) leaveWorld();
+                menu_.openConnect();
                 break;
             case Kind::ToggleSound: audio_.toggleMuted(); break;
             case Kind::VolumeDown: audio_.setVolume(audio_.volume() - 1); break;
             case Kind::VolumeUp: audio_.setVolume(audio_.volume() + 1); break;
-            case Kind::Quit: running_ = false; break;
             case Kind::None: break;
         }
         menu_.setSoundSettings(audio_.muted(), audio_.volume());
@@ -551,10 +408,10 @@ private:
         }
         if (key == SDLK_ESCAPE) {
             if (menuOpen()) exitMenus();
-            else menu_.openPause();  // online, the world keeps going behind it
+            else menu_.openPause();  // the world keeps going behind it
             return;
         }
-        if (online_ && key == ChatBox::kOpenKey && !menuOpen()) {
+        if (key == ChatBox::kOpenKey && !menuOpen()) {
             chat_.open();
             return;
         }
@@ -629,13 +486,12 @@ private:
             if (typing) SDL_StartTextInput(window);
             else SDL_StopTextInput(window);
         }
-        // Offline the world pauses behind any menu; online it never stops (the others keep playing).
-        if (inWorld_ && (online_ || !menu_.isOpen())) {
+        // The world never stops behind a menu: the others keep playing.
+        if (inWorld_) {
             fadeTimer_ = std::max(0.0f, fadeTimer_ - dt);
             for (auto& note : notes_) note.second -= dt;
             std::erase_if(notes_, [](const auto& note) { return note.second <= 0.0f; });
-            if (online_) updateOnline();
-            else updateOffline(dt);
+            updateOnline();
             effects_.update(dt);
         }
         updateView();
@@ -697,9 +553,9 @@ private:
         SDL_RenderPresent(renderer);
     }
 
-    // While joining a multiplayer world: replaying what happened before we arrived.
+    // While joining the world: replaying what happened before we arrived.
     void drawJoining(SDL_Renderer* renderer) const {
-        const std::string title = "Joining " + worldName_ + "...";
+        const std::string title = "Joining the world...";
         const std::string behind = std::to_string(net_.ticksWaiting()) + " ticks to catch up";
         const float width = camera_.width();
         const float middle = std::floor(camera_.height() / 2.0f);
@@ -758,7 +614,7 @@ private:
             hud_.drawBossBar(renderer, font_, boss->health() * 100 / AirWizard::kMaxHealth, "Air Wizard", viewWidth);
         }
         drawNotes(renderer, viewWidth, here);
-        if (online_) {
+        {
             // The chat in small text too, just above the hearts and bolts (the bottom 24 view pixels).
             const float toText = scale_ / textScale();
             SDL_SetRenderScale(renderer, textScale(), textScale());
@@ -827,41 +683,9 @@ private:
     void drawDebugPanel() {
         Player& player = *me();
         Level& here = sim_.levelOf(player);
-        const auto actions = debug_.drawPanel(camera_, scale_, here.map, player, player.inventory(), here.drops.size(),
-                                              here.mobs, sim_.dayNight(), here.name(), player.level());
-        // In multiplayer every client must run exactly the same simulation, so the debug panel only looks.
-        if (online_) return;
-        if (actions.regenerateSeed) {
-            sim_.regenerate(*actions.regenerateSeed);
-            effects_.clear();
-            closeMenus();
-        }
-        if (actions.refillStats) player.refillStats();
-        if (actions.clearInventory) player.inventory().clear();
-        for (const Inventory::Stack& stack : actions.giveItems) sim_.giveItems(player, stack.type, stack.count);
-        if (actions.spawnMob) {
-            const Vec2 p = player.center();
-            here.mobs.spawnNear(actions.spawnMob->first, actions.spawnMob->second, here.map, here.furniture.hitboxes(),
-                                p.x, p.y, 3, 6, sim_.rng());
-        }
-        if (actions.clearMobs) here.mobs.clear();
-        if (actions.setTime) sim_.dayNight().setTime(*actions.setTime);
-        if (actions.gotoLevel) {
-            sim_.changeLevel(player, *actions.gotoLevel, false);
-            // Clear a little room if the player landed inside rock (or over the edge of the sky).
-            Level& level = sim_.levelOf(player);
-            const Vec2 c = player.center();
-            const int tx = collision::tileIndex(c.x);
-            const int ty = collision::tileIndex(c.y);
-            for (int y = ty - 1; y <= ty + 1; ++y) {
-                for (int x = tx - 1; x <= tx + 1; ++x) {
-                    if (level.map.inBounds(x, y) && level.map.blocksMobsAt(x, y)) {
-                        level.map.setTile(x, y, level.isSky() ? Tile::Cloud : Tile::Dirt);
-                    }
-                }
-            }
-            playEvents();
-        }
+        // Every client must run exactly the same simulation, so the debug panel only looks: its actions are ignored.
+        debug_.drawPanel(camera_, scale_, here.map, player, player.inventory(), here.drops.size(), here.mobs,
+                         sim_.dayNight(), here.name(), player.level());
     }
 
     struct SdlQuit {
@@ -915,17 +739,12 @@ private:
     Camera camera_;
     DebugOverlay debug_;
     GameMenu menu_;
-    WorldSaves saves_{persistDirectory() / "saves"};
-    std::string worldName_;     // the save's name, or the lobby's
     bool inWorld_ = false;      // a world is loaded (playing or paused); false on the title screens
-    bool online_ = false;       // that world is a multiplayer lobby
     int localId_ = 0;           // this client's player in the simulation (0 offline; the server's id online)
-    std::vector<PlayerCommand> localCommands_;  // offline: what goes into the next tick
     PlayerInput lastSentInput_;                 // online: the keys the server last heard about
     int craftingStation_ = -1;  // whose recipes the crafting menu shows (an ItemType, -1 = by hand)
     float scale_ = 1.0f;
     float time_ = 0.0f;
-    float tickAccumulator_ = 0.0f;
     bool attackPressed_ = false;  // Space went down since the last tick
     float fadeTimer_ = 0.0f;
     float fadeDuration_ = kFadeSeconds;
