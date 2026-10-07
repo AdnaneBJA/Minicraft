@@ -58,26 +58,42 @@ add_library(game_core STATIC
     game-core/simulation.cpp)
 target_include_directories(game_core PUBLIC game-core)
 
-# ENet: reliable, ordered messages over UDP, for multiplayer. Its CMake doesn't export the include folder, so
-# that's added here.
-FetchContent_Declare(enet
-    GIT_REPOSITORY https://github.com/lsalzman/enet.git
-    GIT_TAG v1.3.18
-    GIT_SHALLOW TRUE)
-FetchContent_MakeAvailable(enet)
-target_include_directories(enet PUBLIC ${enet_SOURCE_DIR}/include)
+# IXWebSocket: the WebSocket client and server for everything but the browser (which has its own WebSocket API).
+# No TLS (a reverse proxy adds it in front of the server) and no zlib (so no compression).
+if(NOT EMSCRIPTEN)
+    set(USE_TLS OFF CACHE BOOL "" FORCE)
+    set(USE_ZLIB OFF CACHE BOOL "" FORCE)
+    set(IXWEBSOCKET_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(ixwebsocket
+        GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
+        GIT_TAG v12.0.1
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(ixwebsocket)
+endif()
 
-# The messages the client and the server exchange (shared by both).
-add_library(net_common STATIC net-common/protocol.cpp)
+# The messages the client and the server exchange (shared by both), and the client's WebSocket connection.
+if(EMSCRIPTEN)
+    add_library(net_common STATIC net-common/protocol.cpp net-common/client_socket_web.cpp)
+    target_link_libraries(net_common PUBLIC game_core)
+else()
+    add_library(net_common STATIC net-common/protocol.cpp net-common/client_socket_native.cpp)
+    target_link_libraries(net_common PUBLIC game_core ixwebsocket)
+endif()
 target_include_directories(net_common PUBLIC net-common)
-target_link_libraries(net_common PUBLIC game_core enet)
+
+# The game's connection to the server. No SDL, so the server tests can use it too.
+add_library(net_client STATIC client/network_client.cpp)
+target_include_directories(net_client PUBLIC client)
+target_link_libraries(net_client PUBLIC net_common)
 
 # The multiplayer server: lobbies, the 60 Hz tick relay and chat. It runs no game itself.
-add_executable(minicraft-server
-    server/main.cpp
-    server/server.cpp
-    server/lobby.cpp)
-target_link_libraries(minicraft-server PRIVATE net_common)
+if(NOT EMSCRIPTEN)
+    add_library(server_lib STATIC server/server.cpp server/lobby.cpp)
+    target_include_directories(server_lib PUBLIC server)
+    target_link_libraries(server_lib PUBLIC net_common ixwebsocket)
+    add_executable(minicraft-server server/main.cpp)
+    target_link_libraries(minicraft-server PRIVATE server_lib)
+endif()
 
 # The game.
 add_executable(Minicraft
@@ -99,9 +115,8 @@ add_executable(Minicraft
     client/world_save.cpp
     client/game_menu.cpp
     client/audio.cpp
-    client/network_client.cpp
     client/chat_box.cpp)
-target_link_libraries(Minicraft PRIVATE game_core net_common SDL3::SDL3 imgui)
+target_link_libraries(Minicraft PRIVATE game_core net_client SDL3::SDL3 imgui)
 
 # Unit tests for the core rules (GoogleTest). Run the `game_core_tests` target, or `ctest` from the build folder.
 FetchContent_Declare(googletest
@@ -118,8 +133,12 @@ add_executable(game_core_tests
     game-core/tests/rules_test.cpp
     game-core/tests/multiplayer_test.cpp)
 target_link_libraries(game_core_tests PRIVATE game_core GTest::gtest_main)
+# The server and the client's connection, end to end over localhost WebSockets.
+add_executable(server_tests server/tests/server_test.cpp)
+target_link_libraries(server_tests PRIVATE server_lib net_client GTest::gtest_main)
 include(GoogleTest)
 gtest_discover_tests(game_core_tests)
+gtest_discover_tests(server_tests DISCOVERY_TIMEOUT 30)
 
 # Copy assets next to the executable; the game finds them via SDL_GetBasePath().
 add_custom_command(TARGET Minicraft POST_BUILD

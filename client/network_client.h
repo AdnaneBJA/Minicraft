@@ -1,10 +1,10 @@
 #pragma once
 
+#include "client_socket.h"
 #include "protocol.h"
 #include "tick_input.h"
 
-#include <enet/enet.h>
-
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -20,8 +20,10 @@ class NetworkClient {
 public:
     enum class State { Offline, Connecting, Online };
 
-    // Starts connecting to "host" or "host:port". False if the address can't be resolved.
+    // Starts connecting to "host", "host:port", or a "ws://" / "wss://" URL. False if the address is empty.
     bool connect(const std::string& address, const std::string& playerName);
+    // The WebSocket URL for an address: "host[:port]" becomes "ws://host:port" (default port 7777), URLs stay.
+    static std::string urlFor(const std::string& address);
     void disconnect();
     // Handles everything the network delivered since the last call. Call once a frame.
     void poll();
@@ -57,8 +59,8 @@ private:
     template <typename Message>
     void send(const Message& message);
 
-    std::unique_ptr<ENetHost, void (*)(ENetHost*)> host_{nullptr, enet_host_destroy};
-    ENetPeer* server_ = nullptr;
+    std::unique_ptr<ClientSocket> socket_;
+    std::chrono::steady_clock::time_point connectStarted_;
     State state_ = State::Offline;
     std::string playerName_;
     int playerId_ = 0;

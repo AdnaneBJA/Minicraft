@@ -6,7 +6,6 @@
 #include "crafting_menu.h"
 #include "debug_overlay.h"
 #include "effects.h"
-#include "enet_util.h"
 #include "font.h"
 #include "game_menu.h"
 #include "hud.h"
@@ -89,7 +88,6 @@ public:
             !menu_.load(renderer, sprites + "title.png")) {
             return false;
         }
-        if (!enet_.ok()) SDL_Log("ENet failed to start: multiplayer won't work");
         menu_.openTitle(saves_.list());
         return true;
     }
@@ -434,7 +432,7 @@ private:
                 break;
             case Kind::Connect:
                 if (net_.connect(action.address, action.playerName)) menu_.openConnecting();
-                else menu_.showMessage("Unknown server address", kErrorColor);
+                else menu_.showMessage("No server address", kErrorColor);
                 break;
             case Kind::Disconnect:
                 net_.disconnect();
@@ -877,7 +875,6 @@ private:
 
     // Members are destroyed in reverse order: textures, ImGui and audio first, then renderer, window, and SDL_Quit.
     SdlQuit sdlQuit_;
-    EnetLibrary enet_;
     Audio audio_;
     std::unique_ptr<SDL_Window, WindowDeleter> window_;
     std::unique_ptr<SDL_Renderer, RendererDeleter> renderer_;

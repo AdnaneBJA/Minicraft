@@ -1,7 +1,10 @@
 #include "server.h"
 
-#include "enet_util.h"
 #include "protocol.h"
+
+#include <ixwebsocket/IXNetSystem.h>
+#include <ixwebsocket/IXWebSocket.h>
+#include <ixwebsocket/IXWebSocketServer.h>
 
 #include <chrono>
 #include <cstdio>
@@ -11,27 +14,70 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 constexpr auto kTickLength = std::chrono::microseconds(1'000'000 / 60);
+constexpr int kListenBacklog = 16;
 
 }  // namespace
 
+Server::Server() = default;
+
+Server::~Server() {
+    stop();
+    if (socketServer_) socketServer_->stop();  // closes every connection and joins their threads
+}
+
 bool Server::start(std::uint16_t port) {
-    ENetAddress address{};
-    address.host = ENET_HOST_ANY;
-    address.port = port;
-    // Up to kMaxPlayers clients, one channel each, no bandwidth limits.
-    host_.reset(enet_host_create(&address, protocol::kMaxPlayers, 1, 0, 0));
-    if (!host_) {
-        std::printf("Could not listen on port %u (is another server running?)\n", port);
+    ix::initNetSystem();
+    socketServer_ = std::make_unique<ix::WebSocketServer>(port, "0.0.0.0", kListenBacklog,
+                                                          static_cast<std::size_t>(protocol::kMaxPlayers));
+    // A new connection gets an id; from then on its thread only queues what it hears.
+    socketServer_->setOnConnectionCallback(
+        [this](std::weak_ptr<ix::WebSocket> weakSocket, std::shared_ptr<ix::ConnectionState>) {
+            const std::shared_ptr<ix::WebSocket> socket = weakSocket.lock();
+            if (!socket) return;
+            const int id = nextClientId_++;
+            socket->setOnMessageCallback([this, id, weakSocket](const ix::WebSocketMessagePtr& message) {
+                switch (message->type) {
+                    case ix::WebSocketMessageType::Open:
+                        push({.kind = NetEvent::Kind::Connected, .clientId = id, .socket = weakSocket});
+                        break;
+                    case ix::WebSocketMessageType::Message:
+                        push({.kind = NetEvent::Kind::Message, .clientId = id, .bytes = message->str});
+                        break;
+                    case ix::WebSocketMessageType::Close:
+                        push({.kind = NetEvent::Kind::Disconnected, .clientId = id});
+                        break;
+                    default: break;  // ping, pong, errors (a close follows)
+                }
+            });
+        });
+    if (const auto [ok, error] = socketServer_->listen(); !ok) {
+        std::printf("Could not listen on port %u: %s\n", port, error.c_str());
+        socketServer_.reset();
         return false;
     }
+    socketServer_->start();
+    running_ = true;
     std::printf("minicraft-server listening on port %u\n", port);
     return true;
 }
 
+void Server::stop() {
+    // Only an atomic store, so a signal handler may call it too. run() notices at its next wake-up, within a tick.
+    running_ = false;
+}
+
+void Server::push(NetEvent event) {
+    {
+        const std::lock_guard lock(eventsMutex_);
+        events_.push_back(std::move(event));
+    }
+    eventsReady_.notify_one();
+}
+
 void Server::run() {
-    // A fixed 60 Hz clock for the lobbies; in between, wait for network events.
+    // A fixed 60 Hz clock for the lobbies; in between, handle what the connections queued.
     auto nextTick = Clock::now();
-    while (true) {
+    while (running_) {
         const auto now = Clock::now();
         if (now >= nextTick) {
             tickLobbies();
@@ -39,31 +85,42 @@ void Server::run() {
             if (now - nextTick > std::chrono::seconds(1)) nextTick = now;  // fell far behind: don't try to catch up
             continue;
         }
-        const auto wait = std::chrono::duration_cast<std::chrono::milliseconds>(nextTick - now);
-        ENetEvent event;
-        if (enet_host_service(host_.get(), &event, static_cast<enet_uint32>(wait.count())) > 0) handle(event);
+        std::deque<NetEvent> events;
+        {
+            std::unique_lock lock(eventsMutex_);
+            eventsReady_.wait_until(lock, nextTick, [this] { return !events_.empty(); });
+            events.swap(events_);
+        }
+        for (NetEvent& event : events) handle(event);
     }
 }
 
-void Server::handle(const ENetEvent& event) {
-    switch (event.type) {
-        case ENET_EVENT_TYPE_CONNECT: {
-            Client client{.peer = event.peer, .id = nextClientId_++};
-            clients_[event.peer] = client;
+void Server::handle(NetEvent& event) {
+    switch (event.kind) {
+        case NetEvent::Kind::Connected: {
+            const Client& client = clients_[event.clientId] = {.socket = event.socket, .id = event.clientId};
             std::printf("Player %d connected\n", client.id);
-            sendMessage(event.peer, protocol::Welcome{client.id});
+            sendTo(client, protocol::Welcome{client.id});
             break;
         }
-        case ENET_EVENT_TYPE_RECEIVE:
-            if (Client* client = clientOf(event.peer)) {
-                handleMessage(*client, {event.packet->data, event.packet->dataLength});
+        case NetEvent::Kind::Message:
+            if (Client* client = clientOf(event.clientId)) {
+                const auto* data = reinterpret_cast<const std::uint8_t*>(event.bytes.data());
+                handleMessage(*client, {data, event.bytes.size()});
             }
-            enet_packet_destroy(event.packet);
             break;
-        case ENET_EVENT_TYPE_DISCONNECT:
-            if (Client* client = clientOf(event.peer)) disconnect(*client);
+        case NetEvent::Kind::Disconnected:
+            if (Client* client = clientOf(event.clientId)) disconnect(*client);
             break;
-        case ENET_EVENT_TYPE_NONE: break;
+    }
+}
+
+template <typename Message>
+void Server::sendTo(const Client& client, const Message& message) {
+    // The connection may have closed already (its Disconnected is still in the queue): then there's no one to tell.
+    if (const std::shared_ptr<ix::WebSocket> socket = client.socket.lock()) {
+        const std::vector<std::uint8_t> bytes = protocol::encode(message);
+        socket->sendBinary(std::string(bytes.begin(), bytes.end()));
     }
 }
 
@@ -77,7 +134,7 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
         case MessageType::Hello:
             if (const auto hello = protocol::decode<protocol::Hello>(bytes); hello && client.name.empty()) {
                 if (!protocol::isValidName(hello->name)) {
-                    sendMessage(client.peer, protocol::ErrorMessage{"Invalid name"});
+                    sendTo(client, protocol::ErrorMessage{"Invalid name"});
                     return;
                 }
                 client.name = hello->name;
@@ -123,7 +180,7 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
 void Server::disconnect(Client& client) {
     std::printf("Player %d (%s) disconnected\n", client.id, client.name.c_str());
     leaveLobby(client);
-    clients_.erase(client.peer);
+    clients_.erase(client.id);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -143,12 +200,12 @@ void Server::joinLobby(Client& client, int lobbyId) {
     if (client.lobbyId != 0) return;  // already playing
     const auto it = lobbies_.find(lobbyId);
     if (it == lobbies_.end()) {
-        sendMessage(client.peer, protocol::ErrorMessage{"That lobby is gone"});
+        sendTo(client, protocol::ErrorMessage{"That lobby is gone"});
         return;
     }
     Lobby& lobby = *it->second;
     // The newcomer gets the world's seed and every tick so far; their own Join comes with the next tick.
-    sendMessage(client.peer, protocol::Joined{lobby.id(), lobby.name(), lobby.seed(), lobby.history()});
+    sendTo(client, protocol::Joined{lobby.id(), lobby.name(), lobby.seed(), lobby.history()});
     lobby.addMember(client.id, client.name);
     client.lobbyId = lobby.id();
     tellLobby(lobby, "", client.name + " joined the game");
@@ -178,17 +235,17 @@ void Server::chat(Client& client, const std::string& text) {
 }
 
 void Server::tellLobby(const Lobby& lobby, const std::string& from, const std::string& text) {
-    for (auto& [peer, client] : clients_) {
-        if (client.lobbyId == lobby.id()) sendMessage(peer, protocol::ChatLine{from, text});
+    for (const auto& [id, client] : clients_) {
+        if (client.lobbyId == lobby.id()) sendTo(client, protocol::ChatLine{from, text});
     }
 }
 
 void Server::sendLobbyList(Client* only) {
     protocol::LobbyList list;
     for (const auto& [id, lobby] : lobbies_) list.lobbies.push_back({id, lobby->name(), lobby->size()});
-    for (auto& [peer, client] : clients_) {
+    for (const auto& [id, client] : clients_) {
         const bool browsing = !client.name.empty() && client.lobbyId == 0;
-        if (browsing && (!only || only == &client)) sendMessage(peer, list);
+        if (browsing && (!only || only == &client)) sendTo(client, list);
     }
 }
 
@@ -196,16 +253,13 @@ void Server::tickLobbies() {
     for (auto& [id, lobby] : lobbies_) {
         const protocol::TickMessage message{lobby->nextTick()};
         for (const int memberId : lobby->memberIds()) {
-            for (auto& [peer, client] : clients_) {
-                if (client.id == memberId) sendMessage(peer, message);
-            }
+            if (const Client* client = clientOf(memberId)) sendTo(*client, message);
         }
     }
-    enet_host_flush(host_.get());
 }
 
-Server::Client* Server::clientOf(ENetPeer* peer) {
-    const auto it = clients_.find(peer);
+Server::Client* Server::clientOf(int clientId) {
+    const auto it = clients_.find(clientId);
     return it == clients_.end() ? nullptr : &it->second;
 }
 
