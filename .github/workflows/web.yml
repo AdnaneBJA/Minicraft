@@ -22,9 +22,10 @@ jobs:
       - name: Install Ninja
         run: apt-get update && apt-get install -y ninja-build
       - name: Build
+        env:
+          SERVER_URL: ${{ vars.MINICRAFT_SERVER_URL }}  # through the environment, never pasted into the script
         run: |
-          emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DMINICRAFT_SERVER_URL="${{ vars.MINICRAFT_SERVER_URL }}"
+          emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DMINICRAFT_SERVER_URL="$SERVER_URL"
           cmake --build build-web
       - name: Collect the site
         run: |
