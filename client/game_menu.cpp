@@ -79,9 +79,8 @@ bool GameMenu::load(SDL_Renderer* renderer, const std::string& logoPath) {
 
 void GameMenu::openConnect() {
     splash_ = SDL_rand(static_cast<Sint32>(kSplashes.size()));
+    // The name field is selected, so typing goes straight into it; Enter plays from any row.
     open(Screen::Connect);
-    selected_ = playRow();  // the name is usually already there: Enter plays
-    if (!protocol::isValidName(playerName_)) selected_ = kNameRow;
 }
 
 void GameMenu::openDeath(int secondsPlayed) {

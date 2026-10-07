@@ -45,7 +45,7 @@ public:
     };
     // Draws the ImGui panel.
     PanelActions drawPanel(const Camera& camera, float scale, const TileMap& map, const Player& player,
-                           const Inventory& inventory, std::size_t droppedItemCount, Mobs& mobs,
+                           const Inventory& inventory, std::size_t droppedItemCount, const Mobs& mobs,
                            const DayNight& dayNight, const std::string& levelName, int levelIndex);
 
 private:

@@ -7,16 +7,19 @@
 //
 // Needs: the web build (built with -DMINICRAFT_SERVER_URL=ws://localhost:7777) and a server on port 7777:
 //   docker run --rm -p 7777:7777 minicraft-server      (or build/minicraft-server)
-//   node smoke.mjs [build-web folder]
+//   node smoke.mjs [build-web folder] [server log]
+// With the server's log, the run also checks what the server saw: the names the players typed, and no desync.
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const buildDir = resolve(process.argv[2] ?? join(here, '../../build-web'));
 const outDir = join(here, 'out');
+const serverLog = process.argv[3];
 const port = 8080;
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.data': 'application/octet-stream' };
 
@@ -56,9 +59,8 @@ async function press(page, key, times = 1) {
   }
 }
 
-// On the name screen: "Play" is selected; go up to the name, replace it, and play.
+// On the name screen, typing goes straight into the name, like a visitor would: replace it and play.
 async function play(page, name) {
-  await press(page, 'ArrowUp');
   await press(page, 'Backspace', 12);
   await page.keyboard.type(name, { delay: 60 });
   await press(page, 'Enter');
@@ -116,6 +118,17 @@ try {
 } finally {
   await browser.close();
   files.close();
+}
+
+if (serverLog) {
+  if (!existsSync(serverLog)) errors.push(`no server log at ${serverLog}`);
+  else {
+    const log = await readFile(serverLog, 'utf8');
+    const named = (name) => (log.match(new RegExp(`is ${name}\r?$`, 'gm')) ?? []).length;
+    if (named('Alice') !== 2) errors.push(`the server saw Alice join ${named('Alice')} times, not 2 (join + rejoin)`);
+    if (named('Bob') !== 1) errors.push(`the server saw Bob join ${named('Bob')} times, not 1`);
+    if (/out of sync/.test(log)) errors.push('the server reported a desync');
+  }
 }
 
 if (errors.length) {
