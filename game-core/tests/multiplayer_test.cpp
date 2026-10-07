@@ -122,3 +122,29 @@ TEST(Lockstep, TwoClientsGivenTheSameInputsStayIdentical) {
     for (const TickInput& input : inputs) latecomer.tick(input);
     EXPECT_EQ(latecomer.stateHash(), clientA.stateHash());
 }
+
+TEST(Lockstep, AReusedSimulationMatchesAFreshOne) {
+    // A player who leaves the world and joins again keeps their Simulation: starting the new world must leave
+    // nothing behind from the old one, or they'd go out of sync with everyone else.
+    std::vector<TickInput> inputs;
+    inputs.push_back({1, {{1, {}, {PlayerCommand::join("Alice")}}}});
+    for (int t = 2; t < 1200; ++t) {
+        PlayerInput a{.moveX = (t / 60) % 2 == 0 ? 1 : -1, .attack = t % 50 < 10, .attackPressed = t % 50 == 0};
+        inputs.push_back({t, {{1, a, {}}}});
+    }
+
+    Simulation reused;
+    reused.startNewWorld(7);
+    reused.singlePlayer = false;
+    for (const TickInput& input : inputs) reused.tick(input);  // the first visit
+
+    reused.startNewWorld(2024);  // ... and the world joined the second time
+    Simulation fresh;
+    fresh.startNewWorld(2024);
+    fresh.singlePlayer = false;
+    for (const TickInput& input : inputs) {
+        reused.tick(input);
+        fresh.tick(input);
+    }
+    EXPECT_EQ(reused.stateHash(), fresh.stateHash());
+}
