@@ -10,9 +10,11 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const buildDir = resolve(process.argv[2] ?? '../../build-web');
-const outDir = resolve('out');
+const here = fileURLToPath(new URL('.', import.meta.url));
+const buildDir = resolve(process.argv[2] ?? join(here, '../../build-web'));
+const outDir = join(here, 'out');
 const port = 8080;
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.data': 'application/octet-stream' };
 
