@@ -1,5 +1,7 @@
 # ADR 0001: Multiplayer as lockstep through a relay server, over ENet
 
+> **Transport superseded by [ADR 0002](0002-websocket-transport.md):** the game now talks WebSockets so it can run in a browser. Everything else here still holds.
+
 ## Context
 - `game-core` is deterministic: the same seed and the same inputs give the same world, tick for tick (tested by `stateHash()`).
 - The world is large: 5 levels of 256x256 tiles, with mobs, drops and chests. Sending its state to every client would need a serializer for every object and constant snapshot traffic.

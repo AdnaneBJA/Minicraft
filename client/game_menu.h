@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -58,6 +59,11 @@ public:
     void openPause();
     // Multiplayer: name and server address.
     void openConnect() { open(Screen::Connect); }
+    // The web version has one server: the connect screen then only asks for a name.
+    void setFixedServer(std::string url) { fixedServer_ = std::move(url); }
+    void setPlayerName(std::string name) { playerName_ = std::move(name); }
+    // False in a browser, where there's nothing to quit to: the title screen has no "Quit".
+    void setCanQuit(bool canQuit) { canQuit_ = canQuit; }
     void openConnecting() { open(Screen::Connecting); }
     void openLobbies() { open(Screen::Lobbies); }
     void setLobbies(std::vector<LobbyEntry> lobbies);
@@ -90,6 +96,9 @@ private:
     Action select();
     // Why the typed name can't be used yet, or empty if it can.
     std::string nameProblem() const;
+    // The connect screen's rows: name, server address (unless the server is fixed), then "Connect".
+    int connectRow() const { return fixedServer_ ? 1 : 2; }
+    int titleEntryCount() const { return canQuit_ ? 4 : 3; }
 
     void drawTitle(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
     void drawNewWorld(SDL_Renderer* renderer, const Font& font, float viewWidth, float viewHeight) const;
@@ -120,6 +129,8 @@ private:
     std::string seed_;
     std::string playerName_ = "Player";  // multiplayer fields
     std::string serverAddress_ = "localhost";
+    std::optional<std::string> fixedServer_;
+    bool canQuit_ = true;
     std::vector<LobbyEntry> lobbies_;
     bool online_ = false;
     std::string message_;

@@ -2,14 +2,18 @@
 
 **A C++20 remake of Notch's Minicraft, with online multiplayer built on a deterministic simulation.**
 
+### ▶ [Play it in your browser](https://adnanebja.github.io/Minicraft/)
+Compiled to WebAssembly. Pick **Multiplayer**, type a name, and create a world or join someone's on the hosted server.
+
 Chop trees, mine down through three dark cave levels, craft your way from wooden tools to gem gear, then climb to the sky and beat the Air Wizard. Play alone, or start a world on a server and have friends join it.
 
 ![Gameplay: chopping trees with an axe, crafting a workbench and placing it](docs/media/gameplay.gif)
 
 - **The game:** C++20 and SDL3, about 11k lines.
 - **The simulation:** written once in `game-core`, a library with no graphics, sound or files. It's fully **deterministic**: the same seed and the same inputs always produce the same world, tick for tick.
-- **Multiplayer:** a lockstep design over **ENet**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. Includes lobbies, chat, PvP, joining a world already in progress, and automatic desync detection.
-- **Tests:** 41 GoogleTest tests on the core rules, including two-client lockstep and late-join replay.
+- **In the browser:** the same C++ compiled to **WebAssembly** with Emscripten, published on GitHub Pages by CI, with saves kept in the browser.
+- **Multiplayer:** a lockstep design over **WebSockets**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. Includes lobbies, chat, PvP, joining a world already in progress, and automatic desync detection.
+- **Tests:** 52 GoogleTest tests: the core rules (including two-client lockstep and late-join replay), and the real server with real clients over localhost WebSockets. A Playwright script plays the web build in headless Chromium.
 
 ---
 
@@ -79,7 +83,7 @@ flowchart LR
         SimB["game-core<br/>Simulation"]
     end
     Server["minicraft-server<br/>lobbies · tick relay · chat · desync check"]
-    Client -- "keys, commands, chat, state hash<br/>(ENet, reliable)" --> Server
+    Client -- "keys, commands, chat, state hash<br/>(WebSocket, reliable)" --> Server
     Server -- "TickInput × 60/s, chat" --> Client
     Server -- "TickInput × 60/s, chat" --> Client2
 ```
@@ -88,7 +92,7 @@ flowchart LR
 |---|---|
 | [`game-core/`](game-core) | **The whole game, written once**: world generation, tiles, items and recipes, players, mobs, combat, the day cycle. `Simulation::tick(TickInput)` advances the world by one 60 Hz tick. No SDL, no rendering, no files, and no global state: randomness comes from one seeded generator (xoshiro128**) inside the simulation. |
 | [`net-common/`](net-common) | The messages the client and server exchange ([`protocol.h`](net-common/protocol.h) explains the design at the top), and how they are turned into bytes. Every read from the network is bounds-checked. |
-| [`server/`](server) | `minicraft-server`: ENet host, lobbies, the 60 Hz tick relay, tick history for late joiners, chat, desync detection. **It runs no game.** |
+| [`server/`](server) | `minicraft-server`: WebSocket server, lobbies, the 60 Hz tick relay, tick history for late joiners, chat, desync detection. **It runs no game.** |
 | [`client/`](client) | The SDL3 game: renderers, menus, audio, saves, chat, and the network client. |
 
 ### Lockstep: why the server runs no game
@@ -114,13 +118,13 @@ sequenceDiagram
 - **Desync detection:** once a second, each client sends a 64-bit fingerprint of its world (`Simulation::stateHash()`). If two players' fingerprints differ for the same tick, the server announces it in chat.
 - **Events, not side effects:** the simulation never plays a sound or draws anything. It records events (sound, damage number, "player died") tagged with the level they happened on and, for personal ones, the player they're for. Each client acts on the events that concern it.
 
-The trade-offs (input latency without client prediction, every client knowing the whole world, the same build required everywhere) are written up in **[ADR 0001: Multiplayer as lockstep over ENet](docs/adr/0001-multiplayer-lockstep-over-enet.md)**.
+The trade-offs (input latency without client prediction, every client knowing the whole world, the same build required everywhere) are written up in **[ADR 0001: Multiplayer as lockstep](docs/adr/0001-multiplayer-lockstep-over-enet.md)**. Why the transport became WebSockets, so the game runs in a browser: **[ADR 0002](docs/adr/0002-websocket-transport.md)**.
 
 ## Getting started
 
 ### Requirements
 - **CMake** 3.25 or newer, **Ninja**, and a **C++20** compiler. Tested on Windows 11 with MinGW-w64 GCC 13, the toolchain CLion bundles.
-- An internet connection on the first configure. CMake's FetchContent downloads and builds SDL3, Dear ImGui, ENet and GoogleTest. Nothing else needs installing.
+- An internet connection on the first configure. CMake's FetchContent downloads and builds SDL3, Dear ImGui, IXWebSocket and GoogleTest. Nothing else needs installing.
 
 ### Build
 
@@ -135,12 +139,25 @@ cmake --build build          # the first build also compiles SDL3: a few minutes
 ```
 This produces `build/Minicraft` (the game), `build/minicraft-server` and `build/game_core_tests`. The game finds its `assets/` folder next to the executable, and the build copies it there. With MinGW the C++ runtime is linked in, so the executables also start from Explorer.
 
+### Web build
+With Docker, using the same Emscripten as CI:
+```sh
+docker run --rm -v "$PWD":/src -w /src emscripten/emsdk:6.0.10 sh -c \
+  "apt-get update -qq && apt-get install -y -qq ninja-build && \
+   emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DMINICRAFT_SERVER_URL=ws://localhost:7777 && \
+   cmake --build build-web"
+```
+This produces `build-web/Minicraft.html` with its `.js`, `.wasm` and `.data`. Serve the folder over HTTP (for example `python -m http.server -d build-web`) and open `Minicraft.html`. `MINICRAFT_SERVER_URL` is the server the page connects to.
+
 ### Play alone
 Run `Minicraft`, then choose **Play → New World**. Worlds are saved to your user folder (`%APPDATA%/Minicraft/Minicraft/saves` on Windows).
 
 ### Play together
-1. Start the server: `build/minicraft-server` (port 7777), or `build/minicraft-server 9000` for another port. Open that UDP port in your firewall to play over a network.
-2. Each player runs `Minicraft` and picks **Multiplayer**. Enter a name and the server's address: `localhost`, a LAN IP like `192.168.1.20`, or `host:port`.
+**Online:** open the [web version](https://adnanebja.github.io/Minicraft/), pick **Multiplayer** and enter a name. It connects to the hosted server. How that server is set up (Docker, Caddy for HTTPS, a free VM): **[deploy/README.md](deploy/README.md)**.
+
+**On your own machine or LAN:**
+1. Start the server: `build/minicraft-server` (port 7777), or `build/minicraft-server 9000` for another port. Open that TCP port in your firewall to play over a network.
+2. Each player runs the desktop `Minicraft` and picks **Multiplayer**. Enter a name and the server's address: `localhost`, a LAN IP like `192.168.1.20`, or `host:port`.
 3. One player picks **Create new world**; the others pick it from the lobby list. You can join a world at any time, and the game catches up first.
 
 All players should run the same build, since lockstep needs bit-identical simulations; the desync check will tell you if they aren't.
@@ -162,8 +179,8 @@ All players should run the same build, since lockstep needs bit-identical simula
 ## Tests
 
 ```sh
-cmake --build build --target game_core_tests
-./build/game_core_tests
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 41 tests on `game-core`:
@@ -173,13 +190,21 @@ cmake --build build --target game_core_tests
 - **Gameplay rules:** mining, smelting, hard rock, farming, liquids, building, bows, food and armour, hunger, the power glove, creepers, skeletons, the boss, death chests.
 - **Multiplayer:** joining and leaving, PvP punches and arrows, several levels simulated at once, beds.
 
+11 tests on the server (`server_tests`): a real `minicraft-server` on localhost and real game clients over WebSockets. They cover creating and joining worlds, both players getting the same ticks, chat, leaving, a late joiner's history, a large message, bad names, an unreachable server, and a player vanishing mid-game.
+
+**Browser:** [`web/smoke/smoke.mjs`](web/smoke/smoke.mjs) plays the web build in headless Chromium with Playwright. Two players go online and chat, a single-player world survives a page reload, and the canvas follows the window.
+
+CI runs the tests on Linux for every push, and builds the web version for every pull request.
+
 ## Project layout
 
 ```
 game-core/    the simulation (static library, no SDL) + tests/
-net-common/   client/server protocol and ENet helpers
-server/       minicraft-server
-client/       the SDL3 game
+net-common/   client/server protocol and the WebSocket client (browser and native)
+server/       minicraft-server + tests/, and its Dockerfile
+client/       the SDL3 game (desktop and browser)
+web/          the web page around the game (shell.html) and the browser smoke test
+deploy/       Docker Compose + Caddy for the hosted server, and how to set it up
 assets/       sprites, sound effects, ASSETS.md (sources and licenses)
 docs/         architecture decisions (adr/) and the media in this README
 ```
@@ -188,10 +213,11 @@ docs/         architecture decisions (adr/) and the media in this README
 
 - [x] The full single-player game, with its rules in a deterministic, tested core library
 - [x] Multiplayer: lobbies, chat, PvP, late join by replay, desync detection
+- [x] In the browser (WebAssembly), with a hosted server
 
 ## Credits
 
 - **The original Minicraft** by Markus "Notch" Persson (Ludum Dare 22). This remake follows [Minicraft+ Revived](https://github.com/MinicraftPlus/minicraft-plus-revived), whose sprites and sound effects it uses (GPL-3.0). Every asset's source is listed in [`assets/ASSETS.md`](assets/ASSETS.md).
-- **Libraries:** [SDL3](https://github.com/libsdl-org/SDL), [ENet](https://github.com/lsalzman/enet), [Dear ImGui](https://github.com/ocornut/imgui), [GoogleTest](https://github.com/google/googletest).
+- **Libraries:** [SDL3](https://github.com/libsdl-org/SDL), [IXWebSocket](https://github.com/machinezone/IXWebSocket), [Emscripten](https://emscripten.org), [Caddy](https://caddyserver.com), [Dear ImGui](https://github.com/ocornut/imgui), [GoogleTest](https://github.com/google/googletest).
 
 A personal learning project, not distributed or sold.

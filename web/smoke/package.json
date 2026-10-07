@@ -1,0 +1,12 @@
+{
+  "name": "minicraft-web-smoke",
+  "private": true,
+  "type": "module",
+  "description": "Drives the web build in headless Chromium: two players online, and a single-player save across a reload.",
+  "scripts": {
+    "smoke": "node smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

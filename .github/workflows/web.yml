@@ -1,0 +1,54 @@
+# Builds the game for the browser and publishes it on GitHub Pages (pull requests only check that it builds).
+# The server it connects to comes from the repository variable MINICRAFT_SERVER_URL (e.g. wss://example.duckdns.org).
+name: Web
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:6.0.10  # the same Emscripten as a local Docker build
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Ninja
+        run: apt-get update && apt-get install -y ninja-build
+      - name: Build
+        env:
+          SERVER_URL: ${{ vars.MINICRAFT_SERVER_URL }}  # through the environment, never pasted into the script
+        run: |
+          emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DMINICRAFT_SERVER_URL="$SERVER_URL"
+          cmake --build build-web
+      - name: Collect the site
+        run: |
+          mkdir site
+          cp build-web/Minicraft.html site/index.html
+          cp build-web/Minicraft.js build-web/Minicraft.wasm build-web/Minicraft.data site/
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    # One deploy at a time, and a newer one waits instead of cancelling the one in progress. Pull requests never
+    # get here, so they can't hold up or cancel a deploy.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

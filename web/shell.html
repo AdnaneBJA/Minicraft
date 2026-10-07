@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minicraft</title>
+<meta name="description" content="A C++20 remake of Notch's Minicraft with online multiplayer, compiled to WebAssembly.">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; overflow: hidden;
+               font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #canvas { display: block; width: 100vw; height: 100vh; outline: none; background: #000; }
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+             justify-content: center; gap: 18px; background: #111; text-align: center; padding: 16px; }
+  h1 { margin: 0; font-size: 34px; letter-spacing: 2px; color: #fff; }
+  .sub { color: #999; max-width: 520px; }
+  .bar { width: min(320px, 80vw); height: 8px; background: #2a2a2a; border-radius: 4px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: #6ac46a; transition: width .15s; }
+  #status { color: #aaa; min-height: 1.4em; }
+  button { font: inherit; font-size: 18px; padding: 12px 34px; border: 0; border-radius: 6px; cursor: pointer;
+           background: #6ac46a; color: #111; font-weight: 600; }
+  button:hover { background: #7fd87f; }
+  button[hidden] { display: none; }
+  .keys { color: #888; font-size: 13px; }
+  .keys b { color: #ccc; font-weight: 600; }
+  #touch { color: #e0a050; }
+  a { color: #8ab4f8; }
+  footer { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+
+<div class="overlay" id="overlay">
+  <h1>MINICRAFT</h1>
+  <div class="sub">A C++20 remake of Notch's Minicraft with online multiplayer, compiled to WebAssembly.</div>
+  <div class="bar"><div id="progress"></div></div>
+  <div id="status">Downloading…</div>
+  <button id="play" hidden>Click to play</button>
+  <div class="keys"><b>WASD/arrows</b> move · <b>Space</b> attack or use · <b>E</b> inventory · <b>Z</b> craft ·
+    <b>Tab</b> map · <b>Enter</b> chat · <b>Esc</b> menu</div>
+  <div id="touch" hidden>This game needs a keyboard.</div>
+  <footer><a href="https://github.com/AdnaneBJA/Minicraft" target="_blank" rel="noopener">Source on GitHub</a></footer>
+</div>
+
+<script>
+  const overlay = document.getElementById('overlay');
+  const progress = document.getElementById('progress');
+  const statusLine = document.getElementById('status');
+  const play = document.getElementById('play');
+  const canvas = document.getElementById('canvas');
+
+  if (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches) {
+    document.getElementById('touch').hidden = false;
+  }
+
+  var Module = {
+    canvas: canvas,
+    // Emscripten reports downloads as "Downloading data... (done/total)", then "" when everything is in.
+    setStatus: function (text) {
+      const parts = /\((\d+(?:\.\d+)?)\/(\d+)\)/.exec(text);
+      if (parts) progress.style.width = (100 * parts[1] / parts[2]) + '%';
+      if (text) statusLine.textContent = text.replace(/\(.*\)/, '').trim() || 'Downloading…';
+    },
+    onRuntimeInitialized: function () {
+      progress.style.width = '100%';
+      statusLine.textContent = 'Ready';
+      play.hidden = false;
+      play.focus();
+    },
+    printErr: function (text) { console.warn(text); },
+  };
+
+  // The click starts sound (browsers only allow it after one) and hands the keyboard to the game.
+  play.addEventListener('click', function () {
+    overlay.remove();
+    canvas.focus();
+  });
+
+  window.addEventListener('error', function () {
+    statusLine.textContent = 'Something went wrong. Try reloading the page.';
+  });
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

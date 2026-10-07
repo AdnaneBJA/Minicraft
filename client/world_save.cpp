@@ -1,6 +1,7 @@
 #include "world_save.h"
 
 #include "day_night.h"
+#include "persist.h"
 #include "player.h"
 #include "world.h"
 
@@ -228,8 +229,12 @@ bool WorldSaves::save(std::string_view name, const WorldSaveData& data) const {
         std::filesystem::remove(path, error);
         std::filesystem::rename(temporary, path, error);
     }
-    if (error) SDL_Log("Could not save %s: %s", path.string().c_str(), error.message().c_str());
-    return !error;
+    if (error) {
+        SDL_Log("Could not save %s: %s", path.string().c_str(), error.message().c_str());
+        return false;
+    }
+    persistFlush();  // in a browser, the save only lasts once it reaches the browser's storage
+    return true;
 }
 
 std::optional<WorldSaveData> WorldSaves::load(std::string_view name) const {

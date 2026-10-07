@@ -43,8 +43,7 @@ constexpr int kNameRow = 0;
 constexpr int kSeedRow = 1;
 constexpr int kCreateRow = 2;
 constexpr int kPlayerNameRow = 0;  // multiplayer connect screen rows
-constexpr int kAddressRow = 1;
-constexpr int kConnectRow = 2;
+constexpr int kAddressRow = 1;  // only without a fixed server
 constexpr std::size_t kMaxAddressLength = 40;
 
 // A few of Minicraft's title splashes that fit this game.
@@ -155,16 +154,16 @@ void GameMenu::open(Screen screen) {
 }
 
 bool GameMenu::wantsTextInput() const {
-    if (screen_ == Screen::Connect) return selected_ == kPlayerNameRow || selected_ == kAddressRow;
+    if (screen_ == Screen::Connect) return selected_ == kPlayerNameRow || (!fixedServer_ && selected_ == kAddressRow);
     return screen_ == Screen::NewWorld && (selected_ == kNameRow || selected_ == kSeedRow);
 }
 
 int GameMenu::entryCount() const {
     switch (screen_) {
-        case Screen::Title: return static_cast<int>(kTitleEntries.size());
+        case Screen::Title: return titleEntryCount();
         case Screen::Play: return static_cast<int>(kPlayEntries.size());
-        case Screen::NewWorld:
-        case Screen::Connect: return 3;
+        case Screen::NewWorld: return 3;
+        case Screen::Connect: return connectRow() + 1;
         case Screen::Connecting: return 0;
         case Screen::Lobbies: return 1 + static_cast<int>(lobbies_.size());
         case Screen::LoadWorld: return static_cast<int>(worlds_.size());
@@ -266,6 +265,7 @@ GameMenu::Action GameMenu::select() {
                 showMessage("Name: 1-12 letters, digits, - or _", kRed);
                 return {};
             }
+            if (fixedServer_) return {.kind = Action::Kind::Connect, .playerName = playerName_, .address = *fixedServer_};
             if (serverAddress_.empty()) {
                 selected_ = kAddressRow;
                 return {};
@@ -410,7 +410,7 @@ void GameMenu::drawTitle(SDL_Renderer* renderer, const Font& font, float viewWid
                                 static_cast<Uint8>(level * 25), 255};
     drawCentered(renderer, font, kSplashes[splash_], viewWidth, middle - 30.0f, splashColor);
 
-    drawEntries(renderer, font, kTitleEntries, 0, static_cast<int>(kTitleEntries.size()), selected_, viewWidth,
+    drawEntries(renderer, font, kTitleEntries, 0, titleEntryCount(), selected_, viewWidth,
                 std::floor(viewHeight * 3.0f / 5.0f) - kRowHeight);
     drawCentered(renderer, font, "(UP, DOWN to select)", viewWidth, viewHeight - 20.0f, kDarkGray);
     drawCentered(renderer, font, "(ENTER to accept)", viewWidth, viewHeight - 10.0f, kDarkGray);
@@ -498,14 +498,14 @@ void GameMenu::drawConnect(SDL_Renderer* renderer, const Font& font, float viewW
         const float y = top + static_cast<float>(row) * kRowHeight;
         font.draw(renderer, text, left, y, color);
         if (row != selected_) return;
-        const bool isField = row != kConnectRow;
+        const bool isField = row != connectRow();
         if (isField && caretOn) font.draw(renderer, "_", left + Font::textWidth(text), y, color);
         font.draw(renderer, kCursorLeft, left - Font::textWidth(kCursorLeft), y, kWhite);
         font.draw(renderer, kCursorRight, left + Font::textWidth(text) + (isField ? kCell : 0.0f), y, kWhite);
     };
     drawRow(kPlayerNameRow, "Name: " + playerName_, selected_ == kPlayerNameRow ? kGreen : kGray);
-    drawRow(kAddressRow, "Server: " + serverAddress_, selected_ == kAddressRow ? kGreen : kGray);
-    drawRow(kConnectRow, "Connect", kCyan);
+    if (!fixedServer_) drawRow(kAddressRow, "Server: " + serverAddress_, selected_ == kAddressRow ? kGreen : kGray);
+    drawRow(connectRow(), "Connect", kCyan);
     if (!message_.empty()) drawCentered(renderer, font, message_, viewWidth, top + 4.0f * kRowHeight, messageColor_);
     drawCentered(renderer, font, "(ENTER to connect)", viewWidth, viewHeight - 20.0f, kDarkGray);
     drawCentered(renderer, font, "(ESCAPE to return)", viewWidth, viewHeight - 10.0f, kDarkGray);

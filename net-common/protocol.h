@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-// The messages the client and minicraft-server exchange over ENet, and how they look as bytes.
+// The messages the client and minicraft-server exchange over WebSockets, and how they look as bytes.
 //
 // How multiplayer works: the server runs no game. Each lobby is one world, and every client in it runs the same
 // Simulation. 60 times a second the server gathers what each player did (Input and Command messages) into one
@@ -17,7 +17,8 @@
 // computes the same world from the same ticks. A player joining a running lobby gets the lobby's whole tick history
 // (Joined) and replays it to catch up.
 //
-// Every message starts with one byte, its MessageType. Everything travels on one reliable, ordered ENet channel.
+// Every message starts with one byte, its MessageType, and travels as one binary WebSocket message: reliable and
+// in order.
 namespace protocol {
 
 constexpr std::uint16_t kDefaultPort = 7777;

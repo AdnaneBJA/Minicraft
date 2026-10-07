@@ -1,48 +1,44 @@
 #include "network_client.h"
 
-#include "enet_util.h"
-
-#include <cstdlib>
+#include <string_view>
 
 namespace {
 
-constexpr enet_uint32 kConnectTimeoutMs = 5000;
+// No answer this long after connecting: give up, as if the connection had dropped.
+constexpr auto kConnectTimeout = std::chrono::seconds(5);
+// In a world, nothing from the server for this long (no ticks): the connection died without closing.
+constexpr auto kSilenceTimeout = std::chrono::seconds(10);
 
 }  // namespace
 
+std::string NetworkClient::urlFor(const std::string& address) {
+    if (std::string_view(address).starts_with("ws://") || std::string_view(address).starts_with("wss://")) {
+        return address;
+    }
+    std::string host = address;
+    std::string port = std::to_string(protocol::kDefaultPort);
+    if (const auto colon = address.rfind(':'); colon != std::string::npos) {
+        host = address.substr(0, colon);
+        port = address.substr(colon + 1);
+    }
+    return "ws://" + host + ":" + port;
+}
+
 bool NetworkClient::connect(const std::string& address, const std::string& playerName) {
     disconnect();
-    // "host" or "host:port".
-    std::string hostName = address;
-    int port = protocol::kDefaultPort;
-    if (const auto colon = address.rfind(':'); colon != std::string::npos) {
-        hostName = address.substr(0, colon);
-        port = std::atoi(address.c_str() + colon + 1);
-    }
-    ENetAddress serverAddress{};
-    if (hostName.empty() || port <= 0 || port > 65535 || enet_address_set_host(&serverAddress, hostName.c_str()) != 0) {
-        return false;
-    }
-    serverAddress.port = static_cast<enet_uint16>(port);
-
-    // A client host: no incoming connections, one outgoing peer with one channel.
-    host_.reset(enet_host_create(nullptr, 1, 1, 0, 0));
-    if (!host_) return false;
-    server_ = enet_host_connect(host_.get(), &serverAddress, 1, 0);
-    if (!server_) return false;
-    enet_peer_timeout(server_, 0, kConnectTimeoutMs, kConnectTimeoutMs);
+    if (address.empty()) return false;
+    socket_ = makeClientSocket();
+    socket_->open(urlFor(address));
+    connectStarted_ = std::chrono::steady_clock::now();
     playerName_ = playerName;
     state_ = State::Connecting;
     return true;
 }
 
 void NetworkClient::disconnect() {
-    if (server_) {
-        enet_peer_disconnect_now(server_, 0);
-        server_ = nullptr;
-    }
-    host_.reset();
+    socket_.reset();  // closes the connection
     state_ = State::Offline;
+    inLobby_ = false;
     playerId_ = 0;
     ticks_.clear();
     lobbies_.reset();
@@ -50,27 +46,30 @@ void NetworkClient::disconnect() {
 }
 
 void NetworkClient::poll() {
-    if (!host_) return;
-    ENetEvent event;
-    while (host_ && enet_host_service(host_.get(), &event, 0) > 0) {
-        switch (event.type) {
-            case ENET_EVENT_TYPE_CONNECT:
+    if (!socket_) return;
+    for (const SocketEvent& event : socket_->poll()) {
+        switch (event.kind) {
+            case SocketEvent::Kind::Opened:
                 state_ = State::Online;
                 send(protocol::Hello{playerName_});  // the first thing the server wants to hear
                 break;
-            case ENET_EVENT_TYPE_RECEIVE:
-                handleMessage({event.packet->data, event.packet->dataLength});
-                enet_packet_destroy(event.packet);
+            case SocketEvent::Kind::Message:
+                lastHeard_ = std::chrono::steady_clock::now();
+                handleMessage(event.bytes);
                 break;
-            case ENET_EVENT_TYPE_DISCONNECT:
-                server_ = nullptr;  // ENet already let go of it
+            case SocketEvent::Kind::Closed:
                 disconnect();
                 connectionLost_ = true;
                 return;
-            case ENET_EVENT_TYPE_NONE: break;
         }
     }
-    if (host_) enet_host_flush(host_.get());
+    const auto now = std::chrono::steady_clock::now();
+    const bool connectTimedOut = state_ == State::Connecting && now - connectStarted_ > kConnectTimeout;
+    const bool serverWentSilent = inLobby_ && now - lastHeard_ > kSilenceTimeout;
+    if (connectTimedOut || serverWentSilent) {
+        disconnect();
+        connectionLost_ = true;
+    }
 }
 
 void NetworkClient::handleMessage(std::span<const std::uint8_t> bytes) {
@@ -88,6 +87,7 @@ void NetworkClient::handleMessage(std::span<const std::uint8_t> bytes) {
             if (auto joined = protocol::decode<protocol::Joined>(bytes)) {
                 ticks_.clear();
                 joined_ = std::move(*joined);
+                inLobby_ = true;
             }
             break;
         case MessageType::Tick:
@@ -105,7 +105,7 @@ void NetworkClient::handleMessage(std::span<const std::uint8_t> bytes) {
 
 template <typename Message>
 void NetworkClient::send(const Message& message) {
-    if (server_ && state_ == State::Online) sendMessage(server_, message);
+    if (socket_ && state_ == State::Online) socket_->send(protocol::encode(message));
 }
 
 void NetworkClient::createLobby() { send(protocol::CreateLobby{}); }
@@ -113,6 +113,7 @@ void NetworkClient::joinLobby(int lobbyId) { send(protocol::JoinLobby{lobbyId});
 void NetworkClient::leaveLobby() {
     send(protocol::LeaveLobby{});
     ticks_.clear();
+    inLobby_ = false;
 }
 void NetworkClient::sendInput(const PlayerInput& input) { send(protocol::InputMessage{input}); }
 void NetworkClient::sendCommand(const PlayerCommand& command) { send(protocol::CommandMessage{command}); }

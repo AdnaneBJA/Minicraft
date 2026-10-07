@@ -1,0 +1,4 @@
+# Caddy gets a Let's Encrypt certificate for $DOMAIN and passes WebSocket connections on to the game server.
+{$DOMAIN} {
+	reverse_proxy server:7777
+}
