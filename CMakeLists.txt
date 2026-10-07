@@ -127,12 +127,30 @@ if(MINICRAFT_BUILD_CLIENT)
         client/world_save.cpp
         client/game_menu.cpp
         client/audio.cpp
-        client/chat_box.cpp)
+        client/chat_box.cpp
+        client/persist.cpp)
     target_link_libraries(Minicraft PRIVATE game_core net_client SDL3::SDL3 imgui)
 
-    # Copy assets next to the executable; the game finds them via SDL_GetBasePath().
-    add_custom_command(TARGET Minicraft POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Minicraft>/assets)
+    if(EMSCRIPTEN)
+        # The web page: Minicraft.html (from web/shell.html), .js, .wasm, and .data (the assets, preloaded into the
+        # page's virtual file system at /assets, where SDL_GetBasePath() "/" finds them).
+        set(MINICRAFT_SERVER_URL "" CACHE STRING "The server the web version connects to, e.g. wss://example.org")
+        set_target_properties(Minicraft PROPERTIES SUFFIX ".html")
+        target_compile_definitions(Minicraft PRIVATE MINICRAFT_SERVER_URL="${MINICRAFT_SERVER_URL}")
+        target_link_options(Minicraft PRIVATE
+            -sALLOW_MEMORY_GROWTH=1
+            -sINITIAL_MEMORY=64MB
+            -sENVIRONMENT=web
+            -lwebsocket.js
+            -lidbfs.js
+            --preload-file ${CMAKE_SOURCE_DIR}/assets@/assets
+            --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html)
+        set_property(TARGET Minicraft APPEND PROPERTY LINK_DEPENDS ${CMAKE_SOURCE_DIR}/web/shell.html)
+    else()
+        # Copy assets next to the executable; the game finds them via SDL_GetBasePath().
+        add_custom_command(TARGET Minicraft POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Minicraft>/assets)
+    endif()
 endif()
 
 if(MINICRAFT_BUILD_TESTS)

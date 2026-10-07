@@ -14,6 +14,7 @@
 #include "lighting.h"
 #include "map_screen.h"
 #include "network_client.h"
+#include "persist.h"
 #include "recipe.h"
 #include "simulation.h"
 #include "sprite_renderer.h"
@@ -26,10 +27,15 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlrenderer3.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <utility>
@@ -88,36 +94,39 @@ public:
             !menu_.load(renderer, sprites + "title.png")) {
             return false;
         }
+#ifdef __EMSCRIPTEN__
+        // The browser version has one server, and remembers the name from the last visit.
+        menu_.setFixedServer(MINICRAFT_SERVER_URL);
+        menu_.setCanQuit(false);
+        if (std::ifstream file{persistDirectory() / kPlayerNameFile}) {
+            std::string name;
+            std::getline(file, name);
+            if (protocol::isValidName(name)) menu_.setPlayerName(name);
+        }
+#endif
         menu_.openTitle(saves_.list());
+        lastFrameNs_ = SDL_GetTicksNS();
         return true;
     }
 
-    void run() {
-        Uint64 previous = SDL_GetTicksNS();
-        while (running_) {
-            const Uint64 now = SDL_GetTicksNS();
-            // Clamp so a stall (window drag, breakpoint) doesn't teleport the player.
-            const float dt = std::min(static_cast<float>(now - previous) / 1e9f, 0.1f);
-            previous = now;
-            time_ += dt;
+    // One frame: input, simulation and drawing. False once the player has quit.
+    bool frame() {
+        const Uint64 now = SDL_GetTicksNS();
+        // Clamp so a stall (window drag, breakpoint, a hidden browser tab) doesn't teleport the player.
+        const float dt = std::min(static_cast<float>(now - lastFrameNs_) / 1e9f, 0.1f);
+        lastFrameNs_ = now;
+        time_ += dt;
 
-            handleEvents();
-            update(dt);
-            draw();
-        }
-        net_.disconnect();
+        handleEvents();
+        update(dt);
+        draw();
+        return running_;
     }
+
+    void shutdown() { net_.disconnect(); }
 
 private:
-    // Saves live in the per-user data folder (e.g. %APPDATA%/Minicraft/Minicraft/saves on Windows), like
-    // Minicraft's game directory.
-    static std::filesystem::path savesDirectory() {
-        char* prefPath = SDL_GetPrefPath("Minicraft", "Minicraft");
-        std::filesystem::path path;
-        if (prefPath) path = std::filesystem::path(reinterpret_cast<const char8_t*>(prefPath));
-        SDL_free(prefPath);
-        return path / "saves";
-    }
+    static constexpr const char* kPlayerNameFile = "player_name.txt";
 
     // This client's player, or null while joining a multiplayer world (before the Join tick arrives).
     Player* me() { return sim_.findPlayer(localId_); }
@@ -257,6 +266,12 @@ private:
 
     // ---------------------------------------------------------------------------------------------------------
     // Multiplayer
+
+    // The next visit starts with this name typed in.
+    static void rememberPlayerName(const std::string& name) {
+        std::ofstream(persistDirectory() / kPlayerNameFile) << name << '\n';
+        persistFlush();
+    }
 
     // What the server sent since the last frame: the lobby list, entering a world, chat, errors, a lost connection.
     void pollNetwork() {
@@ -431,8 +446,12 @@ private:
                 menu_.close();
                 break;
             case Kind::Connect:
-                if (net_.connect(action.address, action.playerName)) menu_.openConnecting();
-                else menu_.showMessage("No server address", kErrorColor);
+                if (net_.connect(action.address, action.playerName)) {
+                    menu_.openConnecting();
+                    rememberPlayerName(action.playerName);
+                } else {
+                    menu_.showMessage(action.address.empty() ? "No server configured" : "No server address", kErrorColor);
+                }
                 break;
             case Kind::Disconnect:
                 net_.disconnect();
@@ -896,7 +915,7 @@ private:
     Camera camera_;
     DebugOverlay debug_;
     GameMenu menu_;
-    WorldSaves saves_{savesDirectory()};
+    WorldSaves saves_{persistDirectory() / "saves"};
     std::string worldName_;     // the save's name, or the lobby's
     bool inWorld_ = false;      // a world is loaded (playing or paused); false on the title screens
     bool online_ = false;       // that world is a multiplayer lobby
@@ -912,13 +931,44 @@ private:
     float fadeDuration_ = kFadeSeconds;
     std::vector<std::pair<std::string, float>> notes_;  // notifications and the seconds they have left
     bool running_ = true;
+    Uint64 lastFrameNs_ = 0;
 };
+
+#ifdef __EMSCRIPTEN__
+
+// In a browser the page owns the loop: it calls us once per animation frame. The saved files load in the
+// background first, so the game starts once they're there.
+int main(int, char*[]) {
+    persistMount();
+    static Game* game = new Game;  // lives as long as the page
+    emscripten_set_main_loop(
+        [] {
+            static bool started = false;
+            if (!started) {
+                if (!persistReady()) return;
+                started = true;
+                if (!game->init()) {
+                    emscripten_cancel_main_loop();
+                    return;
+                }
+            }
+            if (!game->frame()) emscripten_cancel_main_loop();
+        },
+        0, false);
+    return 0;
+}
+
+#else
 
 int main(int, char*[]) {
     Game game;
     if (!game.init()) {
         return 1;
     }
-    game.run();
+    while (game.frame()) {
+    }
+    game.shutdown();
     return 0;
 }
+
+#endif
