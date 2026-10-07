@@ -1,10 +1,11 @@
-# Builds the game for the browser and publishes it on GitHub Pages.
+# Builds the game for the browser and publishes it on GitHub Pages (pull requests only check that it builds).
 # The server it connects to comes from the repository variable MINICRAFT_SERVER_URL (e.g. wss://example.duckdns.org).
 name: Web
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -35,10 +36,12 @@ jobs:
           cp build-web/Minicraft.html site/index.html
           cp build-web/Minicraft.js build-web/Minicraft.wasm build-web/Minicraft.data site/
       - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
         with:
           path: site
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
