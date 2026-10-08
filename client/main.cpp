@@ -14,7 +14,6 @@
 #include "lighting.h"
 #include "map_screen.h"
 #include "network_client.h"
-#include "persist.h"
 #include "recipe.h"
 #include "simulation.h"
 #include "sprite_renderer.h"
@@ -33,8 +32,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <filesystem>
-#include <fstream>
 #include <optional>
 #include <string>
 #include <utility>
@@ -94,12 +91,6 @@ public:
 #ifdef __EMSCRIPTEN__
         menu_.setFixedServer(MINICRAFT_SERVER_URL);  // the browser version has one server
 #endif
-        // The name from the last visit is already typed in.
-        if (std::ifstream file{persistDirectory() / kPlayerNameFile}) {
-            std::string name;
-            std::getline(file, name);
-            if (protocol::isValidName(name)) menu_.setPlayerName(name);
-        }
         menu_.openConnect();
         lastFrameNs_ = SDL_GetTicksNS();
         return true;
@@ -122,7 +113,6 @@ public:
     void shutdown() { net_.disconnect(); }
 
 private:
-    static constexpr const char* kPlayerNameFile = "player_name.txt";
 
     // This client's player, or null while joining the world (before the Join tick arrives).
     Player* me() { return sim_.findPlayer(localId_); }
@@ -155,12 +145,6 @@ private:
 
     // ---------------------------------------------------------------------------------------------------------
     // The server
-
-    // The next visit starts with this name typed in.
-    static void rememberPlayerName(const std::string& name) {
-        std::ofstream(persistDirectory() / kPlayerNameFile) << name << '\n';
-        persistFlush();
-    }
 
     // What the server sent since the last frame: entering the world, chat, errors, a lost connection.
     void pollNetwork() {
@@ -312,7 +296,6 @@ private:
             case Kind::Connect:
                 if (net_.connect(action.address, action.playerName)) {
                     menu_.openConnecting();
-                    rememberPlayerName(action.playerName);
                 } else {
                     menu_.showMessage(action.address.empty() ? "No server configured" : "No server address", kErrorColor);
                 }
@@ -755,22 +738,13 @@ private:
 
 #ifdef __EMSCRIPTEN__
 
-// In a browser the page owns the loop: it calls us once per animation frame. The saved files load in the
-// background first, so the game starts once they're there.
+// In a browser the page owns the loop: it calls us once per animation frame. Nothing is stored in the browser:
+// every visit starts the same way.
 int main(int, char*[]) {
-    persistMount();
     static Game* game = new Game;  // lives as long as the page
+    if (!game->init()) return 1;
     emscripten_set_main_loop(
         [] {
-            static bool started = false;
-            if (!started) {
-                if (!persistReady()) return;
-                started = true;
-                if (!game->init()) {
-                    emscripten_cancel_main_loop();
-                    return;
-                }
-            }
             if (!game->frame()) emscripten_cancel_main_loop();
         },
         0, false);

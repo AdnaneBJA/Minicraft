@@ -30,7 +30,11 @@ replay and desync detection are unchanged.
 - **The web build:**
   - one page on GitHub Pages, built by GitHub Actions;
   - the server URL is compiled in (`MINICRAFT_SERVER_URL`), so the multiplayer screen only asks for a name;
-  - saves went to the browser's IndexedDB at first. The game has since become online only, with no saves; IndexedDB now only remembers the player's name.
+  - saves went to the browser's IndexedDB at first. The game has since become online only and stores nothing in
+    the browser, so every visit starts the same way.
+- **Caddy serves HTTP/1.1 only** (`deploy/Caddyfile`): the endpoint only carries a WebSocket, and offering HTTP/2
+  and HTTP/3 only gave browsers per-site protocol state to remember (HTTP/3 can't even work: the firewall only
+  opens TCP 443).
 
 ## Consequences
 - **Good:**

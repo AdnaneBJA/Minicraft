@@ -46,7 +46,6 @@ public:
     void openPause() { open(Screen::Pause); }
     // The web version has one server: the start screen then only asks for a name.
     void setFixedServer(std::string url) { fixedServer_ = std::move(url); }
-    void setPlayerName(std::string name) { playerName_ = std::move(name); }
     // "You died! Aww :(" with the time survived (PlayerDeathDisplay).
     void openDeath(int secondsPlayed);
     // "You won! Yay :)" after beating the Air Wizard, with the time it took (EndGameDisplay).

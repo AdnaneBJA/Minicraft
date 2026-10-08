@@ -11,7 +11,7 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 
 - **The game:** C++20 and SDL3, about 11k lines.
 - **The simulation:** written once in `game-core`, a library with no graphics, sound or files. It's fully **deterministic**: the same seed and the same inputs always produce the same world, tick for tick.
-- **In the browser:** the same C++ compiled to **WebAssembly** with Emscripten, published on GitHub Pages by CI.
+- **In the browser:** the same C++ compiled to **WebAssembly** with Emscripten, published on GitHub Pages by CI. It stores nothing in the browser.
 - **Multiplayer:** a lockstep design over **WebSockets**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. One shared world per server, with chat, PvP, joining a world already in progress, and automatic desync detection.
 - **Tests:** 58 GoogleTest tests: the core rules (including two-client lockstep and late-join replay), and the real server with real clients over localhost WebSockets. A Playwright script plays the web build in headless Chromium.
 
