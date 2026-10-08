@@ -68,11 +68,12 @@
   function showTimeline(points) {
     const canvas = document.getElementById('timeline');
     if (!canvas || typeof Chart === 'undefined') return;
-    // Every hour of the last 7 days, including the quiet ones.
+    // Every hour of the last 7 days, including the quiet ones. The server counts per UTC hour, so the slots start on
+    // UTC hours too (a local hour isn't one in every timezone: India is UTC+5:30).
+    const HOUR = 3600 * 1000;
     const hours = [];
-    const start = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-    start.setMinutes(0, 0, 0);
-    for (let t = start.getTime(); t <= Date.now(); t += 3600 * 1000) hours.push(t);
+    const now = Date.now();
+    for (let t = Math.floor((now - 7 * 24 * HOUR) / HOUR) * HOUR; t <= now; t += HOUR) hours.push(t);
     const byHour = new Map(points.map((p) => [new Date(p.hour).getTime(), p]));
     const labels = hours.map((t) => new Date(t).toLocaleString('en-US', { weekday: 'short', hour: 'numeric' }));
     const joins = hours.map((t) => (byHour.get(t) || {}).joins || 0);

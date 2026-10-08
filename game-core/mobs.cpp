@@ -84,8 +84,13 @@ void Mobs::tick(const Context& context, const SpawnRules& rules) {
     std::erase_if(mobs_, [&](const std::unique_ptr<Mob>& mob) {
         if (mob->isDead()) {
             mob->dropLoot(context.drops, context.rng);
-            context.events.push({.kind = GameEvent::Kind::MobKilled, .value = static_cast<int>(mob->kind()),
-                                 .count = mob->level(), .player = mob->lastHitBy()});
+            // A creeper that blew itself up wasn't killed by anyone.
+            const bool selfDestructed =
+                mob->kind() == MobKind::Creeper && static_cast<const Creeper&>(*mob).exploding();
+            if (!selfDestructed) {
+                context.events.push({.kind = GameEvent::Kind::MobKilled, .value = static_cast<int>(mob->kind()),
+                                     .count = mob->level(), .player = mob->lastHitBy()});
+            }
             if (mob->kind() == MobKind::AirWizard) {
                 bossDefeated_ = true;
                 bossKiller_ = mob->lastHitBy();
@@ -164,9 +169,10 @@ void Mobs::explode(const Creeper& creeper, const Context& context) {
     for (Player* player : context.players) {
         const Vec2 p = player->center();
         if (std::hypot(p.x - c.x, p.y - c.y) < reach) {
-            // A creeper a player hit before it blew counts as theirs.
-            const DamageSource source = creeper.lastHitBy() >= 0
-                                            ? DamageSource{DamageSource::Kind::Player, creeper.lastHitBy()}
+            // A creeper a player hit before it blew counts as theirs, except for that player: they were blown up by a
+            // creeper, not by themselves.
+            const bool lit = creeper.lastHitBy() >= 0 && creeper.lastHitBy() != player->id();
+            const DamageSource source = lit ? DamageSource{DamageSource::Kind::Player, creeper.lastHitBy()}
                                             : DamageSource{DamageSource::Kind::Mob, static_cast<int>(MobKind::Creeper)};
             player->takeHit(blastAt(p), p.x < c.x ? -1 : 1, 0, context.events, source);
         }

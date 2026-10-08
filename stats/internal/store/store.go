@@ -181,8 +181,8 @@ func tally(ctx context.Context, tx pgx.Tx, e ingest.Event, at time.Time) error {
 		}
 		switch e.KillerKind {
 		case "player":
-			if e.Subject == "" {
-				return nil
+			if e.Subject == "" || e.Subject == e.Player {
+				return nil // nobody to credit, or a player's own doing: not PvP
 			}
 			if err := exec(`INSERT INTO players (name, first_seen, last_seen) VALUES ($1, $2, $2)
 				ON CONFLICT (name) DO NOTHING`, e.Subject, at); err != nil {

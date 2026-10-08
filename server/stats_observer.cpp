@@ -70,6 +70,7 @@ StatEvent StatsObserver::describe(const GameEvent& event) const {
             break;
         case Kind::BossDefeated:
             stat.type = "BossDefeated";
+            stat.player = event.killer.kind == DamageSource::Kind::Player ? nameOf(event.killer.id) : std::string();
             stat.subject = "Air Wizard";
             stat.count = 1;
             break;

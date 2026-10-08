@@ -197,7 +197,10 @@ void Simulation::tickLevel(int index) {
 
     if (level.mobs.takeBossDefeated()) {
         world_.airWizardBeaten = true;
-        events_.push({.kind = GameEvent::Kind::BossDefeated, .player = level.mobs.bossKiller()});
+        // For everyone (every client shows the win screen); the stats learn who landed the last hit from `killer`.
+        GameEvent defeated{.kind = GameEvent::Kind::BossDefeated};
+        if (level.mobs.bossKiller() >= 0) defeated.killer = {DamageSource::Kind::Player, level.mobs.bossKiller()};
+        events_.push(defeated);
     }
 }
 

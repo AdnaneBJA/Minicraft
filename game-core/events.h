@@ -32,7 +32,7 @@ struct GameEvent {
         LevelChanged,  // `player` is now on World level `value` (viaStairs: `flag`)
         Slept,         // `player` slept (until morning in single-player)
         PlayerDied,    // `player` died (`value`: seconds played)
-        BossDefeated,  // the Air Wizard is dead: everyone has won (`player`: who landed the last hit, or -1)
+        BossDefeated,  // the Air Wizard is dead: everyone has won (`killer`: who landed the last hit)
         // Stats: what players did, for the game server to report. Clients ignore them.
         TileBroken,     // `player` broke or harvested a tile (`value`: the Tile)
         ItemCollected,  // `player` picked up `count` items (`value`: the ItemType)

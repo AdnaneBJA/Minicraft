@@ -148,3 +148,20 @@ func TestApplyFailsWhenClosed(t *testing.T) {
 		t.Fatal("want an error from a closed store")
 	}
 }
+
+func TestSelfKillIsNotPvp(t *testing.T) {
+	st := open(t)
+	if _, err := st.Apply(context.Background(), []ingest.Event{{ID: "1", Type: "PlayerKilled", At: 1, Player: "Alice",
+		Subject: "Alice", KillerKind: "player", Count: 10}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := scalar(t, st, "SELECT pvp_kills FROM players WHERE name = 'Alice'"); got != 0 {
+		t.Errorf("pvp kills = %d, want 0", got)
+	}
+	if got := scalar(t, st, "SELECT count(*) FROM kills"); got != 0 {
+		t.Errorf("kills rows = %d, want 0", got)
+	}
+	if got := scalar(t, st, "SELECT deaths FROM players WHERE name = 'Alice'"); got != 1 {
+		t.Errorf("deaths = %d, want 1 (the death still counts)", got)
+	}
+}

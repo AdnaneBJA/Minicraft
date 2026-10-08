@@ -170,6 +170,45 @@ TEST_F(Stats, EnteringACaveRecordsLevelReachedOncePerLife) {
     EXPECT_EQ(reached, 1);
 }
 
+TEST_F(Stats, BossDefeatIsForEveryoneAndCreditsTheKiller) {
+    // Everyone gets the win screen (the event is for every player), and the stats learn who landed the last hit.
+    sim.changeLevel(alice(), World::kSkyIndex, false);
+    Level& sky = sim.world().level(World::kSkyIndex);
+    sky.mobs.clear();
+    auto boss = std::make_unique<AirWizard>(alice().center().x + 40.0f, alice().center().y, sim.rng());
+    boss->setLastHitBy(kAlice);
+    boss->kill();
+    sky.mobs.add(std::move(boss));
+    tick({{kAlice, {}, {}}});
+    const GameEvent* defeated = first(GameEvent::Kind::BossDefeated);
+    ASSERT_NE(defeated, nullptr);
+    EXPECT_EQ(defeated->player, -1);  // not addressed to one player: every client shows the win screen
+    EXPECT_EQ(defeated->killer.kind, DamageSource::Kind::Player);
+    EXPECT_EQ(defeated->killer.id, kAlice);
+}
+
+TEST_F(Stats, CreeperBlastIsNotASelfKill) {
+    // Alice hit the creeper (it's "hers"), then it blew up next to her and Bob. Bob was hurt by Alice's creeper; Alice
+    // was hurt by a creeper, not by herself. And a creeper blowing itself up isn't anyone's kill.
+    tick({{kAlice, {}, {}}, {kBob, {}, {PlayerCommand::join("Bob")}}});
+    Player& bob = *sim.findPlayer(kBob);
+    bob.setPosition(kX * 16.0f, (kY + 1) * 16.0f - 3.0f);
+    auto creeper = std::make_unique<Creeper>((kX + 1) * 16.0f, kY * 16.0f, 1, sim.rng());
+    creeper->setLastHitBy(kAlice);
+    surface().mobs.add(std::move(creeper));
+    for (int t = 0; t < 600 && surface().mobs.count(MobKind::Creeper) > 0; ++t) {
+        bob.setPosition(kX * 16.0f, (kY + 1) * 16.0f - 3.0f);
+        alice().setPosition(kX * 16.0f, kY * 16.0f - 3.0f);
+        tick({{kAlice, {}, {}}, {kBob, {}, {}}});
+    }
+    ASSERT_EQ(surface().mobs.count(MobKind::Creeper), 0) << "the creeper never blew up";
+    EXPECT_EQ(alice().lastDamage().kind, DamageSource::Kind::Mob);
+    EXPECT_EQ(alice().lastDamage().id, static_cast<int>(MobKind::Creeper));
+    EXPECT_EQ(bob.lastDamage().kind, DamageSource::Kind::Player);
+    EXPECT_EQ(bob.lastDamage().id, kAlice);
+    EXPECT_FALSE(saw(GameEvent::Kind::MobKilled));
+}
+
 TEST(StatEvents, AreDeterministic) {
     // Two copies of the world fed the same ticks record the same stat events: the server's replay counts exactly
     // what the players saw.
