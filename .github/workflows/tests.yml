@@ -76,7 +76,7 @@ jobs:
         run: |
           ./build/minicraft-server 7777 &
           server=$!  # (pgrep can't find it by name: Linux cuts process names to 15 characters)
-          sleep 1
+          for i in $(seq 100); do nc -z localhost 7777 && break; sleep 0.1; done  # until it listens
           cd loadtest
           go run ./cmd/loadtest --bots 8 --ramp 2s --duration 20s --server-pid "$server" \
             --out ../ci-report --fail-on-p99 250ms --fail-on-errors

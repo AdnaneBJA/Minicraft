@@ -34,6 +34,7 @@ type Options struct {
 	AllowRemote bool          // allow a target that isn't on this machine or a private network
 	ChangeEvery time.Duration // bots: average time between key changes (0: the bot default)
 	ChatEvery   time.Duration // bots: average time between chat lines (0: the bot default)
+	JoinTimeout time.Duration // bots: a join taking longer failed (0: the bot default, 10 s)
 }
 
 // ErrRemoteTarget: the URL isn't local; load-testing someone's live server needs an explicit flag.
@@ -73,7 +74,7 @@ type runner struct {
 
 func (r *runner) startBot(name string, seed int64, joinOnly bool) {
 	cfg := bot.Config{URL: r.o.URL, Name: name, Seed: seed, ChangeEvery: r.o.ChangeEvery, ChatEvery: r.o.ChatEvery,
-		JoinOnly: joinOnly}
+		JoinOnly: joinOnly, JoinTimeout: r.o.JoinTimeout}
 	if joinOnly {
 		cfg.OnJoined = func(took time.Duration, historyLen int) {
 			r.mu.Lock()
@@ -221,16 +222,26 @@ func (r *runner) ramp(ctx context.Context, result *report.Result) {
 			return
 		}
 		after := r.shared.Counters.Snapshot()
+		// No tick for a while although bots are connected: the server stopped sending (wedged or far behind).
+		silence := time.Since(time.Unix(0, r.shared.LastTick.Load()))
+		silent := after.Connected > 0 && r.shared.LastTick.Load() != 0 && silence > min(time.Second, r.o.Every/2)
+		superseded := after.Superseded - before.Superseded
 		s := report.Step{Bots: r.bots, Latency: step.Summary(), Refused: after.Refused - before.Refused,
 			Dropped: after.Dropped - before.Dropped, JoinFailed: after.JoinFailed - before.JoinFailed}
 		result.Steps = append(result.Steps, s)
 		switch {
+		case silent:
+			result.Break = &report.Break{Bots: r.bots,
+				Cause: fmt.Sprintf("no ticks for %v: the server stopped responding", silence.Round(time.Millisecond))}
 		case s.Refused > 0:
 			result.Break = &report.Break{Bots: r.bots, Cause: fmt.Sprintf("%d connections refused", s.Refused)}
 		case s.Dropped > 0:
 			result.Break = &report.Break{Bots: r.bots, Cause: fmt.Sprintf("%d connections dropped", s.Dropped)}
 		case s.JoinFailed > 0:
 			result.Break = &report.Break{Bots: r.bots, Cause: fmt.Sprintf("%d joins refused", s.JoinFailed)}
+		case superseded > 0:
+			result.Break = &report.Break{Bots: r.bots,
+				Cause: fmt.Sprintf("%d inputs never reached the world in time (server behind)", superseded)}
 		case s.Latency.N > 0 && s.Latency.P99 > r.o.MaxP99:
 			result.Break = &report.Break{Bots: r.bots,
 				Cause: fmt.Sprintf("p99 input latency %v over %v", s.Latency.P99.Round(time.Millisecond), r.o.MaxP99)}

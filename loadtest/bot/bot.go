@@ -4,8 +4,10 @@ package bot
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -21,7 +23,8 @@ const (
 	tickLength   = time.Second / 60
 	dialTimeout  = 5 * time.Second
 	writeTimeout = time.Second
-	readLimit    = 64 << 20 // a long world history arrives in one message
+	maxMessage   = 1 << 20 // ordinary messages; the world's history (any size) is streamed instead
+	joinTimeout  = 10 * time.Second
 )
 
 // Shared is where every bot records: the histograms and counters of the whole run.
@@ -32,6 +35,8 @@ type Shared struct {
 	Counters *metrics.Counters
 	// StepLatency, when set, also gets every input latency (a ramp swaps in a fresh one per step).
 	StepLatency atomic.Pointer[metrics.Histogram]
+	// LastTick is when any bot last received a tick (Unix nanoseconds): a wedged server stops it moving.
+	LastTick atomic.Int64
 }
 
 // Config is one bot.
@@ -43,8 +48,9 @@ type Config struct {
 	ChatEvery   time.Duration // average time between chat lines (default 40 s; negative: never)
 	// JoinOnly bots leave as soon as they have the world (soak-mode probes); OnJoined, if set, hears how long the
 	// join took and how many ticks of history came with it.
-	JoinOnly bool
-	OnJoined func(took time.Duration, historyLen int)
+	JoinOnly    bool
+	JoinTimeout time.Duration // a join that takes longer failed (default 10 s): the server may be wedged
+	OnJoined    func(took time.Duration, historyLen int)
 }
 
 // ErrJoinRefused: the game refused the bot (its name, say).
@@ -52,10 +58,11 @@ var ErrJoinRefused = errors.New("join refused")
 
 // pendingKeys is a key change waiting for the server to show it in a tick.
 type pendingKeys struct {
-	mu     sync.Mutex
-	keys   protocol.Keys
-	sentAt time.Time
-	active bool
+	mu       sync.Mutex
+	keys     protocol.Keys
+	sentAt   time.Time
+	active   bool
+	lastEcho protocol.Keys // the keys the latest tick showed for this bot
 }
 
 // Run plays until ctx ends (nil) or the connection fails (an error). Everything it sees goes into s.
@@ -78,9 +85,14 @@ func Run(ctx context.Context, cfg Config, s *Shared) error {
 		return fmt.Errorf("%s: connect: %w", cfg.Name, err)
 	}
 	defer conn.CloseNow()
-	conn.SetReadLimit(readLimit)
+	conn.SetReadLimit(-1) // readMessage enforces the limits itself (the history can be hundreds of MB)
 
-	id, historyLen, err := join(ctx, conn, cfg.Name, s)
+	if cfg.JoinTimeout <= 0 {
+		cfg.JoinTimeout = joinTimeout
+	}
+	joinCtx, cancelJoin := context.WithTimeout(ctx, cfg.JoinTimeout)
+	id, historyLen, err := join(joinCtx, conn, cfg.Name, s)
+	cancelJoin()
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -122,16 +134,14 @@ func join(ctx context.Context, conn *websocket.Conn, name string, s *Shared) (in
 	}
 	var id int32
 	for {
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			s.Counters.Refused.Add(1) // closed before letting us in (a full server)
-			return 0, 0, fmt.Errorf("%s: joining: %w", name, err)
-		}
-		s.Counters.Messages.Add(1)
-		s.Counters.Bytes.Add(int64(len(data)))
-		msg, err := protocol.Decode(data)
-		if err != nil {
+		msg, err := readMessage(ctx, conn, s)
+		if errors.Is(err, protocol.ErrMalformed) {
 			continue
+		}
+		if err != nil {
+			// Connected, but the world never came: closed on us, too big to take, or the server is wedged.
+			s.Counters.JoinFailed.Add(1)
+			return 0, 0, fmt.Errorf("%s: joining: %w", name, err)
 		}
 		switch msg.Type {
 		case protocol.Welcome:
@@ -149,17 +159,14 @@ func join(ctx context.Context, conn *websocket.Conn, name string, s *Shared) (in
 func read(ctx context.Context, conn *websocket.Conn, id int32, pending *pendingKeys, s *Shared) error {
 	var lastTick time.Time
 	for {
-		_, data, err := conn.Read(ctx)
+		msg, err := readMessage(ctx, conn, s)
+		if errors.Is(err, protocol.ErrMalformed) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
 		now := time.Now()
-		s.Counters.Messages.Add(1)
-		s.Counters.Bytes.Add(int64(len(data)))
-		msg, err := protocol.Decode(data)
-		if err != nil {
-			continue
-		}
 		switch msg.Type {
 		case protocol.Tick:
 			if !lastTick.IsZero() {
@@ -170,6 +177,7 @@ func read(ctx context.Context, conn *websocket.Conn, id int32, pending *pendingK
 				s.Jitter.Record(gap)
 			}
 			lastTick = now
+			s.LastTick.Store(now.UnixNano())
 			for _, turn := range msg.Tick.Turns {
 				if turn.PlayerID == id {
 					pending.resolve(turn.Keys, now, s)
@@ -179,6 +187,48 @@ func read(ctx context.Context, conn *websocket.Conn, id int32, pending *pendingK
 			s.Counters.ChatLines.Add(1)
 		}
 	}
+}
+
+// readMessage reads one message. The world's history (Joined) is streamed: its header is read and the rest only
+// counted, so a history of any size never sits in memory. Every other message must fit in maxMessage.
+func readMessage(ctx context.Context, conn *websocket.Conn, s *Shared) (protocol.Message, error) {
+	_, r, err := conn.Reader(ctx)
+	if err != nil {
+		return protocol.Message{}, err
+	}
+	var header [9]byte // type, then Joined's seed and tick count
+	n, err := io.ReadFull(r, header[:1])
+	if err != nil {
+		return protocol.Message{}, err
+	}
+	if protocol.MsgType(header[0]) == protocol.Joined {
+		if _, err := io.ReadFull(r, header[1:]); err != nil {
+			return protocol.Message{}, err
+		}
+		rest, err := io.Copy(io.Discard, r)
+		if err != nil {
+			return protocol.Message{}, err
+		}
+		s.Counters.Messages.Add(1)
+		s.Counters.Bytes.Add(int64(len(header)) + rest)
+		count := int32(binary.LittleEndian.Uint32(header[5:]))
+		if count < 0 {
+			return protocol.Message{}, fmt.Errorf("%w: Joined history count %d", protocol.ErrMalformed, count)
+		}
+		return protocol.Message{Type: protocol.Joined, Seed: binary.LittleEndian.Uint32(header[1:]),
+			HistoryLen: int(count)}, nil
+	}
+	body, err := io.ReadAll(io.LimitReader(r, maxMessage))
+	if err != nil {
+		return protocol.Message{}, err
+	}
+	if extra, _ := io.Copy(io.Discard, r); extra > 0 {
+		return protocol.Message{}, fmt.Errorf("message over %d bytes", maxMessage)
+	}
+	data := append(header[:n:n], body...)
+	s.Counters.Messages.Add(1)
+	s.Counters.Bytes.Add(int64(len(data)))
+	return protocol.Decode(data)
 }
 
 // The attack-pressed bit is a one-tick pulse the server adds on its own; compare the keys without it.
@@ -196,7 +246,11 @@ func (p *pendingKeys) set(k protocol.Keys, at time.Time, s *Shared) {
 func (p *pendingKeys) resolve(k protocol.Keys, now time.Time, s *Shared) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.active && k&held == p.keys&held {
+	// Only a change in what the server shows counts: if the server is behind and still shows old keys that happen
+	// to equal the pending ones, that stale echo confirms nothing.
+	changed := k&held != p.lastEcho
+	p.lastEcho = k & held
+	if p.active && changed && k&held == p.keys&held {
 		latency := now.Sub(p.sentAt)
 		s.Latency.Record(latency)
 		if step := s.StepLatency.Load(); step != nil {

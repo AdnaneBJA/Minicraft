@@ -100,3 +100,11 @@ func TestSmallValuesStayReadable(t *testing.T) {
 		t.Errorf("live line %q", line)
 	}
 }
+
+func TestCheckFailsOnSupersededInputs(t *testing.T) {
+	r := sample()
+	r.Counters.Superseded = 3
+	if err := Check(r, 0, true); err == nil {
+		t.Error("superseded inputs mean the server fell behind: --fail-on-errors should fail")
+	}
+}

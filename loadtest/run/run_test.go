@@ -137,3 +137,20 @@ func TestRunRefusesRemoteTarget(t *testing.T) {
 		t.Error("a remote target must be refused without AllowRemote")
 	}
 }
+
+func TestRunRampBreaksOnAWedgedServer(t *testing.T) {
+	// The server stops answering after a few bots: nothing is refused or dropped, but nothing is measured either.
+	// A ramp must call that a breaking point, not "healthy".
+	srv := fakeserver.Start(t)
+	o := options(srv.URL)
+	o.Mode, o.Bots, o.Step, o.Every, o.MaxP99 = "ramp", 12, 4, 600*time.Millisecond, time.Second
+	o.JoinTimeout = 400 * time.Millisecond
+	time.AfterFunc(700*time.Millisecond, srv.Stall)
+	r, err := Run(context.Background(), o, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Break == nil || r.Break.Bots > 8 {
+		t.Fatalf("a wedged server must be a breaking point: break %+v steps %+v", r.Break, r.Steps)
+	}
+}

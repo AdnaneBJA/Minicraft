@@ -25,6 +25,8 @@ type Server struct {
 	RejectNames map[string]bool        // Hello with these names gets "Name already in use"
 	MaxPlayers  int                    // connections beyond this are refused (0: no limit)
 	OnJoin      func(name string) bool // optional: return false to refuse the join
+	History     []protocol.TickMsg     // sent with Joined (an aging world)
+	Stalled     bool                   // set before traffic: never answers Hello and sends no ticks (a wedged server)
 
 	mu        sync.Mutex
 	players   map[int32]*player
@@ -82,6 +84,13 @@ func (s *Server) RefuseConnections() {
 	s.refuseAll = true
 }
 
+// Stall makes the server stop answering and ticking, as a wedged server would.
+func (s *Server) Stall() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Stalled = true
+}
+
 // PauseReading stops reading what clients send (their messages pile up), while ticks keep going out.
 func (s *Server) PauseReading(d time.Duration) {
 	s.mu.Lock()
@@ -134,6 +143,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		if err != nil || msg.Type != protocol.Hello {
 			continue
 		}
+		s.mu.Lock()
+		stalled := s.Stalled
+		s.mu.Unlock()
+		if stalled {
+			continue // a wedged server never answers
+		}
 		if s.RejectNames[msg.Text] || (s.OnJoin != nil && !s.OnJoin(msg.Text)) {
 			_ = conn.Write(ctx, websocket.MessageBinary, protocol.EncodeError("Name already in use"))
 			continue
@@ -151,7 +166,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 	}()
 	_ = conn.Write(ctx, websocket.MessageBinary, protocol.EncodeWelcome(id))
-	_ = conn.Write(ctx, websocket.MessageBinary, protocol.EncodeJoined(7, nil))
+	_ = conn.Write(ctx, websocket.MessageBinary, protocol.EncodeJoined(7, s.History))
 
 	for {
 		s.mu.Lock()
@@ -190,6 +205,10 @@ func (s *Server) tickLoop(ctx context.Context) {
 			return
 		case now := <-ticker.C:
 			s.mu.Lock()
+			if s.Stalled {
+				s.mu.Unlock()
+				continue
+			}
 			s.tick++
 			msg := protocol.TickMsg{Tick: s.tick}
 			var targets []*player

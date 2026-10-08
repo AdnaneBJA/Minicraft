@@ -203,6 +203,10 @@ func Check(r Result, maxP99 time.Duration, failOnErrors bool) error {
 			problems = append(problems, fmt.Sprintf("%d join refusals, %d connections refused, %d drops",
 				c.JoinFailed, c.Refused, c.Dropped))
 		}
+		if c.Superseded > 0 {
+			problems = append(problems, fmt.Sprintf("%d inputs were overtaken before the server showed them "+
+				"(the server fell behind)", c.Superseded))
+		}
 	}
 	if len(problems) > 0 {
 		return errors.New(strings.Join(problems, "; "))

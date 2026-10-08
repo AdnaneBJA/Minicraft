@@ -14,7 +14,7 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - **In the browser:** the same C++ compiled to **WebAssembly** with Emscripten, published on GitHub Pages by CI. It stores nothing in the browser.
 - **Multiplayer:** a lockstep design over **WebSockets**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. One shared world per server, with chat, PvP, joining a world already in progress, and automatic desync detection.
 - **Live stats:** the game server replays the world itself and reports every action (trees chopped, ores mined, creatures killed, deaths, levels reached) to a **Go** service backed by **PostgreSQL**, which serves a public dashboard with leaderboards. Each action counts exactly once, and nothing a browser sends can fake it.
-- **Load-tested:** a Go bot fleet (`loadtest/`) plays the real protocol. With 32 players, a key press shows up in the world in 8.6 ms at the median (17 ms p99), ticks arrive within 0.65 ms of schedule (p99), and the server uses under 5% of one core.
+- **Load-tested:** a Go bot fleet (`loadtest/`) plays the real protocol. With 32 players on a local Linux server (2 cores), a key press shows up in the world in 8.6 ms at the median (17 ms p99), plus the player's network round trip; the bots received ticks within 0.65 ms of schedule (p99), and the server used under 5% of one core.
 - **Tests:** 80 GoogleTest tests (the core rules, two-client lockstep, late-join replay, the stat events, the real server with real clients over localhost WebSockets) and Go tests against a real PostgreSQL. A Playwright script plays the web build in headless Chromium and checks the dashboard counted it.
 
 ---

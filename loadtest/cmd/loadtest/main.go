@@ -39,8 +39,10 @@ func main() {
 	flag.Int64Var(&o.Seed, "seed", 1, "seed for the bots' behaviour")
 	flag.BoolVar(&o.AllowRemote, "i-know-this-is-not-local", false, "allow a target that isn't local or private")
 	flag.StringVar(&out, "out", "report", "report files: <out>.json and <out>.md")
+	flag.DurationVar(&o.JoinTimeout, "join-timeout", 10*time.Second, "a join taking longer counts as failed")
 	flag.DurationVar(&failOnP99, "fail-on-p99", 0, "exit 1 if p99 input latency reaches this (CI)")
-	flag.BoolVar(&failOnErrors, "fail-on-errors", false, "exit 1 on any refused connection, join or drop (CI)")
+	flag.BoolVar(&failOnErrors, "fail-on-errors", false,
+		"exit 1 on any refused connection, join, drop or overtaken input (CI)")
 	flag.Parse()
 	o.ServerPID = int32(serverPID)
 
