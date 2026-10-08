@@ -55,7 +55,8 @@ come in bursts and the numbers aren't representative.
 
 **In WSL or on a Linux box,** next to the server, to measure the server alone:
 `GOOS=linux go build -o loadtest ./cmd/loadtest`, start `minicraft-server`, then
-`./loadtest --server-pid $(pgrep minicraft-server) ...`.
+`./loadtest --server-pid $(pgrep -f build/minicraft-server) ...` (`-f`, because Linux cuts process names to 15
+characters, so the plain name doesn't match).
 
 ## How it's built
 
