@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -29,6 +30,8 @@ type Shared struct {
 	Jitter   *metrics.Histogram // |gap between ticks - 16.7 ms|
 	Join     *metrics.Histogram // connect -> world received
 	Counters *metrics.Counters
+	// StepLatency, when set, also gets every input latency (a ramp swaps in a fresh one per step).
+	StepLatency atomic.Pointer[metrics.Histogram]
 }
 
 // Config is one bot.
@@ -38,6 +41,10 @@ type Config struct {
 	Seed        int64
 	ChangeEvery time.Duration // average time between key changes (default 1.25 s: 0.5-2 s)
 	ChatEvery   time.Duration // average time between chat lines (default 40 s; negative: never)
+	// JoinOnly bots leave as soon as they have the world (soak-mode probes); OnJoined, if set, hears how long the
+	// join took and how many ticks of history came with it.
+	JoinOnly bool
+	OnJoined func(took time.Duration, historyLen int)
 }
 
 // ErrJoinRefused: the game refused the bot (its name, say).
@@ -73,15 +80,23 @@ func Run(ctx context.Context, cfg Config, s *Shared) error {
 	defer conn.CloseNow()
 	conn.SetReadLimit(readLimit)
 
-	id, err := join(ctx, conn, cfg.Name, s)
+	id, historyLen, err := join(ctx, conn, cfg.Name, s)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
 		return err
 	}
-	s.Join.Record(time.Since(started))
+	took := time.Since(started)
+	s.Join.Record(took)
 	s.Counters.Joined.Add(1)
+	if cfg.OnJoined != nil {
+		cfg.OnJoined(took, historyLen)
+	}
+	if cfg.JoinOnly {
+		_ = conn.Close(websocket.StatusNormalClosure, "probe done")
+		return nil
+	}
 	s.Counters.Connected.Add(1)
 	defer s.Counters.Connected.Add(-1)
 
@@ -100,17 +115,17 @@ func Run(ctx context.Context, cfg Config, s *Shared) error {
 }
 
 // join says Hello and waits for Welcome and the world (Joined).
-func join(ctx context.Context, conn *websocket.Conn, name string, s *Shared) (int32, error) {
+func join(ctx context.Context, conn *websocket.Conn, name string, s *Shared) (int32, int, error) {
 	if err := write(ctx, conn, protocol.EncodeHello(name), s); err != nil {
 		s.Counters.Refused.Add(1)
-		return 0, fmt.Errorf("%s: hello: %w", name, err)
+		return 0, 0, fmt.Errorf("%s: hello: %w", name, err)
 	}
 	var id int32
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
 			s.Counters.Refused.Add(1) // closed before letting us in (a full server)
-			return 0, fmt.Errorf("%s: joining: %w", name, err)
+			return 0, 0, fmt.Errorf("%s: joining: %w", name, err)
 		}
 		s.Counters.Messages.Add(1)
 		s.Counters.Bytes.Add(int64(len(data)))
@@ -122,10 +137,10 @@ func join(ctx context.Context, conn *websocket.Conn, name string, s *Shared) (in
 		case protocol.Welcome:
 			id = msg.PlayerID
 		case protocol.Joined:
-			return id, nil
+			return id, msg.HistoryLen, nil
 		case protocol.Error:
 			s.Counters.JoinFailed.Add(1)
-			return 0, fmt.Errorf("%s: %w: %s", name, ErrJoinRefused, msg.Text)
+			return 0, 0, fmt.Errorf("%s: %w: %s", name, ErrJoinRefused, msg.Text)
 		}
 	}
 }
@@ -182,7 +197,11 @@ func (p *pendingKeys) resolve(k protocol.Keys, now time.Time, s *Shared) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.active && k&held == p.keys&held {
-		s.Latency.Record(now.Sub(p.sentAt))
+		latency := now.Sub(p.sentAt)
+		s.Latency.Record(latency)
+		if step := s.StepLatency.Load(); step != nil {
+			step.Record(latency)
+		}
 		p.active = false
 	}
 }
