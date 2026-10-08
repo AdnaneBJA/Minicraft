@@ -41,6 +41,8 @@ private:
     // TileItem.interactOn: the tile the held item turns `target` into, if it can be placed there.
     std::optional<Tile> placedTile(ItemType item, Tile target) const;
     void onTileHit(Point target, int damage, const TileMap::TileHit& hit, bool withPickaxe);
+    // Records, for the stats, that this player broke or harvested a tile.
+    void tileBroken(Tile tile);
     // Takes one of the held stackable item; empties the hand when it runs out.
     void consumeHeld();
 

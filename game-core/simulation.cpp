@@ -71,6 +71,7 @@ Player& Simulation::addPlayer(int id, std::string name) {
     player->setPosition(spawn.x, spawn.y);
     player->setLevel(World::kSurfaceIndex);
     player->inventory().add(ItemType::PowerGlove);  // like the original Minicraft, players start with the glove
+    player->startLife(tick_);
     players_.push_back(std::move(player));
     return *players_.back();
 }
@@ -192,11 +193,14 @@ void Simulation::tickLevel(int index) {
     level.projectiles.tick(level.map, players, level.mobs, events_, rng_);
     level.map.tickRandomTiles(World::kSize / 2, World::kSize / 2, World::kSize / 2, World::kSize * World::kSize / 50,
                               rng_);
-    if (level.drops.tick(level.map, players) > 0) events_.sound(Sound::Pickup);
+    if (level.drops.tick(level.map, players, events_) > 0) events_.sound(Sound::Pickup);
 
     if (level.mobs.takeBossDefeated()) {
         world_.airWizardBeaten = true;
-        events_.push({.kind = GameEvent::Kind::BossDefeated});
+        // For everyone (every client shows the win screen); the stats learn who landed the last hit from `killer`.
+        GameEvent defeated{.kind = GameEvent::Kind::BossDefeated};
+        if (level.mobs.bossKiller() >= 0) defeated.killer = {DamageSource::Kind::Player, level.mobs.bossKiller()};
+        events_.push(defeated);
     }
 }
 
@@ -236,6 +240,9 @@ void Simulation::craft(Player& player, int station, int recipe) {
     const int leftover = recipes[static_cast<std::size_t>(recipe)].craft(player.inventory());
     if (leftover < 0) return;  // can't afford it
     events_.sound(Sound::Craft);
+    const Recipe& made = recipes[static_cast<std::size_t>(recipe)];
+    events_.push({.kind = GameEvent::Kind::ItemCrafted, .value = static_cast<int>(made.product()),
+                  .count = made.amount(), .player = player.id()});
     if (leftover > 0) {
         const Vec2 middle = player.center();
         levelOf(player).drops.spawn(recipes[static_cast<std::size_t>(recipe)].product(), leftover, middle.x,
@@ -360,6 +367,10 @@ void Simulation::die(Player& player) {
     player.setWaitingToRespawn(true);
     events_.sound(Sound::Death);
     events_.push({.kind = GameEvent::Kind::PlayerDied, .value = secondsPlayed(), .player = player.id()});
+    events_.push({.kind = GameEvent::Kind::PlayerKilled,
+                  .value = (tick_ - player.lifeStartTick()) / kTicksPerSecond,
+                  .killer = player.lastDamage(),
+                  .player = player.id()});
 }
 
 void Simulation::respawn(Player& player) {
@@ -373,6 +384,7 @@ void Simulation::respawn(Player& player) {
     player.setWaitingToRespawn(false);
     changeLevel(player, index, false);
     player.setPosition(spawn.x, spawn.y);
+    player.startLife(tick_);
     player.refillStats();
     player.setOnStairs(false);
 }
@@ -384,6 +396,9 @@ void Simulation::changeLevel(Player& player, int index, bool viaStairs) {
     if (world_.level(index).isSky()) world_.spawnBoss(rng_);
     events_.setContext(index, player.id());
     events_.push({.kind = GameEvent::Kind::LevelChanged, .value = index, .flag = viaStairs, .player = player.id()});
+    if (player.reachLevel(index)) {
+        events_.push({.kind = GameEvent::Kind::LevelReached, .value = index, .player = player.id()});
+    }
     events_.notify(world_.level(index).name());
 }
 

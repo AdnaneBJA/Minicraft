@@ -43,7 +43,8 @@ public:
     void tick(const Context& context, const SpawnRules& rules);
 
     // An attack: hurts every mob whose hitbox overlaps `box`. Returns true if one was hit.
-    bool hit(const Rect& box, int damage, Point direction, Events& events);
+    // `attacker`: the player hitting (-1: none); they get the kill if the mob dies.
+    bool hit(const Rect& box, int damage, Point direction, Events& events, int attacker = -1);
 
     // Places a level-`level` mob of `kind` on suitable ground near (x, y) (world pixels), `minTiles`..`maxTiles`
     // away, clear of other mobs and `obstacles`. Returns false if no spot was found.
@@ -59,6 +60,8 @@ public:
     const Mob* boss() const;
     // True once after the Air Wizard died (the game shows the win screen).
     bool takeBossDefeated();
+    // The player who landed the last hit on the boss that just died (-1: none).
+    int bossKiller() const { return bossKiller_; }
     const std::vector<std::unique_ptr<Mob>>& all() const { return mobs_; }
     // Back to an empty level: no mobs, and the spawn timers start over (a new world must not inherit the old one's
     // timing, or a client that reused its simulation would spawn mobs on different ticks than everyone else).
@@ -87,4 +90,5 @@ private:
     int enemySpawnTimer_ = 0;
     int animalSpawnTimer_ = 0;
     bool bossDefeated_ = false;
+    int bossKiller_ = -1;
 };

@@ -99,7 +99,8 @@ target_link_libraries(net_client PUBLIC net_common)
 
 # The multiplayer server: lobbies, the 60 Hz tick relay and chat. It runs no game itself.
 if(NOT EMSCRIPTEN)
-    add_library(server_lib STATIC server/server.cpp server/lobby.cpp)
+    add_library(server_lib STATIC server/server.cpp server/lobby.cpp server/stats_observer.cpp
+        server/stats_reporter.cpp server/stats_json.cpp)
     target_include_directories(server_lib PUBLIC server)
     target_link_libraries(server_lib PUBLIC net_common ixwebsocket)
     add_executable(minicraft-server server/main.cpp)
@@ -164,10 +165,11 @@ if(MINICRAFT_BUILD_TESTS)
         game-core/tests/simulation_test.cpp
         game-core/tests/world_test.cpp
         game-core/tests/rules_test.cpp
-        game-core/tests/multiplayer_test.cpp)
+        game-core/tests/multiplayer_test.cpp
+        game-core/tests/stats_test.cpp)
     target_link_libraries(game_core_tests PRIVATE game_core GTest::gtest_main)
     # The server and the client's connection, end to end over localhost WebSockets.
-    add_executable(server_tests server/tests/server_test.cpp)
+    add_executable(server_tests server/tests/server_test.cpp server/tests/stats_test.cpp)
     target_link_libraries(server_tests PRIVATE server_lib net_client GTest::gtest_main)
     include(GoogleTest)
     gtest_discover_tests(game_core_tests)

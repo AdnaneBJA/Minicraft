@@ -1,0 +1,91 @@
+{{define "content"}}
+<section class="cards">
+  <div class="card"><div class="label">Players joined</div><div class="value" data-stat="playersJoined">{{num .Summary.PlayersJoined}}</div></div>
+  <div class="card"><div class="label">Unique players</div><div class="value" data-stat="uniquePlayers">{{num .Summary.UniquePlayers}}</div></div>
+  <div class="card"><div class="label">Time played</div><div class="value" data-stat="playSeconds" data-format="duration">{{duration .Summary.PlaySeconds}}</div></div>
+  <div class="card"><div class="label">Worlds started</div><div class="value" data-stat="worlds">{{num .Summary.Worlds}}</div></div>
+  <div class="card"><div class="label">Creatures killed</div><div class="value" data-stat="creaturesKilled">{{num .Summary.CreaturesKilled}}</div></div>
+  <div class="card"><div class="label">Player deaths</div><div class="value" data-stat="deaths">{{num .Summary.Deaths}}</div></div>
+  <div class="card"><div class="label">Trees chopped</div><div class="value" data-stat="treesChopped">{{num .Summary.TreesChopped}}</div></div>
+  <div class="card"><div class="label">Rocks &amp; ores mined</div><div class="value" data-stat="rocksMined">{{num .Summary.RocksMined}}</div></div>
+  <div class="card"><div class="label">Items gathered</div><div class="value" data-stat="itemsCollected">{{num .Summary.ItemsCollected}}</div></div>
+  <div class="card gold"><div class="label">Air Wizard defeats</div><div class="value" data-stat="bossDefeats">{{num .Summary.BossDefeats}}</div></div>
+</section>
+
+<section class="panel">
+  <h2>Resources gathered</h2>
+  {{if .Items}}
+  <div class="bars" id="items">
+    {{$max := (index .Items 0).Collected}}
+    {{range .Items}}{{if gt .Collected 0}}
+    <div class="bar-row">
+      <span class="icon-box"><span class="icon item" style="background-position: -{{iconX .Icon}}px 0"></span></span>
+      <span class="bar-name">{{.Item}}</span>
+      <span class="bar"><span class="fill" style="width: {{if gt $max 0}}{{printf "%.1f" (percent .Collected $max)}}{{else}}0{{end}}%"></span></span>
+      <span class="bar-value">{{num .Collected}}</span>
+    </div>
+    {{end}}{{end}}
+  </div>
+  {{else}}<p class="empty">Nothing gathered yet. Go chop a tree!</p>{{end}}
+</section>
+
+<section class="panel">
+  <h2>Leaderboards</h2>
+  <div class="boards">
+    {{template "board" (board "Most kills" "kills" .Leaderboards.Kills "num")}}
+    {{template "board" (board "Longest life" "longestLife" .Leaderboards.LongestLife "duration")}}
+    {{template "board" (board "Most time played" "playTime" .Leaderboards.PlayTime "duration")}}
+    {{template "board" (board "Most resources" "resources" .Leaderboards.Resources "num")}}
+    {{template "board" (board "PvP kills" "pvpKills" .Leaderboards.PvpKills "num")}}
+    {{template "board" (board "Deepest explorer" "deepest" .Leaderboards.Deepest "depth")}}
+  </div>
+</section>
+
+<div class="split">
+  <section class="panel">
+    <h2>Creatures</h2>
+    {{if .Mobs}}
+    <div class="mobs">
+      {{range .Mobs}}
+      <div class="mob">
+        <span class="mob-box"><span class="icon mob-icon" style="background-image: url(/stats/sprites/{{mobFile .Mob}})"></span></span>
+        <span class="mob-name">{{.Mob}}</span>
+        <span class="mob-killed">{{num .Killed}} killed</span>
+        {{if gt .PlayersKilled 0}}<span class="mob-deadly">{{num .PlayersKilled}} players slain</span>{{end}}
+      </div>
+      {{end}}
+    </div>
+    {{if .Deadliest}}<p class="note">Deadliest: <strong>{{.Deadliest.Mob}}</strong>, with {{num .Deadliest.PlayersKilled}} players slain.</p>{{end}}
+    {{else}}<p class="empty">No creature has fallen yet.</p>{{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Recent activity</h2>
+    <ul class="feed" id="feed">
+      {{range .Recent}}<li><span>{{.Text}}</span><time>{{ago .At}}</time></li>
+      {{else}}<li class="empty">Quiet so far.</li>{{end}}
+    </ul>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Activity, last 7 days</h2>
+  <div class="chart"><canvas id="timeline" aria-label="Players joining and creatures killed per hour"></canvas></div>
+</section>
+{{end}}
+
+{{define "board"}}
+<div class="board">
+  <h3>{{.Title}}</h3>
+  <ol data-board="{{.Key}}" data-format="{{.Format}}">
+    {{$format := .Format}}
+    {{range $i, $l := .Leaders}}<li><span class="rank">{{inc $i}}</span><a href="/stats/player/{{$l.Name}}">{{$l.Name}}</a><span class="score">{{fmtValue $format $l.Value}}</span></li>
+    {{else}}<li class="empty">Nobody yet</li>{{end}}
+  </ol>
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="/stats/static/app.js"></script>
+{{end}}

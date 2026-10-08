@@ -25,6 +25,7 @@
   .keys b { color: #ccc; font-weight: 600; }
   #touch { color: #e0a050; }
   a { color: #8ab4f8; }
+  .stats-link { color: #8ab4f8; }
   footer { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: #666; font-size: 13px; }
 </style>
 </head>
@@ -40,7 +41,9 @@
   <div class="keys"><b>WASD/arrows</b> move · <b>Space</b> attack or use · <b>E</b> inventory · <b>Z</b> craft ·
     <b>Tab</b> map · <b>Enter</b> chat · <b>Esc</b> menu</div>
   <div id="touch" hidden>This game needs a keyboard.</div>
-  <footer><a href="https://github.com/AdnaneBJA/Minicraft" target="_blank" rel="noopener">Source on GitHub</a></footer>
+  <a class="stats-link" href="__STATS_URL__" target="_blank" rel="noopener">📊 Live stats: what everyone has done in the world</a>
+  <footer><a href="https://github.com/AdnaneBJA/Minicraft" target="_blank" rel="noopener">Source on GitHub</a>
+    <span class="stats-link"> · <a href="__STATS_URL__" target="_blank" rel="noopener">Live stats</a></span></footer>
 </div>
 
 <script>
@@ -49,6 +52,11 @@
   const statusLine = document.getElementById('status');
   const play = document.getElementById('play');
   const canvas = document.getElementById('canvas');
+
+  // The deploy fills in the stats dashboard's address; without one (a local build) the links are hidden.
+  if ('__STATS_URL__'.startsWith('__')) {
+    document.querySelectorAll('.stats-link').forEach(function (link) { link.hidden = true; });
+  }
 
   if (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches) {
     document.getElementById('touch').hidden = false;

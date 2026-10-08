@@ -34,7 +34,7 @@ void DroppedItems::spawn(ItemType type, int count, float centerX, float centerY,
     }
 }
 
-int DroppedItems::tick(const TileMap& map, std::span<Player* const> players) {
+int DroppedItems::tick(const TileMap& map, std::span<Player* const> players, Events& events) {
     int pickedUp = 0;
     for (Item& item : items_) {
         ++item.age;
@@ -54,6 +54,8 @@ int DroppedItems::tick(const TileMap& map, std::span<Player* const> players) {
             Inventory& inventory = player->inventory();
             if (intersects(box, player->hitbox()) && inventory.canAdd(item.type)) {
                 inventory.add(Inventory::Stack{item.type, 1, item.durability});
+                events.push({.kind = GameEvent::Kind::ItemCollected, .value = static_cast<int>(item.type), .count = 1,
+                             .player = player->id()});
                 ++pickedUp;
                 return true;
             }

@@ -2,6 +2,7 @@
 
 #include "bounce.h"
 #include "geometry.h"
+#include "events.h"
 #include "items.h"
 
 #include <span>
@@ -28,9 +29,9 @@ public:
     // `durability`: for a tool, its uses left (-1 = a new tool at full durability).
     void spawn(ItemType type, int count, float centerX, float centerY, Random& rng, int durability = -1);
 
-    // One 60 Hz tick of physics. An item touching a player's hitbox goes into their inventory. Returns how many
-    // were picked up.
-    int tick(const TileMap& map, std::span<Player* const> players);
+    // One 60 Hz tick of physics. An item touching a player's hitbox goes into their inventory (recorded as an
+    // ItemCollected event). Returns how many were picked up.
+    int tick(const TileMap& map, std::span<Player* const> players, Events& events);
 
     void clear() { items_.clear(); }
     std::size_t size() const { return items_.size(); }

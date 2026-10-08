@@ -1,14 +1,21 @@
-# Caddy gets a Let's Encrypt certificate for $DOMAIN and passes WebSocket connections on to the game server.
+# Caddy gets a Let's Encrypt certificate for $DOMAIN, serves the stats dashboard under /stats, and passes
+# everything else (the game's WebSocket) on to the game server.
 {
 	servers {
-		# Plain HTTP/1.1 only. Browsers then always open the WebSocket with the classic Upgrade handshake; over an
-		# HTTP/2 or HTTP/3 connection they use a different one, which reached the game server without its
-		# Sec-WebSocket-Key header and failed ("Could not connect"). An endpoint that only serves a WebSocket
-		# gains nothing from HTTP/2 or HTTP/3.
+		# Plain HTTP/1.1 only: browsers always open the WebSocket with the classic Upgrade handshake, and keep no
+		# HTTP/2 or HTTP/3 state for this domain. Nothing here needs more (HTTP/3 couldn't even get through the
+		# firewall, which only opens TCP 443).
 		protocols h1
 	}
 }
 
 {$DOMAIN} {
-	reverse_proxy server:7777
+	# The public dashboard and its JSON API. The stats service's /events (where the game server reports) is not
+	# routed: only the game server reaches it, inside the Docker network.
+	handle /stats* {
+		reverse_proxy stats:8080
+	}
+	handle {
+		reverse_proxy server:7777
+	}
 }

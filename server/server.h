@@ -1,6 +1,8 @@
 #pragma once
 
 #include "lobby.h"
+#include "stats_observer.h"
+#include "stats_reporter.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -9,6 +11,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -23,13 +26,21 @@ class WebSocketServer;
 // The world starts when the first player arrives and ends when the last one leaves. A world that has run for
 // resetAfterTicks is replaced by a fresh one for everyone, so joining (which replays the whole history) stays quick.
 //
+// With a StatsConfig, the server also keeps its own copy of the world (StatsObserver) and reports what players do
+// to the stats service (StatsReporter). Without one, it doesn't.
+//
 // IXWebSocket serves every connection on its own thread. Those threads only queue what happened (NetEvent); run()
 // handles the queue on its own thread, so everything else here is single-threaded.
+struct StatsConfig {
+    std::string url;    // the stats service's POST /events
+    std::string token;  // sent as "Authorization: Bearer <token>"
+};
+
 class Server {
 public:
     static constexpr int kDefaultResetAfterTicks = 60 * 60 * 60 * 3;  // 3 hours
 
-    explicit Server(int resetAfterTicks = kDefaultResetAfterTicks);
+    explicit Server(int resetAfterTicks = kDefaultResetAfterTicks, std::optional<StatsConfig> stats = std::nullopt);
     ~Server();
     // Listens on `port` (all network interfaces). False if the port can't be opened.
     bool start(std::uint16_t port);
@@ -45,6 +56,7 @@ private:
         std::weak_ptr<ix::WebSocket> socket;  // gone once the connection has closed
         int id = 0;
         std::string name;  // empty until their Hello is accepted; from then on they're in the world
+        std::chrono::steady_clock::time_point joinedAt;
     };
 
     // What a connection's thread saw, waiting for run().
@@ -72,10 +84,15 @@ private:
     void tickWorld();
     // A fresh world, with everyone in it.
     void resetWorld();
-    static std::unique_ptr<Lobby> newWorld();
+    // Starts a new world (and, with stats, a new copy of it to watch).
+    void startWorld();
+    // Online players, for the stats heartbeat.
+    int playersOnline() const;
 
     Client* clientOf(int clientId);
     bool nameInUse(const std::string& name) const;
+    // Stats (only with a StatsConfig): an event of the server's own (joins, leaves, chat, new worlds).
+    void report(const std::string& type, const std::string& player, int count = 0);
 
     std::unique_ptr<ix::WebSocketServer> socketServer_;
     std::mutex eventsMutex_;
@@ -88,4 +105,9 @@ private:
     std::unique_ptr<Lobby> world_;   // null while nobody is playing
     int resetAfterTicks_;
     bool resetWarned_ = false;
+
+    std::unique_ptr<StatsReporter> reporter_;  // null without a StatsConfig
+    std::unique_ptr<StatsObserver> observer_;  // the current world, replayed for the stats
+    std::string reportPrefix_;                 // makes the server's own event ids unique
+    int reportCounter_ = 0;
 };

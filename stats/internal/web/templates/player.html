@@ -1,0 +1,50 @@
+{{define "title"}}{{.Name}}: Minicraft stats{{end}}
+{{define "content"}}
+<p class="back"><a href="/stats">← All stats</a></p>
+<h1 class="player-name">{{.Name}}</h1>
+<p class="note">First seen {{ago .FirstSeen}} · last seen {{ago .LastSeen}}</p>
+
+<section class="cards">
+  <div class="card"><div class="label">Sessions</div><div class="value">{{num .Sessions}}</div></div>
+  <div class="card"><div class="label">Time played</div><div class="value">{{duration .PlaySeconds}}</div></div>
+  <div class="card"><div class="label">Creatures killed</div><div class="value">{{num .Kills}}</div></div>
+  <div class="card"><div class="label">PvP kills</div><div class="value">{{num .PvpKills}}</div></div>
+  <div class="card"><div class="label">Deaths</div><div class="value">{{num .Deaths}}</div></div>
+  <div class="card"><div class="label">Longest life</div><div class="value">{{duration .LongestLife}}</div></div>
+  <div class="card"><div class="label">Deepest level</div><div class="value">{{depth .DeepestLevel}}</div></div>
+  <div class="card gold"><div class="label">Air Wizard defeats</div><div class="value">{{num .BossKills}}</div></div>
+</section>
+
+<div class="split">
+  <section class="panel">
+    <h2>Gathered</h2>
+    {{if .Items}}
+    <div class="bars">
+      {{$max := (index .Items 0).Collected}}
+      {{range .Items}}
+      <div class="bar-row">
+        <span class="icon-box"><span class="icon item" style="background-position: -{{iconX .Icon}}px 0"></span></span>
+        <span class="bar-name">{{.Item}}</span>
+        <span class="bar"><span class="fill" style="width: {{if gt $max 0}}{{printf "%.1f" (percent .Collected $max)}}{{else}}0{{end}}%"></span></span>
+        <span class="bar-value">{{num .Collected}}</span>
+      </div>
+      {{end}}
+    </div>
+    {{else}}<p class="empty">Nothing yet.</p>{{end}}
+  </section>
+  <section class="panel">
+    <h2>Hunted</h2>
+    {{if .Mobs}}
+    <div class="mobs">
+      {{range .Mobs}}
+      <div class="mob">
+        <span class="mob-box"><span class="icon mob-icon" style="background-image: url(/stats/sprites/{{mobFile .Mob}})"></span></span>
+        <span class="mob-name">{{.Mob}}</span>
+        <span class="mob-killed">{{num .Killed}} killed</span>
+      </div>
+      {{end}}
+    </div>
+    {{else}}<p class="empty">Nothing yet.</p>{{end}}
+  </section>
+</div>
+{{end}}

@@ -28,9 +28,16 @@ jobs:
           emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DMINICRAFT_SERVER_URL="$SERVER_URL"
           cmake --build build-web
       - name: Collect the site
+        env:
+          SERVER_URL: ${{ vars.MINICRAFT_SERVER_URL }}
         run: |
           mkdir site
           cp build-web/Minicraft.html site/index.html
+          # The "Live stats" link: the dashboard lives on the game server's host (wss://host -> https://host/stats).
+          if [ -n "$SERVER_URL" ]; then
+            stats_url="https://$(echo "$SERVER_URL" | sed -E 's#^wss?://##; s#/.*$##')/stats"
+            sed -i "s#__STATS_URL__#${stats_url}#g" site/index.html
+          fi
           cp build-web/Minicraft.js build-web/Minicraft.wasm build-web/Minicraft.data site/
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'

@@ -13,13 +13,15 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - **The simulation:** written once in `game-core`, a library with no graphics, sound or files. It's fully **deterministic**: the same seed and the same inputs always produce the same world, tick for tick.
 - **In the browser:** the same C++ compiled to **WebAssembly** with Emscripten, published on GitHub Pages by CI. It stores nothing in the browser.
 - **Multiplayer:** a lockstep design over **WebSockets**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. One shared world per server, with chat, PvP, joining a world already in progress, and automatic desync detection.
-- **Tests:** 58 GoogleTest tests: the core rules (including two-client lockstep and late-join replay), and the real server with real clients over localhost WebSockets. A Playwright script plays the web build in headless Chromium.
+- **Live stats:** the game server replays the world itself and reports every action (trees chopped, ores mined, creatures killed, deaths, levels reached) to a **Go** service backed by **PostgreSQL**, which serves a public dashboard with leaderboards. Each action counts exactly once, and nothing a browser sends can fake it.
+- **Tests:** 79 GoogleTest tests (the core rules, two-client lockstep, late-join replay, the stat events, the real server with real clients over localhost WebSockets) and Go tests against a real PostgreSQL. A Playwright script plays the web build in headless Chromium and checks the dashboard counted it.
 
 ---
 
 ## Contents
 - [The game](#the-game)
 - [Multiplayer](#multiplayer)
+- [Live stats](#live-stats)
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
 - [Controls](#controls)
@@ -67,6 +69,20 @@ The game is online only. Opening it asks for a name, then puts you in the server
 
 ![Start screen with the Minicraft logo, a name field and Play](docs/media/start.png)
 
+## Live stats
+
+A public dashboard at `/stats` on the game server's domain (linked from the game page) shows what everyone has done in the world: players joined, time played, resources gathered per item, trees chopped and rocks mined, creatures killed by kind, deaths, Air Wizard defeats, six leaderboards (kills, longest life, time played, resources, PvP, deepest explorer), recent activity, a 7-day activity chart, and a page per player.
+
+![The stats dashboard (sample data): totals, resources gathered with the game's item icons, and leaderboards](docs/media/stats.png)
+
+How it's built:
+- **The game server reports, not the browsers.** `minicraft-server` keeps its own copy of the world (`StatsObserver`) and applies every tick it sends to the players, so it sees exactly what they see. `game-core` records stat events as it runs (a tile broken, items picked up or crafted, a mob or player killed and by whom, a level reached), and the observer turns player ids into names.
+- **Batched, retried, counted once.** `StatsReporter` posts the events to the stats service once a second over HTTP, with a bearer token. Failed batches are kept and retried with backoff (a bounded backlog), and every event carries an id (world seed + tick + position), so a retried batch never counts twice.
+- **Go + PostgreSQL.** The `stats/` service (`net/http`, `pgx`) validates each batch and stores it in one transaction: the raw event plus running totals per item, tile, mob and player. The dashboard is server-rendered (`html/template`), then kept live by a small script polling a JSON API every 10 seconds, with Chart.js for the timeline. The icons come straight from the game's sprite sheets.
+- **Locked down.** Caddy routes only `/stats*` to the stats service; `/events` is reachable only inside the Docker network, and needs the token. Without the stats configuration the game server runs exactly as before.
+
+Why the server replays the world: **[ADR 0003](docs/adr/0003-stats-from-an-authoritative-replay.md)**.
+
 ## How it works
 
 ### Architecture
@@ -94,6 +110,7 @@ flowchart LR
 | [`net-common/`](net-common) | The messages the client and server exchange ([`protocol.h`](net-common/protocol.h) explains the design at the top), and how they are turned into bytes. Every read from the network is bounds-checked. |
 | [`server/`](server) | `minicraft-server`: WebSocket server, the one world's 60 Hz tick relay, tick history for late joiners, chat, desync detection. **It runs no game.** |
 | [`client/`](client) | The SDL3 game: renderers, menus, audio, chat, and the network client. |
+| [`stats/`](stats) | The Go stats service: ingestion into PostgreSQL, the JSON API and the dashboard. |
 
 ### Lockstep: why the server runs no game
 
@@ -179,16 +196,19 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-42 tests on `game-core`:
+52 tests on `game-core`:
 - **Determinism:** the same seed and inputs give the same state hash, by day and at night. A different seed, or a single different keypress, gives a different hash.
 - **Lockstep:** two simulations fed the same 2,400 ticks stay identical, a late joiner replaying them matches, and a simulation reused for a new world (leave and rejoin) matches a fresh one.
 - **World generation (3 seeds):** stairs down always lead to stairs up on the level below, each cave has its ore, and the boss is in the sky.
 - **Gameplay rules:** mining, smelting, hard rock, farming, liquids, building, bows, food and armour, hunger, the power glove, creepers, skeletons, the boss, death chests.
 - **Multiplayer:** joining and leaving, PvP punches and arrows, several levels simulated at once, beds.
+- **Stat events:** chopping a tree and picking up the wood, sword and arrow kills credited to the right player, a death in lava, a PvP kill, a creeper blast (no self-kills), the boss defeat (for everyone, credited to its killer), crafting, reaching a cave once per life, and the same events from two simulations fed the same ticks.
 
-16 tests on the server (`server_tests`): a real `minicraft-server` on localhost and real game clients over WebSockets. They cover joining the world, both players getting the same ticks, chat, leaving, a late joiner's history, the world ending when empty and resetting when old, invalid and duplicate names, a large message, an unreachable or silent server, an unresponsive client, and a player vanishing mid-game.
+27 tests on the server (`server_tests`), including the stats reporting (named events from the replay, batches with the token, heartbeats, retries that arrive once, the bounded backlog, no reporting without configuration). The rest: a real `minicraft-server` on localhost and real game clients over WebSockets. They cover joining the world, both players getting the same ticks, chat, leaving, a late joiner's history, the world ending when empty and resetting when old, invalid and duplicate names, a large message, an unreachable or silent server, an unresponsive client, and a player vanishing mid-game.
 
-**Browser:** [`web/smoke/smoke.mjs`](web/smoke/smoke.mjs) plays the web build in headless Chromium with Playwright. Two players type names, land in the same world and chat; one leaves and rejoins; a third can't take a name in use; and the canvas follows the window.
+**Stats service (Go):** `cd stats && go test ./...` runs against a real PostgreSQL 17 (an embedded one locally, a service container in CI): validation, idempotent ingestion, every tally, the leaderboards, the JSON API, the pages (also over an empty database) and the token check.
+
+**Browser:** [`web/smoke/smoke.mjs`](web/smoke/smoke.mjs) plays the web build in headless Chromium with Playwright. Two players type names, land in the same world and chat; one leaves and rejoins; a third can't take a name in use; and the canvas follows the window. Given the stats service's address, it also checks the dashboard counted the visit.
 
 CI runs the tests on Linux for every push, and builds the web version for every pull request.
 
@@ -198,6 +218,7 @@ CI runs the tests on Linux for every push, and builds the web version for every 
 game-core/    the simulation (static library, no SDL) + tests/
 net-common/   client/server protocol and the WebSocket client (browser and native)
 server/       minicraft-server + tests/, and its Dockerfile
+stats/        the Go stats service (ingestion, PostgreSQL, API, dashboard) and its Dockerfile
 client/       the SDL3 game (desktop and browser)
 web/          the web page around the game (shell.html) and the browser smoke test
 deploy/       Docker Compose + Caddy for the hosted server, and how to set it up
@@ -210,6 +231,7 @@ docs/         architecture decisions (adr/) and the media in this README
 - [x] The full Minicraft game, with its rules in a deterministic, tested core library
 - [x] Online: one shared world, chat, PvP, late join by replay, desync detection
 - [x] In the browser (WebAssembly), with a hosted server
+- [x] Live stats dashboard (Go + PostgreSQL), fed by the server's replay of the world
 
 ## Credits
 

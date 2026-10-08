@@ -53,6 +53,9 @@ public:
     int health() const { return health_; }
     int maxHealth() const { return maxHealth_; }
     void kill() { health_ = 0; }
+    // The player who hit this mob last (-1: none): they get the kill.
+    int lastHitBy() const { return lastHitBy_; }
+    void setLastHitBy(int playerId) { lastHitBy_ = playerId; }
     // Same proportions as the player: an 8x6 box at the feet; the centre sits at (8, 11) inside the sprite.
     Rect hitbox() const { return {x_ + 4.0f, y_ + 8.0f, 8.0f, 6.0f}; }
     Vec2 center() const { return {x_ + 8.0f, y_ + 11.0f}; }
@@ -113,6 +116,7 @@ private:
     const int ticksPerStep_;
     int knockbackX_ = 0;
     int knockbackY_ = 0;
+    int lastHitBy_ = -1;
 };
 
 // Minicraft's EnemyMob base for the hostile mobs: health scales with the level squared (normal difficulty doubles

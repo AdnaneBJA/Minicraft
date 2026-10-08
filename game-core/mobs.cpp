@@ -84,8 +84,16 @@ void Mobs::tick(const Context& context, const SpawnRules& rules) {
     std::erase_if(mobs_, [&](const std::unique_ptr<Mob>& mob) {
         if (mob->isDead()) {
             mob->dropLoot(context.drops, context.rng);
+            // A creeper that blew itself up wasn't killed by anyone.
+            const bool selfDestructed =
+                mob->kind() == MobKind::Creeper && static_cast<const Creeper&>(*mob).exploding();
+            if (!selfDestructed) {
+                context.events.push({.kind = GameEvent::Kind::MobKilled, .value = static_cast<int>(mob->kind()),
+                                     .count = mob->level(), .player = mob->lastHitBy()});
+            }
             if (mob->kind() == MobKind::AirWizard) {
                 bossDefeated_ = true;
+                bossKiller_ = mob->lastHitBy();
                 context.events.sound(Sound::BossDeath);
             }
             return true;
@@ -161,13 +169,19 @@ void Mobs::explode(const Creeper& creeper, const Context& context) {
     for (Player* player : context.players) {
         const Vec2 p = player->center();
         if (std::hypot(p.x - c.x, p.y - c.y) < reach) {
-            player->takeHit(blastAt(p), p.x < c.x ? -1 : 1, 0, context.events);
+            // A creeper a player hit before it blew counts as theirs, except for that player: they were blown up by a
+            // creeper, not by themselves.
+            const bool lit = creeper.lastHitBy() >= 0 && creeper.lastHitBy() != player->id();
+            const DamageSource source = lit ? DamageSource{DamageSource::Kind::Player, creeper.lastHitBy()}
+                                            : DamageSource{DamageSource::Kind::Mob, static_cast<int>(MobKind::Creeper)};
+            player->takeHit(blastAt(p), p.x < c.x ? -1 : 1, 0, context.events, source);
         }
     }
     for (auto& mob : mobs_) {
         if (mob.get() == &creeper) continue;
         const Vec2 m = mob->center();
         if (std::hypot(m.x - c.x, m.y - c.y) < reach) {
+            if (creeper.lastHitBy() >= 0) mob->setLastHitBy(creeper.lastHitBy());
             mob->hurt(blastAt(m), m.x < c.x ? -1 : 1, 0, context.events);
         }
     }
@@ -245,11 +259,12 @@ void Mobs::clearEnemies() {
 
 bool Mobs::takeBossDefeated() { return std::exchange(bossDefeated_, false); }
 
-bool Mobs::hit(const Rect& box, int damage, Point direction, Events& events) {
+bool Mobs::hit(const Rect& box, int damage, Point direction, Events& events, int attacker) {
     bool hit = false;
     for (auto& mob : mobs_) {
         const Rect mobBox = mob->hitbox();
         if (intersects(mobBox, box)) {
+            if (attacker >= 0) mob->setLastHitBy(attacker);
             mob->hurt(damage, direction.x, direction.y, events);
             hit = true;
         }

@@ -12,6 +12,14 @@ constexpr int kSoundCount = static_cast<int>(Sound::Select) + 1;
 // (grey).
 enum class NumberStyle { Damage, PlayerDamage, ArmorDamage };
 
+// What hurt a player last: another player, a mob, or the world itself (lava, hunger). Kept for the stats: it's
+// who gets the kill when the player dies.
+struct DamageSource {
+    enum class Kind { None, Player, Mob, Environment };
+    Kind kind = Kind::None;
+    int id = -1;  // the player's id (Player) or the MobKind (Mob)
+};
+
 // Something the simulation wants a player to see or hear. The simulation never plays sounds or draws; it records
 // events during a tick and each client acts on the ones that concern its own player: everything that happens on
 // the level they're on, and the personal events addressed to them.
@@ -24,7 +32,14 @@ struct GameEvent {
         LevelChanged,  // `player` is now on World level `value` (viaStairs: `flag`)
         Slept,         // `player` slept (until morning in single-player)
         PlayerDied,    // `player` died (`value`: seconds played)
-        BossDefeated,  // the Air Wizard is dead: everyone has won
+        BossDefeated,  // the Air Wizard is dead: everyone has won (`killer`: who landed the last hit)
+        // Stats: what players did, for the game server to report. Clients ignore them.
+        TileBroken,     // `player` broke or harvested a tile (`value`: the Tile)
+        ItemCollected,  // `player` picked up `count` items (`value`: the ItemType)
+        ItemCrafted,    // `player` crafted `count` items (`value`: the ItemType)
+        MobKilled,      // a mob died (`value`: MobKind, `count`: its level), killed by `player` (-1: nobody)
+        PlayerKilled,   // `player` died after `value` seconds alive, killed by `killer`
+        LevelReached,   // `player` entered World level `value` for the first time this life
     };
     Kind kind;
     Sound sound = Sound::Select;
@@ -34,11 +49,27 @@ struct GameEvent {
     float x = 0.0f;
     float y = 0.0f;
     int value = 0;
+    int count = 0;
     bool flag = false;
+    DamageSource killer;
     std::string text;
     int level = 0;    // the World level it happened on
     int player = -1;  // the player it's for; -1 = everyone on that level
 };
+
+// True for the events that feed the stats (and the boss defeat, which is one too).
+inline bool isStatEvent(GameEvent::Kind kind) {
+    switch (kind) {
+        case GameEvent::Kind::TileBroken:
+        case GameEvent::Kind::ItemCollected:
+        case GameEvent::Kind::ItemCrafted:
+        case GameEvent::Kind::MobKilled:
+        case GameEvent::Kind::PlayerKilled:
+        case GameEvent::Kind::LevelReached:
+        case GameEvent::Kind::BossDefeated: return true;
+        default: return false;
+    }
+}
 
 // The events recorded since the client last took them. While the simulation works on one level (or one player's
 // actions) it sets the context, and every event recorded meanwhile is stamped with it.

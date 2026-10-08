@@ -178,7 +178,7 @@ bool Mob::hitPlayer(Player& player, int damage, Events& events) const {
     const Vec2 them = player.center();
     const int dirX = std::abs(them.x - me.x) > std::abs(them.y - me.y) ? (them.x < me.x ? -1 : 1) : 0;
     const int dirY = dirX == 0 ? (them.y < me.y ? -1 : 1) : 0;
-    return player.takeHit(damage, dirX, dirY, events);
+    return player.takeHit(damage, dirX, dirY, events, {DamageSource::Kind::Mob, static_cast<int>(kind())});
 }
 
 void Mob::chasePlayer(const World& world, int distance) {

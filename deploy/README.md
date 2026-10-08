@@ -58,14 +58,23 @@ sudo usermod -aG docker $USER && newgrp docker
 
 git clone https://github.com/AdnaneBJA/Minicraft.git
 cd Minicraft/deploy
-echo DOMAIN=minicraft-yourname.duckdns.org > .env
+cat > .env <<EOF
+DOMAIN=minicraft-yourname.duckdns.org
+POSTGRES_PASSWORD=$(openssl rand -hex 24)
+STATS_TOKEN=$(openssl rand -hex 24)
+EOF
 docker compose up -d --build
 ```
 
+`.env` holds the domain and two random secrets: the stats database's password, and the token the game server sends
+to the stats service. Keep the file private; it never goes into git.
+
 What this does:
-- **The first build** takes a few minutes: it compiles the server and runs its tests.
+- **The first build** takes a few minutes: it compiles the server and the stats service and runs their tests.
 - **Caddy** then gets a Let's Encrypt certificate on its own; this needs ports 80 and 443 open.
-- **Restarts:** both containers restart by themselves after a crash or a reboot.
+- **Restarts:** every container restarts by itself after a crash or a reboot. The stats live in the `pgdata` volume,
+  so they survive restarts and updates.
+- **The dashboard** is at `https://minicraft-yourname.duckdns.org/stats`.
 
 Check it:
 ```sh
@@ -91,8 +100,13 @@ The game is then at `https://<github-user>.github.io/Minicraft/`.
 |---|---|
 | Update to the latest code | `git pull && docker compose up -d --build` |
 | Server log | `docker compose logs -f server` |
+| Stats service log | `docker compose logs -f stats` |
+| Back up the stats | `docker compose exec postgres pg_dump -U stats stats > stats-backup.sql` |
 | Restart | `docker compose restart server` |
 | Stop everything | `docker compose down` |
+
+**Updating from a version without stats:** add the two new lines to `.env` (`POSTGRES_PASSWORD` and `STATS_TOKEN`,
+each `openssl rand -hex 24`), then `git pull && docker compose up -d --build`.
 
 Restarting the server closes every world. Worlds live only in the server's memory, so they last as long as
 someone is playing in them.
