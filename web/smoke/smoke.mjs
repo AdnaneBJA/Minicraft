@@ -7,8 +7,9 @@
 //
 // Needs: the web build (built with -DMINICRAFT_SERVER_URL=ws://localhost:7777) and a server on port 7777:
 //   docker run --rm -p 7777:7777 minicraft-server      (or build/minicraft-server)
-//   node smoke.mjs [build-web folder] [server log]
+//   node smoke.mjs [build-web folder] [server log] [stats base URL]
 // With the server's log, the run also checks what the server saw: the names the players typed, and no desync.
+// With the stats service's base URL (e.g. http://127.0.0.1:8090), it checks the dashboard counted the visit.
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdir, readFile } from 'node:fs/promises';
@@ -20,6 +21,8 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const buildDir = resolve(process.argv[2] ?? join(here, '../../build-web'));
 const outDir = join(here, 'out');
 const serverLog = process.argv[3];
+const statsBase = process.argv[4];
+const joinedBefore = statsBase ? (await (await fetch(`${statsBase}/stats/api/summary`)).json()).playersJoined : 0;
 const port = 8080;
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.data': 'application/octet-stream' };
 
@@ -129,6 +132,20 @@ if (serverLog) {
     if (named('Bob') !== 1) errors.push(`the server saw Bob join ${named('Bob')} times, not 1`);
     if (/out of sync/.test(log)) errors.push('the server reported a desync');
   }
+}
+
+if (statsBase) {
+  await sleep(2500);  // the server reports once a second
+  const summary = await (await fetch(`${statsBase}/stats/api/summary`)).json();
+  if (summary.playersJoined < joinedBefore + 3) {
+    errors.push(`the dashboard counted ${summary.playersJoined - joinedBefore} joins, not 3 (Alice, Bob, Alice again)`);
+  }
+  const recent = await (await fetch(`${statsBase}/stats/api/recent`)).json();
+  for (const name of ['Alice', 'Bob']) {
+    if (!recent.some((event) => event.text === `${name} joined the game`)) errors.push(`no "${name} joined" on the dashboard`);
+  }
+  const page = await (await fetch(`${statsBase}/stats`)).text();
+  if (!page.includes('Players joined')) errors.push('the dashboard page did not render');
 }
 
 if (errors.length) {
