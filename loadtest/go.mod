@@ -2,7 +2,10 @@ module github.com/AdnaneBJA/Minicraft/loadtest
 
 go 1.26.0
 
-require github.com/shirou/gopsutil/v4 v4.26.9
+require (
+	github.com/coder/websocket v1.8.15
+	github.com/shirou/gopsutil/v4 v4.26.9
+)
 
 require (
 	github.com/ebitengine/purego v0.11.1 // indirect
