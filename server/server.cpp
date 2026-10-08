@@ -22,7 +22,32 @@ constexpr int kPingIntervalSeconds = 5;
 
 }  // namespace
 
-Server::Server(int resetAfterTicks) : resetAfterTicks_(resetAfterTicks) {}
+namespace {
+
+std::int64_t nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+}  // namespace
+
+Server::Server(int resetAfterTicks, std::optional<StatsConfig> stats) : resetAfterTicks_(resetAfterTicks) {
+    if (stats) {
+        reporter_ = std::make_unique<StatsReporter>(stats->url, stats->token);
+        reportPrefix_ = "server" + std::to_string(nowMs());
+        std::printf("Reporting stats to %s\n", stats->url.c_str());
+    }
+}
+
+void Server::report(const std::string& type, const std::string& player, int count) {
+    if (!reporter_) return;
+    const std::string seed = world_ ? std::to_string(world_->seed()) : "0";
+    reporter_->add({{.id = seed + "-" + reportPrefix_ + "-" + std::to_string(reportCounter_++),
+                     .type = type,
+                     .at = nowMs(),
+                     .player = player,
+                     .count = count}});
+}
 
 Server::~Server() {
     stop();
@@ -182,12 +207,15 @@ void Server::disconnect(Client& client) {
     std::printf("Player %d (%s) disconnected\n", client.id, client.name.c_str());
     const int id = client.id;
     const std::string name = client.name;
+    const auto played = std::chrono::steady_clock::now() - client.joinedAt;
     clients_.erase(id);
     if (name.empty() || !world_) return;  // never got into the world
+    report("PlayerLeft", name, static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(played).count()));
     world_->removeMember(id);
     if (world_->empty()) {
         std::printf("Everyone left: the world ends\n");
         world_.reset();
+        observer_.reset();
         resetWarned_ = false;
     } else {
         tellEveryone("", name + " left the game");
@@ -197,28 +225,35 @@ void Server::disconnect(Client& client) {
 // ---------------------------------------------------------------------------------------------------------------
 // The world
 
-std::unique_ptr<Lobby> Server::newWorld() {
+void Server::startWorld() {
     std::random_device random;
-    auto world = std::make_unique<Lobby>(random());
-    std::printf("A new world begins (seed %u)\n", world->seed());
-    return world;
+    world_ = std::make_unique<Lobby>(random());
+    resetWarned_ = false;
+    std::printf("A new world begins (seed %u)\n", world_->seed());
+    if (reporter_) {
+        observer_ = std::make_unique<StatsObserver>(world_->seed());
+        report("WorldStarted", "", 1);
+    }
 }
 
 void Server::enterWorld(Client& client) {
-    if (!world_) world_ = newWorld();
+    if (!world_) startWorld();
     // The newcomer gets the world's seed and every tick so far; their own Join comes with the next tick.
     sendTo(client, protocol::Joined{world_->seed(), world_->history()});
     world_->addMember(client.id, client.name);
+    client.joinedAt = std::chrono::steady_clock::now();
+    if (observer_) observer_->nameJoined(client.id, client.name);
+    report("PlayerJoined", client.name, 1);
     tellEveryone("", client.name + " joined the game");
 }
 
 void Server::resetWorld() {
-    world_ = newWorld();
-    resetWarned_ = false;
+    startWorld();
     for (const auto& [id, client] : clients_) {
         if (client.name.empty()) continue;
         sendTo(client, protocol::Joined{world_->seed(), world_->history()});
         world_->addMember(client.id, client.name);
+        if (observer_) observer_->nameJoined(client.id, client.name);
     }
 }
 
@@ -226,6 +261,7 @@ void Server::chat(Client& client, const std::string& text) {
     const std::string clean = protocol::cleanChat(text);
     if (!world_ || clean.empty()) return;
     std::printf("%s: %s\n", client.name.c_str(), clean.c_str());
+    report("ChatSent", client.name, 1);  // that someone chatted, never what they said
     tellEveryone(client.name, clean);
 }
 
@@ -241,6 +277,14 @@ void Server::tickWorld() {
     for (const int memberId : world_->memberIds()) {
         if (const Client* client = clientOf(memberId)) sendTo(*client, message);
     }
+    if (observer_) {
+        // The same tick the players got, on the server's copy of the world: what they did, for the stats.
+        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+        reporter_->add(observer_->apply(message.input, now));
+        reporter_->setOnline(playersOnline());
+    }
     const int age = static_cast<int>(world_->history().size());
     constexpr int kWarningTicks = 60 * 60;  // a minute before the reset
     if (!resetWarned_ && age >= resetAfterTicks_ - kWarningTicks) {
@@ -253,6 +297,11 @@ void Server::tickWorld() {
 Server::Client* Server::clientOf(int clientId) {
     const auto it = clients_.find(clientId);
     return it == clients_.end() ? nullptr : &it->second;
+}
+
+int Server::playersOnline() const {
+    return static_cast<int>(std::count_if(clients_.begin(), clients_.end(),
+                                          [](const auto& entry) { return !entry.second.name.empty(); }));
 }
 
 bool Server::nameInUse(const std::string& name) const {

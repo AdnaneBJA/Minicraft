@@ -7,6 +7,8 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
+#include <utility>
 
 namespace {
 
@@ -26,7 +28,13 @@ int main(int argc, char* argv[]) {
         std::printf("Usage: minicraft-server [port]\n");
         return 1;
     }
-    Server server;
+    // With STATS_URL set (and STATS_TOKEN), what players do is reported to the stats service.
+    std::optional<StatsConfig> stats;
+    if (const char* url = std::getenv("STATS_URL"); url && *url) {
+        const char* token = std::getenv("STATS_TOKEN");
+        stats = StatsConfig{url, token ? token : ""};
+    }
+    Server server(Server::kDefaultResetAfterTicks, std::move(stats));
     if (!server.start(static_cast<std::uint16_t>(port))) return 1;
     runningServer = &server;
     std::signal(SIGINT, onStopSignal);
