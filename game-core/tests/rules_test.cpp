@@ -62,11 +62,12 @@ protected:
     void collectDrops() {
         const Rect start = me().bounds();
         Player* players[] = {&me()};
-        for (int i = 0; i < 40; ++i) level().drops.tick(map(), players);  // too fresh to pick up yet
+        Events events;  // pickups record stats events; not what these tests look at
+        for (int i = 0; i < 40; ++i) level().drops.tick(map(), players, events);  // too fresh to pick up yet
         for (int dy = -8; dy <= 8; dy += 2) {
             for (int dx = -8; dx <= 8; dx += 2) {
                 me().setPosition((kX + 1) * 16.0f + static_cast<float>(dx), kY * 16.0f - 3.0f + static_cast<float>(dy));
-                level().drops.tick(map(), players);
+                level().drops.tick(map(), players, events);
             }
         }
         me().setPosition(start.x, start.y);

@@ -76,15 +76,30 @@ void Player::refillStats() {
     knockbackY_ = 0;
 }
 
+void Player::startLife(int tick) {
+    lifeStartTick_ = tick;
+    levelsReached_ = 1u << level_;  // where the life begins doesn't count as reached
+    lastDamage_ = {};
+}
+
+bool Player::reachLevel(int level) {
+    const unsigned bit = 1u << level;
+    if (levelsReached_ & bit) return false;
+    levelsReached_ |= bit;
+    return true;
+}
+
 void Player::hurt(int damage) {
     if (hurtTime_ > 0) return;
+    lastDamage_ = {DamageSource::Kind::Environment};  // lava, drowning, hunger
     health_ = std::max(0, health_ - damage);
     damageTaken_ += damage;
     hurtTime_ = kHurtTicks;
 }
 
-bool Player::takeHit(int damage, int directionX, int directionY, Events& events) {
+bool Player::takeHit(int damage, int directionX, int directionY, Events& events, DamageSource source) {
     if (hurtTime_ > 0 || damage <= 0) return false;
+    lastDamage_ = source;
     const Vec2 c = center();
     int healthDamage = damage;
     if (armor_) {

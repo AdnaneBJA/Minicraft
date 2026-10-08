@@ -164,7 +164,8 @@ if(MINICRAFT_BUILD_TESTS)
         game-core/tests/simulation_test.cpp
         game-core/tests/world_test.cpp
         game-core/tests/rules_test.cpp
-        game-core/tests/multiplayer_test.cpp)
+        game-core/tests/multiplayer_test.cpp
+        game-core/tests/stats_test.cpp)
     target_link_libraries(game_core_tests PRIVATE game_core GTest::gtest_main)
     # The server and the client's connection, end to end over localhost WebSockets.
     add_executable(server_tests server/tests/server_test.cpp)

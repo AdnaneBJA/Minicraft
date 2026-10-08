@@ -1,5 +1,6 @@
 #pragma once
 
+#include "events.h"
 #include "geometry.h"
 #include "items.h"
 #include "tick_input.h"
@@ -80,7 +81,14 @@ public:
     // Hit by a mob, an arrow or a blast: worn armour soaks it up first (Player.doHurt), the rest costs health,
     // and the player is knocked back along (directionX, directionY), unless still in the hurt cooldown. Records the
     // damage numbers and the hurt sound. Returns true if the hit landed.
-    bool takeHit(int damage, int directionX, int directionY, Events& events);
+    bool takeHit(int damage, int directionX, int directionY, Events& events, DamageSource source = {});
+    // What hurt this player last (their killer, if they die now).
+    const DamageSource& lastDamage() const { return lastDamage_; }
+    // The tick this life began (joining or respawning), and the levels visited since.
+    int lifeStartTick() const { return lifeStartTick_; }
+    void startLife(int tick);
+    // Marks a World level as visited this life; true the first time.
+    bool reachLevel(int level);
 
     // Eats food that restores `value` hunger (FoodItem.interactOn: 2 energy). False if not hungry or exhausted.
     bool eat(int value);
@@ -139,6 +147,9 @@ private:
     Vec2 spawnPoint_;
     bool onStairs_ = false;
     bool waitingToRespawn_ = false;
+    DamageSource lastDamage_;
+    int lifeStartTick_ = 0;
+    unsigned levelsReached_ = 0;  // one bit per World level
     int punchRepeatTicks_ = 0;
 
     // Moves along one axis, stopping flush against the first solid tile in the way.

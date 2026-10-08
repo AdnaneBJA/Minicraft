@@ -43,11 +43,16 @@ void Projectiles::tick(const TileMap& map, std::span<Player* const> players, Mob
         const int bonus = rng.nextInt(11) < 9 ? 0 : 1;
         const Rect tip{arrow.x - 1.0f, arrow.y - 1.0f, 2.0f, 2.0f};
         const bool fromPlayer = arrow.shooterId >= 0;
-        if (fromPlayer && mobs.hit(tip, arrow.damage + 3 + bonus, arrow.direction, events)) return true;
+        if (fromPlayer && mobs.hit(tip, arrow.damage + 3 + bonus, arrow.direction, events, arrow.shooterId)) {
+            return true;
+        }
         // Players: hit by skeletons' arrows, and by each other's (PvP), but never by their own.
         for (Player* player : players) {
             if (player->id() == arrow.shooterId || !intersects(tip, player->hitbox())) continue;
-            player->takeHit(std::max(1, arrow.damage + bonus), arrow.direction.x, arrow.direction.y, events);
+            const DamageSource shooter = fromPlayer
+                                             ? DamageSource{DamageSource::Kind::Player, arrow.shooterId}
+                                             : DamageSource{DamageSource::Kind::Mob, static_cast<int>(MobKind::Skeleton)};
+            player->takeHit(std::max(1, arrow.damage + bonus), arrow.direction.x, arrow.direction.y, events, shooter);
             return true;
         }
         return false;
@@ -60,7 +65,7 @@ void Projectiles::tick(const TileMap& map, std::span<Player* const> players, Mob
         for (Player* player : players) {
             const Rect box = player->hitbox();
             if (spark.x >= box.x && spark.x < box.x + box.w && spark.y >= box.y && spark.y < box.y + box.h) {
-                player->takeHit(1, 0, 0, events);
+                player->takeHit(1, 0, 0, events, {DamageSource::Kind::Mob, static_cast<int>(MobKind::AirWizard)});
             }
         }
         return false;

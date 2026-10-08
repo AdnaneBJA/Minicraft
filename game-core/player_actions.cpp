@@ -58,11 +58,14 @@ void PlayerActions::attack(Inventory::Stack* tool) {
     const ToolInfo info = tool ? toolInfo(tool->type) : ToolInfo{};
     const int bonus = tool && tool->durability > 0 ? toolMobBonus(info, rng_) : 0;
     const Rect reach = player_.attackBox();
-    bool hitMob = level_.mobs.hit(reach, mobDamage + bonus, player_.facing(), events_);
+    bool hitMob = level_.mobs.hit(reach, mobDamage + bonus, player_.facing(), events_, player_.id());
     // PvP: other players in reach take the same hit, knocked back the way the attacker faces.
     for (Player* other : others_) {
         if (!intersects(reach, other->hitbox())) continue;
-        if (other->takeHit(mobDamage + bonus, player_.facing().x, player_.facing().y, events_)) hitMob = true;
+        const DamageSource attacker{DamageSource::Kind::Player, player_.id()};
+        if (other->takeHit(mobDamage + bonus, player_.facing().x, player_.facing().y, events_, attacker)) {
+            hitMob = true;
+        }
     }
     if (hitMob && bonus > 0) --tool->durability;
     const Point target = player_.interactionTile();
@@ -104,6 +107,7 @@ void PlayerActions::attack(Inventory::Stack* tool) {
 // with a pickaxe drops more stone and coal (RockTile.hurt with dropCoal).
 void PlayerActions::onTileHit(Point target, int damage, const TileMap::TileHit& hit, bool withPickaxe) {
     const Vec2 c = tileCenter(target);
+    if (hit.broken) tileBroken(hit.tile);
     DroppedItems& drops = level_.drops;
     switch (hit.tile) {
         case Tile::Flower:
@@ -172,6 +176,10 @@ void PlayerActions::onTileHit(Point target, int damage, const TileMap::TileHit& 
     }
 }
 
+void PlayerActions::tileBroken(Tile tile) {
+    events_.push({.kind = GameEvent::Kind::TileBroken, .value = static_cast<int>(tile), .player = player_.id()});
+}
+
 // Swinging a tool: 1 energy like any swing; then, if the tool has a use on the tile in front, it does that
 // (paying extra energy and durability); otherwise it attacks with the tool. A tool at 0 durability breaks.
 void PlayerActions::swingTool() {
@@ -222,6 +230,7 @@ bool PlayerActions::useToolOnTile(Inventory::Stack& tool) {
     const auto pickUp = [&](ItemType item, Tile left) {
         if (!pay(4 - info.level)) return false;
         events_.sound(Sound::MonsterHurt);
+        tileBroken(tile);
         map.setTile(target.x, target.y, left);
         level_.drops.spawn(item, 1, c.x, c.y, rng_);
         return true;
@@ -275,6 +284,7 @@ bool PlayerActions::useToolOnTile(Inventory::Stack& tool) {
             if (tile == Tile::Cloud) {
                 // CloudTile.interact: scoop the cloud up (5 energy), leaving the endless fall.
                 if (!pay(5)) return false;
+                tileBroken(Tile::Cloud);
                 map.setTile(target.x, target.y, Tile::InfiniteFall);
                 level_.drops.spawn(ItemType::Cloud, rng_.nextInt(3 - 1 + 1) + 1, c.x, c.y, rng_);
                 return true;
