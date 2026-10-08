@@ -21,6 +21,7 @@ import (
 
 	"github.com/AdnaneBJA/Minicraft/stats/internal/server"
 	"github.com/AdnaneBJA/Minicraft/stats/internal/store"
+	"github.com/AdnaneBJA/Minicraft/stats/internal/web"
 )
 
 func main() {
@@ -62,7 +63,10 @@ func run() error {
 	}
 	defer st.Close()
 
-	srv := server.New(st, token, publicHandler(st))
+	// The pages show the players online, which the ingestion side knows: hence the late-bound closure.
+	var srv *server.Server
+	public := web.Handler(st, func() int { return srv.Online() }, envOr("SPRITES_DIR", "/sprites"))
+	srv = server.New(st, token, public)
 	httpServer := &http.Server{Addr: listen, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -76,9 +80,6 @@ func run() error {
 	}
 	return nil
 }
-
-// publicHandler serves the dashboard and its API.
-func publicHandler(*store.Store) http.Handler { return http.NotFoundHandler() }
 
 func envOr(name, fallback string) string {
 	if v := os.Getenv(name); v != "" {

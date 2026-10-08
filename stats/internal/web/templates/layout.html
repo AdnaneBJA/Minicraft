@@ -1,0 +1,28 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{block "title" .}}Minicraft live stats{{end}}</title>
+<meta name="description" content="Live stats from the shared Minicraft world: resources gathered, creatures killed, leaderboards.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/stats/static/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/stats">MINICRAFT <span>live stats</span></a>
+  <div class="top-right">
+    <span class="online" id="online-pill"><span class="dot"></span><span id="online-text">…</span></span>
+    <a class="play" href="https://adnanebja.github.io/Minicraft/" target="_blank" rel="noopener">▶ Play now</a>
+  </div>
+</header>
+<main>
+{{template "content" .}}
+</main>
+<footer>Every number here comes from the game server replaying the shared world, tick by tick. ·
+  <a href="https://github.com/AdnaneBJA/Minicraft" target="_blank" rel="noopener">Source</a></footer>
+{{block "scripts" .}}{{end}}
+</body>
+</html>{{end}}

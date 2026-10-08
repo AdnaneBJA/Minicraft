@@ -1,0 +1,107 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-2: #1e222b;
+  --line: #2a2f3a;
+  --text: #e8e6e3;
+  --muted: #9aa0aa;
+  --green: #6ac46a;
+  --gold: #e5b84b;
+  --red: #e0605a;
+  --pixel: "Press Start 2P", monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: var(--green); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 16px clamp(16px, 4vw, 48px);
+  border-bottom: 1px solid var(--line);
+  background: #12151b;
+  position: sticky; top: 0; z-index: 2;
+}
+.brand { font-family: var(--pixel); font-size: 18px; color: #c8e6a0; letter-spacing: 1px; }
+.brand span { color: var(--muted); font-size: 10px; margin-left: 8px; letter-spacing: 0; }
+.brand:hover { text-decoration: none; }
+.top-right { display: flex; align-items: center; gap: 12px; }
+.online { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #555; }
+.online.live .dot { background: var(--green); box-shadow: 0 0 0 4px rgba(106, 196, 106, 0.18); }
+.play {
+  background: var(--green); color: #10140f; font-weight: 700; padding: 8px 16px; border-radius: 6px;
+}
+.play:hover { background: #7fd87f; text-decoration: none; }
+
+main { max-width: 1200px; margin: 0 auto; padding: 24px clamp(16px, 4vw, 48px) 48px; }
+
+h1, h2, h3 { font-family: var(--pixel); font-weight: 400; }
+h2 { font-size: 13px; margin: 0 0 16px; color: #c8e6a0; }
+h3 { font-size: 10px; margin: 0 0 12px; color: var(--muted); }
+
+.cards {
+  display: grid; gap: 12px; margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.card .label { color: var(--muted); font-size: 13px; }
+.card .value { font-size: 26px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.card.gold { border-color: rgba(229, 184, 75, 0.45); }
+.card.gold .value { color: var(--gold); }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+.split { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+.split .panel { margin-bottom: 20px; }
+@media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+
+/* Icons come straight from the game's sprite sheets: drawn at their native size (items 8x8, mobs 16x16, each at its
+   place in the sheet) and scaled up as a whole, so any sheet size works and the pixels stay crisp. */
+.icon { display: block; flex: none; image-rendering: pixelated; background-repeat: no-repeat; transform-origin: 0 0; }
+.icon.item { width: 8px; height: 8px; background-image: url(/stats/sprites/items.png); transform: scale(3); }
+.icon-box { width: 24px; height: 24px; overflow: visible; }
+.mob-icon { width: 16px; height: 16px; background-position: 0 0; transform: scale(2); }
+.mob-box { width: 32px; height: 32px; grid-row: span 2; }
+
+.bars { display: grid; gap: 6px; }
+.bar-row { display: grid; grid-template-columns: 24px 120px 1fr 72px; align-items: center; gap: 10px; }
+.bar-name { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar { height: 12px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.fill { display: block; height: 100%; background: linear-gradient(90deg, #4f9a4f, var(--green)); }
+.bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+@media (max-width: 520px) { .bar-row { grid-template-columns: 24px 90px 1fr 56px; } }
+
+.boards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.board { background: var(--panel-2); border-radius: 6px; padding: 14px; }
+.board ol { list-style: none; margin: 0; padding: 0; }
+.board li { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.board li:last-child { border-bottom: 0; }
+.rank { width: 22px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.board li:nth-child(1) .rank { color: var(--gold); font-weight: 700; }
+.board li a { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.score { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.mobs { display: grid; gap: 8px; }
+.mob { display: grid; grid-template-columns: 32px 1fr auto; grid-template-rows: auto auto; column-gap: 12px; align-items: center; }
+.mob-killed { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mob-deadly { grid-column: 2 / span 2; color: var(--red); font-size: 13px; }
+
+.feed { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; }
+.feed li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.feed time { color: var(--muted); white-space: nowrap; font-size: 13px; }
+
+.chart { position: relative; height: 260px; }
+.empty { color: var(--muted); }
+.note { color: var(--muted); }
+.back { margin: 0 0 8px; }
+.player-name { font-size: 22px; margin: 8px 0; color: #c8e6a0; word-break: break-all; }
+
+footer { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 16px 40px; }
