@@ -44,3 +44,13 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
         run: go test -count=1 ./...
+
+  images:
+    # The production images build (the server's also runs the C++ tests on Linux inside the build).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the game server image
+        run: docker build -f server/Dockerfile -t minicraft-server .
+      - name: Build the stats service image
+        run: docker build -f stats/Dockerfile -t minicraft-stats .
