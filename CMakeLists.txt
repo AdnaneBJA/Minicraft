@@ -169,7 +169,9 @@ if(MINICRAFT_BUILD_TESTS)
         game-core/tests/stats_test.cpp)
     target_link_libraries(game_core_tests PRIVATE game_core GTest::gtest_main)
     # The server and the client's connection, end to end over localhost WebSockets.
-    add_executable(server_tests server/tests/server_test.cpp server/tests/stats_test.cpp)
+    add_executable(server_tests server/tests/server_test.cpp server/tests/stats_test.cpp
+        server/tests/protocol_fixtures.cpp)
+    target_compile_definitions(server_tests PRIVATE MINICRAFT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     target_link_libraries(server_tests PRIVATE server_lib net_client GTest::gtest_main)
     include(GoogleTest)
     gtest_discover_tests(game_core_tests)

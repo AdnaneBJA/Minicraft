@@ -14,7 +14,8 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - **In the browser:** the same C++ compiled to **WebAssembly** with Emscripten, published on GitHub Pages by CI. It stores nothing in the browser.
 - **Multiplayer:** a lockstep design over **WebSockets**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. One shared world per server, with chat, PvP, joining a world already in progress, and automatic desync detection.
 - **Live stats:** the game server replays the world itself and reports every action (trees chopped, ores mined, creatures killed, deaths, levels reached) to a **Go** service backed by **PostgreSQL**, which serves a public dashboard with leaderboards. Each action counts exactly once, and nothing a browser sends can fake it.
-- **Tests:** 79 GoogleTest tests (the core rules, two-client lockstep, late-join replay, the stat events, the real server with real clients over localhost WebSockets) and Go tests against a real PostgreSQL. A Playwright script plays the web build in headless Chromium and checks the dashboard counted it.
+- **Load-tested:** a Go bot fleet (`loadtest/`) plays the real protocol. With 32 players on a local Linux server (2 cores), a key press shows up in the world in 8.6 ms at the median (17 ms p99), plus the player's network round trip; the bots received ticks within 0.65 ms of schedule (p99), and the server used under 5% of one core.
+- **Tests:** 80 GoogleTest tests (the core rules, two-client lockstep, late-join replay, the stat events, the real server with real clients over localhost WebSockets) and Go tests against a real PostgreSQL. A Playwright script plays the web build in headless Chromium and checks the dashboard counted it.
 
 ---
 
@@ -22,6 +23,7 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - [The game](#the-game)
 - [Multiplayer](#multiplayer)
 - [Live stats](#live-stats)
+- [Performance](#performance)
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
 - [Controls](#controls)
@@ -82,6 +84,28 @@ How it's built:
 - **Locked down.** Caddy routes only `/stats*` to the stats service; `/events` is reachable only inside the Docker network, and needs the token. Without the stats configuration the game server runs exactly as before.
 
 Why the server replays the world: **[ADR 0003](docs/adr/0003-stats-from-an-authoritative-replay.md)**.
+
+## Performance
+
+Measured with the Go bot fleet in [`loadtest/`](loadtest): each bot joins over the real binary protocol, walks, attacks and chats, and times what a player feels.
+
+| 32 players, 3.5 min | p50 | p99 | max |
+|---|---|---|---|
+| **Input latency** (key change sent → first tick that carries it) | 8.6 ms | 17 ms | 21 ms |
+| **Tick jitter** (gap between ticks vs 16.7 ms) | 0.10 ms | 0.65 ms | 9.7 ms |
+| **Join time** (connect → world received) | 4.2 ms | 17 ms | 17 ms |
+
+- **Server cost:** 1.9% of one core on average (4.0% max) and 23 MB of memory, for 32 players and 520 KB/s of ticks out.
+- **Breaking point:** ramping 4 bots every 15 s, latency stays flat (p99 17 ms at every step) until 36 bots, where the server's 32-player limit refuses connections. The limit is a design choice, not a capacity one.
+- **Why 8.6 ms:** in lockstep a key press waits for the next 60 Hz tick: on average half a tick (8.3 ms), at most one (16.7 ms). Locally that's the whole latency; over the internet, one network round trip is added. See [ADR 0004](docs/adr/0004-lockstep-input-latency.md).
+
+Environment: WSL2 Ubuntu on a Windows 11 desktop, server pinned to 2 cores, bots on the same machine. Full reports: [`docs/perf/`](docs/perf). Reproduce:
+```sh
+cd loadtest
+go run ./cmd/loadtest --bots 32 --ramp 30s --duration 3m --server-pid <pid>   # steady
+go run ./cmd/loadtest --mode ramp --bots 40 --step 4 --every 15s              # find the breaking point
+```
+CI runs an 8-bot load test against the real server on every push.
 
 ## How it works
 
@@ -204,9 +228,11 @@ ctest --test-dir build --output-on-failure
 - **Multiplayer:** joining and leaving, PvP punches and arrows, several levels simulated at once, beds.
 - **Stat events:** chopping a tree and picking up the wood, sword and arrow kills credited to the right player, a death in lava, a PvP kill, a creeper blast (no self-kills), the boss defeat (for everyone, credited to its killer), crafting, reaching a cave once per life, and the same events from two simulations fed the same ticks.
 
-27 tests on the server (`server_tests`), including the stats reporting (named events from the replay, batches with the token, heartbeats, retries that arrive once, the bounded backlog, no reporting without configuration). The rest: a real `minicraft-server` on localhost and real game clients over WebSockets. They cover joining the world, both players getting the same ticks, chat, leaving, a late joiner's history, the world ending when empty and resetting when old, invalid and duplicate names, a large message, an unreachable or silent server, an unresponsive client, and a player vanishing mid-game.
+28 tests on the server (`server_tests`), including one that keeps the Go bots' protocol in step with C++ (it writes byte fixtures the Go tests decode), and the stats reporting (named events from the replay, batches with the token, heartbeats, retries that arrive once, the bounded backlog, no reporting without configuration). The rest: a real `minicraft-server` on localhost and real game clients over WebSockets. They cover joining the world, both players getting the same ticks, chat, leaving, a late joiner's history, the world ending when empty and resetting when old, invalid and duplicate names, a large message, an unreachable or silent server, an unresponsive client, and a player vanishing mid-game.
 
 **Stats service (Go):** `cd stats && go test ./...` runs against a real PostgreSQL 17 (an embedded one locally, a service container in CI): validation, idempotent ingestion, every tally, the leaderboards, the JSON API, the pages (also over an empty database) and the token check.
+
+**Load-testing bots (Go):** `cd loadtest && go test -race ./...`: the protocol against the C++ fixtures (and fuzzed), the histograms, the bots against a fake server with a known delay, and every run mode.
 
 **Browser:** [`web/smoke/smoke.mjs`](web/smoke/smoke.mjs) plays the web build in headless Chromium with Playwright. Two players type names, land in the same world and chat; one leaves and rejoins; a third can't take a name in use; and the canvas follows the window. Given the stats service's address, it also checks the dashboard counted the visit.
 
@@ -218,6 +244,7 @@ CI runs the tests on Linux for every push, and builds the web version for every 
 game-core/    the simulation (static library, no SDL) + tests/
 net-common/   client/server protocol and the WebSocket client (browser and native)
 server/       minicraft-server + tests/, and its Dockerfile
+loadtest/     the Go load-testing bots (protocol, bots, metrics, reports)
 stats/        the Go stats service (ingestion, PostgreSQL, API, dashboard) and its Dockerfile
 client/       the SDL3 game (desktop and browser)
 web/          the web page around the game (shell.html) and the browser smoke test

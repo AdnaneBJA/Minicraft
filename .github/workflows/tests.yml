@@ -54,3 +54,34 @@ jobs:
         run: docker build -f server/Dockerfile -t minicraft-server .
       - name: Build the stats service image
         run: docker build -f stats/Dockerfile -t minicraft-stats .
+
+  loadtest:
+    # The Go load-testing bots: their tests, then a short load test against the real server.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: loadtest/go.mod
+          cache-dependency-path: loadtest/go.sum
+      - name: Vet and test
+        working-directory: loadtest
+        run: go vet ./... && go test -race -count=1 ./...
+      - name: Build the server
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMINICRAFT_BUILD_CLIENT=OFF -DMINICRAFT_BUILD_TESTS=OFF
+          cmake --build build --target minicraft-server
+      - name: Load test (8 bots, 20 s)
+        run: |
+          ./build/minicraft-server 7777 &
+          server=$!  # (pgrep can't find it by name: Linux cuts process names to 15 characters)
+          for i in $(seq 100); do nc -z localhost 7777 && break; sleep 0.1; done  # until it listens
+          cd loadtest
+          go run ./cmd/loadtest --bots 8 --ramp 2s --duration 20s --server-pid "$server" \
+            --out ../ci-report --fail-on-p99 250ms --fail-on-errors
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: loadtest-report
+          path: ci-report.*
