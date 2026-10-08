@@ -126,8 +126,7 @@ if(MINICRAFT_BUILD_CLIENT)
         client/map_screen.cpp
         client/game_menu.cpp
         client/audio.cpp
-        client/chat_box.cpp
-        client/persist.cpp)
+        client/chat_box.cpp)
     target_link_libraries(Minicraft PRIVATE game_core net_client SDL3::SDL3 imgui)
 
     if(EMSCRIPTEN)
@@ -141,7 +140,6 @@ if(MINICRAFT_BUILD_CLIENT)
             -sINITIAL_MEMORY=64MB
             -sENVIRONMENT=web
             -lwebsocket.js
-            -lidbfs.js
             --preload-file ${CMAKE_SOURCE_DIR}/assets@/assets
             --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html)
         set_property(TARGET Minicraft APPEND PROPERTY LINK_DEPENDS ${CMAKE_SOURCE_DIR}/web/shell.html)

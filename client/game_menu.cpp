@@ -71,6 +71,8 @@ void drawEntries(SDL_Renderer* renderer, const Font& font, const Entries& entrie
 }  // namespace
 
 bool GameMenu::load(SDL_Renderer* renderer, const std::string& logoPath) {
+    // A different default name for each visitor, so two people who just press Enter don't clash.
+    playerName_ = "Player" + std::to_string(100 + SDL_rand(900));
     logo_ = loadTexture(renderer, logoPath);
     if (!logo_) return false;
     SDL_GetTextureSize(logo_.get(), &logoWidth_, &logoHeight_);

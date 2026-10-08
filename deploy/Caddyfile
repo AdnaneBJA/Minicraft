@@ -1,4 +1,14 @@
 # Caddy gets a Let's Encrypt certificate for $DOMAIN and passes WebSocket connections on to the game server.
+{
+	servers {
+		# Plain HTTP/1.1 only. Browsers then always open the WebSocket with the classic Upgrade handshake; over an
+		# HTTP/2 or HTTP/3 connection they use a different one, which reached the game server without its
+		# Sec-WebSocket-Key header and failed ("Could not connect"). An endpoint that only serves a WebSocket
+		# gains nothing from HTTP/2 or HTTP/3.
+		protocols h1
+	}
+}
+
 {$DOMAIN} {
 	reverse_proxy server:7777
 }
