@@ -1,8 +1,8 @@
 # The hosted game: minicraft-server, the stats service and its database, and the monitoring (a probe, Prometheus and
 # Grafana), behind Caddy, which adds TLS (wss://, https://) with a free certificate.
 #   cd deploy && docker compose up -d --build
-# .env (next to this file) holds DOMAIN, POSTGRES_PASSWORD, STATS_TOKEN and GRAFANA_ADMIN_PASSWORD. See
-# deploy/README.md.
+# .env (next to this file) holds DOMAIN, POSTGRES_PASSWORD, STATS_TOKEN, PROBE_TOKEN and GRAFANA_ADMIN_PASSWORD.
+# See deploy/README.md.
 services:
   server:
     build:
@@ -15,6 +15,8 @@ services:
       # What players do goes to the stats service. Remove these two lines to run the game without stats.
       STATS_URL: http://stats:8080/events
       STATS_TOKEN: ${STATS_TOKEN:?set STATS_TOKEN in .env}
+      # Only the probe, which sends the same token, may watch the world unseen.
+      PROBE_TOKEN: ${PROBE_TOKEN:?set PROBE_TOKEN in .env}
 
   stats:
     build:
@@ -73,6 +75,8 @@ services:
     depends_on:
       - caddy
     command: ["--url", "${PROBE_URL:-wss://${DOMAIN}}"]
+    environment:
+      PROBE_TOKEN: ${PROBE_TOKEN:?set PROBE_TOKEN in .env}
     expose:
       - "9100"
     mem_limit: 32m
@@ -84,6 +88,10 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
+      # Anyone can make Grafana run a query: bound what one may cost, so none can take the machine's memory.
+      - --query.max-samples=5000000
+      - --query.timeout=15s
+      - --query.max-concurrency=4
     volumes:
       - ./prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
@@ -107,6 +115,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DATAPROXY_TIMEOUT: "20"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/player-experience.json
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

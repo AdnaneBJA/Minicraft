@@ -62,13 +62,14 @@ cat > .env <<EOF
 DOMAIN=minicraft-yourname.duckdns.org
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 STATS_TOKEN=$(openssl rand -hex 24)
+PROBE_TOKEN=$(openssl rand -hex 24)
 GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)
 EOF
 docker compose up -d --build
 ```
 
-`.env` holds the domain and three random secrets: the stats database's password, the token the game server sends
-to the stats service, and Grafana's admin password. Keep the file private; it never goes into git.
+`.env` holds the domain and four random secrets: the stats database's password, the token the game server sends
+to the stats service, the token that lets the monitoring probe watch the world unseen, and Grafana's admin password. Keep the file private; it never goes into git.
 
 What this does:
 - **The first build** takes a few minutes: it compiles the server and the stats service and runs their tests.
@@ -77,8 +78,10 @@ What this does:
   so they survive restarts and updates.
 - **The dashboard** is at `https://minicraft-yourname.duckdns.org/stats`.
 - **The monitoring** is at `https://minicraft-yourname.duckdns.org/grafana`: anyone can look, and you sign in as
-  `admin` (the password in `.env`) to change anything. A probe plays the game every 30 s as a hidden observer;
-  Prometheus keeps 15 days of metrics. The three containers are capped at about 320 MB of memory together.
+  `admin` (the password in `.env`) to change anything. Grafana takes that password only the first time it starts;
+  to change it later, run `docker compose exec grafana grafana cli admin reset-admin-password <new>`. A probe plays
+  the game every 30 s as a hidden observer; Prometheus keeps 15 days of metrics, and bounds what one query may
+  cost, since anyone can make Grafana run one. The three containers are capped at about 320 MB of memory together.
 
 Check it:
 ```sh
@@ -110,8 +113,8 @@ The game is then at `https://<github-user>.github.io/Minicraft/`.
 | Restart | `docker compose restart server` |
 | Stop everything | `docker compose down` |
 
-**Updating from a version without monitoring:** add `GRAFANA_ADMIN_PASSWORD` to `.env` (`openssl rand -hex 16`), then
-`git pull && docker compose up -d --build`.
+**Updating from a version without monitoring:** add `PROBE_TOKEN` (`openssl rand -hex 24`) and
+`GRAFANA_ADMIN_PASSWORD` (`openssl rand -hex 16`) to `.env`, then `git pull && docker compose up -d --build`.
 
 **Updating from a version without stats:** add the two new lines to `.env` (`POSTGRES_PASSWORD` and `STATS_TOKEN`,
 each `openssl rand -hex 24`), then `git pull && docker compose up -d --build`.
@@ -125,7 +128,7 @@ someone is playing in them.
   - run `docker build -f server/Dockerfile -t minicraft-server .` then
     `docker run --rm -p 7777:7777 minicraft-server`, from the repository root;
   - build the web version with `-DMINICRAFT_SERVER_URL=ws://localhost:7777`.
-- **With Caddy:** put `DOMAIN=localhost`, the three secrets and `PROBE_URL=ws://server:7777` in `.env`, then
+- **With Caddy:** put `DOMAIN=localhost`, the four secrets and `PROBE_URL=ws://server:7777` in `.env`, then
   `docker compose up -d --build`. It serves `wss://localhost` with Caddy's own local certificate, which your browser
   won't trust (`curl -k` to test it); `PROBE_URL` lets the probe skip that certificate by talking to the server
   directly.

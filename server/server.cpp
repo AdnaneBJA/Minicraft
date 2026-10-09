@@ -17,6 +17,9 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr auto kTickLength = std::chrono::microseconds(1'000'000 / 60);
 constexpr int kListenBacklog = 16;
+// Sockets beyond the players and observers, so a would-be player always gets as far as Hello and hears "Server is
+// full" instead of being cut off at the socket.
+constexpr int kSpareConnections = 8;
 // Every connection is pinged this often, and closed if the previous ping got no answer: a player whose laptop
 // went to sleep leaves the game after 5-10 seconds instead of whenever TCP gives up (many minutes).
 constexpr int kPingIntervalSeconds = 5;
@@ -25,6 +28,14 @@ constexpr int kPingIntervalSeconds = 5;
 
 namespace {
 
+// Compares every byte whatever the first difference, so the time taken says nothing about the token.
+bool sameSecret(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    unsigned char diff = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) diff |= static_cast<unsigned char>(a[i] ^ b[i]);
+    return diff == 0;
+}
+
 std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
         .count();
@@ -32,7 +43,8 @@ std::int64_t nowMs() {
 
 }  // namespace
 
-Server::Server(int resetAfterTicks, std::optional<StatsConfig> stats) : resetAfterTicks_(resetAfterTicks) {
+Server::Server(int resetAfterTicks, std::optional<StatsConfig> stats, std::string probeToken)
+    : resetAfterTicks_(resetAfterTicks), probeToken_(std::move(probeToken)) {
     if (stats) {
         reporter_ = std::make_unique<StatsReporter>(stats->url, stats->token);
         reportPrefix_ = "server" + std::to_string(nowMs());
@@ -58,7 +70,7 @@ Server::~Server() {
 bool Server::start(std::uint16_t port) {
     ix::initNetSystem();
     socketServer_ = std::make_unique<ix::WebSocketServer>(
-        port, "0.0.0.0", kListenBacklog, static_cast<std::size_t>(protocol::kMaxPlayers + protocol::kMaxObservers),
+        port, "0.0.0.0", kListenBacklog, static_cast<std::size_t>(protocol::kMaxPlayers + protocol::kMaxObservers + kSpareConnections),
         ix::WebSocketServer::kDefaultHandShakeTimeoutSecs, ix::SocketServer::kDefaultAddressFamily,
         kPingIntervalSeconds);
     // A new connection gets an id; from then on its thread only queues what it hears.
@@ -195,7 +207,9 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
             }
             break;
         case MessageType::Observe:
-            if (protocol::decode<protocol::Observe>(bytes) && client.name.empty()) observe(client);
+            if (const auto observe = protocol::decode<protocol::Observe>(bytes); observe && client.name.empty()) {
+                this->observe(client, observe->token);
+            }
             break;
         case MessageType::Input:
             if (const auto input = protocol::decode<protocol::InputMessage>(bytes); input && world_) {
@@ -334,12 +348,13 @@ int Server::playersOnline() const {
                                           [](const auto& entry) { return !entry.second.name.empty(); }));
 }
 
-void Server::observe(Client& client) {
-    if (observersOnline() >= protocol::kMaxObservers) {
-        sendTo(client, protocol::ErrorMessage{"Too many observers"});
+void Server::observe(Client& client, const std::string& token) {
+    const auto refuse = [&](const std::string& why) {
+        sendTo(client, protocol::ErrorMessage{why});
         if (const std::shared_ptr<ix::WebSocket> socket = client.socket.lock()) socket->close();
-        return;
-    }
+    };
+    if (probeToken_.empty() || !sameSecret(token, probeToken_)) return refuse("Not allowed to observe");
+    if (observersOnline() >= protocol::kMaxObservers) return refuse("Too many observers");
     client.observing = true;
     std::printf("Connection %d is an observer\n", client.id);
     if (world_) {

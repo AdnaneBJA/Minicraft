@@ -33,7 +33,7 @@ std::vector<std::pair<std::string, std::vector<std::uint8_t>>> examples() {
         {"tick", encode(TickMessage{tick})},
         {"chatline", encode(ChatLine{"Alice", "hello"})},
         {"error", encode(ErrorMessage{"Name already in use"})},
-        {"observe", encode(Observe{})},
+        {"observe", encode(Observe{"secret"})},
         {"probeping", encode(ProbePing{5})},
         {"probepong", encode(ProbePong{5})},
     };

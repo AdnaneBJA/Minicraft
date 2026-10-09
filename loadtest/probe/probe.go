@@ -32,6 +32,7 @@ var Results = []Result{OK, ConnectFailed, Refused, JoinFailed, Timeout}
 // Config is one run's settings.
 type Config struct {
 	URL       string
+	Token     string // the server's probe token (PROBE_TOKEN)
 	Pings     int
 	PingEvery time.Duration
 	Timeout   time.Duration // the whole run's deadline
@@ -66,7 +67,7 @@ func Once(ctx context.Context, cfg Config) Run {
 	}
 	defer conn.CloseNow()
 	conn.SetReadLimit(-1) // ReadMessage enforces the limits itself
-	if err := conn.Write(ctx, websocket.MessageBinary, protocol.EncodeObserve()); err != nil {
+	if err := conn.Write(ctx, websocket.MessageBinary, protocol.EncodeObserve(cfg.Token)); err != nil {
 		return fail(JoinFailed, err)
 	}
 	for joined := false; !joined; {
@@ -119,13 +120,16 @@ func Once(ctx context.Context, cfg Config) Run {
 		case protocol.Joined:
 			lastTick = time.Time{} // a world reset: the tick clock restarts
 		case protocol.ProbePong:
+			// The server keeps one ping per observer: a newer one replaces one it hasn't answered yet. The tick
+			// that answered this one would have answered those too, so they all get this answer's time.
 			mu.Lock()
-			at, ok := sent[msg.PingID]
-			delete(sent, msg.PingID)
-			mu.Unlock()
-			if ok {
-				run.Latencies = append(run.Latencies, now.Sub(at))
+			for id, at := range sent {
+				if id <= msg.PingID {
+					run.Latencies = append(run.Latencies, now.Sub(at))
+					delete(sent, id)
+				}
 			}
+			mu.Unlock()
 		}
 	}
 	_ = conn.Close(websocket.StatusNormalClosure, "")

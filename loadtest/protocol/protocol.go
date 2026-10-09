@@ -36,6 +36,7 @@ const (
 	MaxChatLength     = 80
 	maxChatLineText   = MaxChatLength * 2
 	maxErrorLength    = 200
+	maxTokenLength    = 64
 	maxTurnsPerTick   = 64
 	maxCommandsInTurn = 18
 	maxHistory        = 60 * 60 * 60 * 6
@@ -90,7 +91,7 @@ type Message struct {
 	Tick       TickMsg // Tick
 	Keys       Keys    // Input
 	From       string  // ChatLine
-	Text       string  // Hello (the name), Chat, ChatLine, Error
+	Text       string  // Hello (the name), Chat, ChatLine, Error, Observe (the token)
 	PingID     int32   // ProbePing, ProbePong
 }
 
@@ -159,8 +160,8 @@ func EncodeChatLine(from, text string) []byte {
 // EncodeError sends an error.
 func EncodeError(text string) []byte { w := start(Error); w.str(text); return w.b }
 
-// EncodeObserve asks to watch the world without playing (monitoring probes).
-func EncodeObserve() []byte { return start(Observe).b }
+// EncodeObserve asks to watch the world without playing (monitoring probes), with the server's probe token.
+func EncodeObserve(token string) []byte { w := start(Observe); w.str(token); return w.b }
 
 // EncodeProbePing asks for an answer with the next tick.
 func EncodeProbePing(id int32) []byte { w := start(ProbePing); w.i32(id); return w.b }
@@ -283,6 +284,7 @@ func Decode(b []byte) (Message, error) {
 	case Error:
 		m.Text = r.str(maxErrorLength)
 	case Observe:
+		m.Text = r.str(maxTokenLength)
 	case ProbePing, ProbePong:
 		m.PingID = r.i32()
 	default:

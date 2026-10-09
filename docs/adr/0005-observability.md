@@ -13,6 +13,9 @@
 - **A hidden observer.** In lockstep everything in a tick is simulated by every client, so the probe can't send
   keys without putting a player in everyone's world. It says `Observe` instead of `Hello`: it gets the world and
   the ticks, but it isn't in the world, the player list, the stats or the 32-player limit (at most 2 observers).
+  `Observe` carries a token (`PROBE_TOKEN`, shared by the server and the probe): without it anyone could take both
+  observer slots, making the probe report an outage, and watch every player unseen. Without a token set on the
+  server, nobody can observe.
 - **A ping answered after the next tick.** `ProbePing` is answered with `ProbePong` right after the server's next
   tick goes out: network in, waiting for the tick, network out, the same path as a key press, without touching the
   world. Pongs go out on the 60 Hz clock even when nobody plays.
@@ -23,7 +26,9 @@
   the game's metrics stop too; the freshness SLO catches that.
 - **Prometheus and Grafana on the same machine**, with memory caps (128 MB and 160 MB; measured at about 30 MB and
   100 MB). Prometheus isn't reachable from outside; Grafana is public at `/grafana`, read-only for anonymous
-  viewers. Dashboards and alert rules are provisioned from files in the repository.
+  viewers. Dashboards and alert rules are provisioned from files in the repository. Anonymous viewers can still make
+  Grafana run any query, so Prometheus bounds each one (5 million samples, 15 s, 4 at a time): a heavy query fails
+  instead of taking the machine's memory.
 
 ## SLOs
 Over a rolling hour:
@@ -36,12 +41,15 @@ Over a rolling hour:
 | Freshness | the game reported in the last 30 s, every scrape target up | Batches come every second; 30 s means something stopped. |
 
 - The ratios are Prometheus **recording rules** (`slo:*`), unit-tested with `promtool test rules` in CI; Grafana's
-  alert rules only compare them with the targets.
+  alert rules only compare them with the targets. Prometheus 3 stores bucket bounds as floats, so the 1 s bucket is
+  `le="1.0"` (checked against live data).
+- A probe ping the server replaced with a newer one (it keeps one per observer) gets the newer one's answer time:
+  the tick that answered it would have answered both.
 - Alerts show on the dashboard only: nothing is sent anywhere.
 
 ## Consequences
-- **A full server answers.** The connection limit now leaves room for the observers, so the 32-player limit moved
-  into `Hello`: a 33rd player is told "Server is full" instead of being refused at the socket. The load test's
+- **A full server answers.** The connection limit now leaves room for the observers and 8 spare sockets, so the
+  32-player limit moved into `Hello`: a 33rd player is told "Server is full" instead of being refused at the socket. The load test's
   ramp, which saw 4 refused connections at 36 bots, now sees 2 refused connections and 2 refused joins; it still
   stops there.
 - **A stale count fixed.** The player count in the stats heartbeat used to be updated only while a world ran, so

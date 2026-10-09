@@ -30,6 +30,9 @@ class WebSocketServer;
 // With a StatsConfig, the server also keeps its own copy of the world (StatsObserver) and reports what players do
 // to the stats service (StatsReporter). Without one, it doesn't.
 //
+// With a probe token, monitoring probes that present it may watch the world unseen (Observe). Without one, nobody
+// can.
+//
 // IXWebSocket serves every connection on its own thread. Those threads only queue what happened (NetEvent); run()
 // handles the queue on its own thread, so everything else here is single-threaded.
 struct StatsConfig {
@@ -41,7 +44,8 @@ class Server {
 public:
     static constexpr int kDefaultResetAfterTicks = 60 * 60 * 60 * 3;  // 3 hours
 
-    explicit Server(int resetAfterTicks = kDefaultResetAfterTicks, std::optional<StatsConfig> stats = std::nullopt);
+    explicit Server(int resetAfterTicks = kDefaultResetAfterTicks, std::optional<StatsConfig> stats = std::nullopt,
+                    std::string probeToken = {});
     ~Server();
     // Listens on `port` (all network interfaces). False if the port can't be opened.
     bool start(std::uint16_t port);
@@ -91,8 +95,8 @@ private:
     void startWorld();
     // Online players, for the stats heartbeat.
     int playersOnline() const;
-    // An observer's Observe: they get the world (if any) and its ticks from now on.
-    void observe(Client& client);
+    // An Observe: with the right token, they get the world (if any) and its ticks from now on.
+    void observe(Client& client, const std::string& token);
     // Every observer's waiting ping gets its pong. Runs on every tick of the clock, world or not.
     void answerPings();
     int observersOnline() const;
@@ -116,6 +120,7 @@ private:
     std::map<int, Client> clients_;  // by client id
     std::unique_ptr<Lobby> world_;   // null while nobody is playing
     int resetAfterTicks_;
+    std::string probeToken_;  // empty: observing is off
     bool resetWarned_ = false;
 
     std::unique_ptr<StatsReporter> reporter_;  // null without a StatsConfig

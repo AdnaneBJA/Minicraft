@@ -1,7 +1,10 @@
 // probe: watches the hosted game from the outside, forever. Every --every it joins as a hidden observer, times the
 // join and --pings round trips through the server's tick loop, and serves the results to Prometheus on --listen.
 //
-//	go run ./cmd/probe --url wss://minicraft.example.org
+//	PROBE_TOKEN=... go run ./cmd/probe --url wss://minicraft.example.org
+//
+// The server lets only probes with its PROBE_TOKEN watch unseen; the token is read from the environment (or --token)
+// so it never shows in a process list.
 package main
 
 import (
@@ -27,6 +30,7 @@ const tickLength = time.Second / 60
 
 func main() {
 	url := flag.String("url", "", "the game's WebSocket URL (required), e.g. wss://minicraft.example.org")
+	token := flag.String("token", os.Getenv("PROBE_TOKEN"), "the server's probe token (default $PROBE_TOKEN)")
 	every := flag.Duration("every", 30*time.Second, "time between runs")
 	pings := flag.Int("pings", 10, "pings per run")
 	pingEvery := flag.Duration("ping-every", 100*time.Millisecond, "time between pings (at least a tick)")
@@ -70,7 +74,7 @@ func main() {
 	}()
 	log.Printf("probing %s every %v; metrics on %s", *url, *every, *listen)
 
-	cfg := probe.Config{URL: *url, Pings: *pings, PingEvery: *pingEvery, Timeout: *timeout}
+	cfg := probe.Config{URL: *url, Token: *token, Pings: *pings, PingEvery: *pingEvery, Timeout: *timeout}
 	ticker := time.NewTicker(*every)
 	defer ticker.Stop()
 	for ctx.Err() == nil {

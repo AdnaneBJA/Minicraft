@@ -62,15 +62,16 @@ characters, so the plain name doesn't match).
 
 `cmd/probe` watches the hosted game from the outside, forever (in production it runs next to the server; see
 `deploy/docker-compose.yml`). Every 30 s it:
-- connects and sends `Observe` instead of `Hello`: the server sends it the world and the ticks, but it isn't a player
-  (nobody sees it, and it doesn't count in the stats or towards the 32-player limit);
+- connects and sends `Observe` (with the server's `PROBE_TOKEN`) instead of `Hello`: the server sends it the world
+  and the ticks, but it isn't a player (nobody sees it, and it doesn't count in the stats or towards the 32-player
+  limit);
 - times the join: from connecting to having the whole world;
 - sends 10 `ProbePing`s, 100 ms apart. The server answers each with a `ProbePong` right after its next tick, so the
   time is what a key press takes to show up in the world;
 - records the gaps between ticks, and leaves.
 
 ```sh
-go run ./cmd/probe --url wss://minicraft.example.org   # --every 30s --pings 10 --timeout 10s --listen :9100
+PROBE_TOKEN=... go run ./cmd/probe --url wss://minicraft.example.org   # --every 30s --pings 10 --timeout 10s --listen :9100
 ```
 
 It serves Prometheus metrics on `--listen`: `probe_runs_total{result}` (`ok`, `connect_failed`, `refused`,

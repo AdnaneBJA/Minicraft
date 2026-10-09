@@ -33,7 +33,9 @@ routed either (Caddy only routes `/stats*`, and `/metrics` is outside it).
 
 ## Protocol (net-common/protocol.h, mirrored in loadtest/protocol)
 Three message types, appended after `Error` so existing values don't change:
-- `Observe` (client → server, no body): instead of `Hello`. Makes the connection an observer.
+- `Observe{token: string}` (client → server): instead of `Hello`. Makes the connection an observer if the token
+  matches the server's `PROBE_TOKEN` (none set: nobody can observe); otherwise `Error "Not allowed to observe"` and
+  the connection closes.
 - `ProbePing{id: i32}` (client → server): only accepted from an observer.
 - `ProbePong{id: i32}` (server → client): the answer.
 
@@ -47,7 +49,7 @@ The browser client is untouched: its `Hello` is the same bytes as before.
   are ignored. It isn't a player: it doesn't count towards
   `kMaxPlayers`, the online count, or the stats, and it doesn't keep an empty world alive.
 - **Observer limit.** `kMaxObservers = 2`. Past it, `Observe` gets an `Error` and the connection is closed.
-- **Full server.** The socket limit becomes `kMaxPlayers + kMaxObservers`, so the 32-player limit moves into
+- **Full server.** The socket limit becomes `kMaxPlayers + kMaxObservers + 8` spare, so the 32-player limit moves into
   `Hello`: a 33rd player gets `Error "Server is full"`.
 - **Ping.** A `ProbePing` is answered with `ProbePong{same id}` sent right after the next tick goes out (on the 60 Hz
   clock, world or not), so its delay is: network in, waiting for the tick, network out: the same path as a key

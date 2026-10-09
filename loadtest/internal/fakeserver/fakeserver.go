@@ -30,6 +30,7 @@ type Server struct {
 	Stalled     bool                   // set before traffic: never answers Hello and sends no ticks (a wedged server)
 
 	RefuseObservers bool          // Observe gets "Too many observers"
+	ObserveToken    string        // Observe must carry it, or gets "Not allowed to observe"
 	PongDelay       time.Duration // a ping is answered with the first tick at least this long after it
 
 	mu        sync.Mutex
@@ -158,7 +159,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		msg, err := protocol.Decode(data)
 		if err == nil && msg.Type == protocol.Observe {
-			s.serveObserver(ctx, conn)
+			s.serveObserver(ctx, conn, msg.Text)
 			return
 		}
 		if err != nil || msg.Type != protocol.Hello {
@@ -218,9 +219,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveObserver: the world (Joined), then every tick, and a pong after the first tick past PongDelay.
-func (s *Server) serveObserver(ctx context.Context, conn *websocket.Conn) {
+func (s *Server) serveObserver(ctx context.Context, conn *websocket.Conn, token string) {
 	s.mu.Lock()
-	refuse, stalled := s.RefuseObservers, s.Stalled
+	refuse, stalled, wrongToken := s.RefuseObservers, s.Stalled, token != s.ObserveToken
 	s.mu.Unlock()
 	if stalled { // a wedged server never answers; read until the client gives up
 		for {
@@ -228,6 +229,10 @@ func (s *Server) serveObserver(ctx context.Context, conn *websocket.Conn) {
 				return
 			}
 		}
+	}
+	if wrongToken {
+		_ = conn.Write(ctx, websocket.MessageBinary, protocol.EncodeError("Not allowed to observe"))
+		return
 	}
 	if refuse {
 		_ = conn.Write(ctx, websocket.MessageBinary, protocol.EncodeError("Too many observers"))
@@ -250,7 +255,7 @@ func (s *Server) serveObserver(ctx context.Context, conn *websocket.Conn) {
 		}
 		if msg, err := protocol.Decode(data); err == nil && msg.Type == protocol.ProbePing {
 			s.mu.Lock()
-			me.pending = append(me.pending, pendingPing{id: msg.PingID, at: time.Now()})
+			me.pending = []pendingPing{{id: msg.PingID, at: time.Now()}} // like the real server: the newest replaces one waiting
 			s.mu.Unlock()
 		}
 	}

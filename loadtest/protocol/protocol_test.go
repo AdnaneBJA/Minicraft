@@ -44,7 +44,7 @@ func TestFixturesDecode(t *testing.T) {
 		{"tick", Message{Type: Tick, Tick: exampleTick}},
 		{"chatline", Message{Type: ChatLine, From: "Alice", Text: "hello"}},
 		{"error", Message{Type: Error, Text: "Name already in use"}},
-		{"observe", Message{Type: Observe}},
+		{"observe", Message{Type: Observe, Text: "secret"}},
 		{"probeping", Message{Type: ProbePing, PingID: 5}},
 		{"probepong", Message{Type: ProbePong, PingID: 5}},
 	}
@@ -75,7 +75,7 @@ func TestFixturesReencode(t *testing.T) {
 		"tick":      EncodeTick(exampleTick),
 		"chatline":  EncodeChatLine("Alice", "hello"),
 		"error":     EncodeError("Name already in use"),
-		"observe":   EncodeObserve(),
+		"observe":   EncodeObserve("secret"),
 		"probeping": EncodeProbePing(5),
 		"probepong": EncodeProbePong(5),
 	}

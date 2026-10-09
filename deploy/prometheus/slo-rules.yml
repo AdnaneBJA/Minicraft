@@ -1,4 +1,5 @@
-# The SLOs, as ratios over the last hour (Grafana's alert rules compare them with the targets). Unit-tested:
+# The SLOs, as ratios over the last hour (Grafana's alert rules compare them with the targets). Prometheus 3 stores
+# bucket bounds as floats, so the 1 s bucket is le="1.0" (0.05 stays "0.05"). Unit-tested:
 #   promtool test rules slo-rules.test.yml
 groups:
   - name: slo
@@ -6,7 +7,7 @@ groups:
       - record: slo:probe_success:ratio_1h
         expr: sum(increase(probe_runs_total{result="ok"}[1h])) / sum(increase(probe_runs_total[1h]))
       - record: slo:probe_join_under_1s:ratio_1h
-        expr: sum(increase(probe_join_seconds_bucket{le="1"}[1h])) / sum(increase(probe_join_seconds_count[1h]))
+        expr: sum(increase(probe_join_seconds_bucket{le="1.0"}[1h])) / sum(increase(probe_join_seconds_count[1h]))
       - record: slo:probe_latency_under_50ms:ratio_1h
         expr: >-
           sum(increase(probe_latency_seconds_bucket{le="0.05"}[1h]))

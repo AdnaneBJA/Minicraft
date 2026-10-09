@@ -10,7 +10,7 @@ tests:
         values: '0+2x120'
       - series: 'probe_runs_total{result="timeout"}'
         values: '0x120'
-      - series: 'probe_join_seconds_bucket{le="1"}'
+      - series: 'probe_join_seconds_bucket{le="1.0"}'
         values: '0+2x120'
       - series: 'probe_join_seconds_count'
         values: '0+2x120'
