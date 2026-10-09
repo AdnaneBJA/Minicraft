@@ -4,10 +4,8 @@ package bot
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -189,46 +187,18 @@ func read(ctx context.Context, conn *websocket.Conn, id int32, pending *pendingK
 	}
 }
 
-// readMessage reads one message. The world's history (Joined) is streamed: its header is read and the rest only
-// counted, so a history of any size never sits in memory. Every other message must fit in maxMessage.
+// readMessage reads one message and counts it (see protocol.ReadMessage).
 func readMessage(ctx context.Context, conn *websocket.Conn, s *Shared) (protocol.Message, error) {
 	_, r, err := conn.Reader(ctx)
 	if err != nil {
 		return protocol.Message{}, err
 	}
-	var header [9]byte // type, then Joined's seed and tick count
-	n, err := io.ReadFull(r, header[:1])
-	if err != nil {
-		return protocol.Message{}, err
-	}
-	if protocol.MsgType(header[0]) == protocol.Joined {
-		if _, err := io.ReadFull(r, header[1:]); err != nil {
-			return protocol.Message{}, err
-		}
-		rest, err := io.Copy(io.Discard, r)
-		if err != nil {
-			return protocol.Message{}, err
-		}
+	msg, n, err := protocol.ReadMessage(r, maxMessage)
+	if n > 0 {
 		s.Counters.Messages.Add(1)
-		s.Counters.Bytes.Add(int64(len(header)) + rest)
-		count := int32(binary.LittleEndian.Uint32(header[5:]))
-		if count < 0 {
-			return protocol.Message{}, fmt.Errorf("%w: Joined history count %d", protocol.ErrMalformed, count)
-		}
-		return protocol.Message{Type: protocol.Joined, Seed: binary.LittleEndian.Uint32(header[1:]),
-			HistoryLen: int(count)}, nil
+		s.Counters.Bytes.Add(n)
 	}
-	body, err := io.ReadAll(io.LimitReader(r, maxMessage))
-	if err != nil {
-		return protocol.Message{}, err
-	}
-	if extra, _ := io.Copy(io.Discard, r); extra > 0 {
-		return protocol.Message{}, fmt.Errorf("message over %d bytes", maxMessage)
-	}
-	data := append(header[:n:n], body...)
-	s.Counters.Messages.Add(1)
-	s.Counters.Bytes.Add(int64(len(data)))
-	return protocol.Decode(data)
+	return msg, err
 }
 
 // The attack-pressed bit is a one-tick pulse the server adds on its own; compare the keys without it.

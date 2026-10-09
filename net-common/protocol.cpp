@@ -108,7 +108,7 @@ void TickMessage::write(ByteWriter& out) const { writeTick(out, input); }
 void TickMessage::read(ByteReader& in) { input = readTick(in); }
 
 std::optional<MessageType> typeOf(std::span<const std::uint8_t> bytes) {
-    if (bytes.empty() || bytes[0] > static_cast<std::uint8_t>(MessageType::Error)) return std::nullopt;
+    if (bytes.empty() || bytes[0] > static_cast<std::uint8_t>(MessageType::ProbePong)) return std::nullopt;
     return static_cast<MessageType>(bytes[0]);
 }
 
