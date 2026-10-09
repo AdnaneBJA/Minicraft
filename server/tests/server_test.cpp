@@ -511,13 +511,16 @@ TEST_F(ServerTest, ObserverCannotPlay) {
 }
 
 TEST_F(ServerTest, ObserverLimit) {
+    // One after the other: connections are served on their own threads, so messages sent at once on several of
+    // them reach the server in any order.
     RawClient a(port), b(port), c(port);
-    for (RawClient* probe : {&a, &b, &c}) {
+    for (RawClient* probe : {&a, &b}) {
         ASSERT_TRUE(probe->waitOpen());
         probe->send(protocol::Observe{kProbeToken});
+        ASSERT_TRUE(probe->waitFor<protocol::Joined>(1));
     }
-    ASSERT_TRUE(a.waitFor<protocol::Joined>(1));
-    ASSERT_TRUE(b.waitFor<protocol::Joined>(1));
+    ASSERT_TRUE(c.waitOpen());
+    c.send(protocol::Observe{kProbeToken});
     ASSERT_TRUE(c.waitFor<protocol::ErrorMessage>(1));
     EXPECT_EQ(c.received<protocol::ErrorMessage>()[0].text, "Too many observers");
     EXPECT_TRUE(waitUntil([&] { return c.closed(); }));
