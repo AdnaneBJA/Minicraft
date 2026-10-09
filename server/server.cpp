@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <random>
+#include <utility>
 
 namespace {
 
@@ -57,7 +58,7 @@ Server::~Server() {
 bool Server::start(std::uint16_t port) {
     ix::initNetSystem();
     socketServer_ = std::make_unique<ix::WebSocketServer>(
-        port, "0.0.0.0", kListenBacklog, static_cast<std::size_t>(protocol::kMaxPlayers),
+        port, "0.0.0.0", kListenBacklog, static_cast<std::size_t>(protocol::kMaxPlayers + protocol::kMaxObservers),
         ix::WebSocketServer::kDefaultHandShakeTimeoutSecs, ix::SocketServer::kDefaultAddressFamily,
         kPingIntervalSeconds);
     // A new connection gets an id; from then on its thread only queues what it hears.
@@ -112,6 +113,7 @@ void Server::run() {
         const auto now = Clock::now();
         if (now >= nextTick) {
             tickWorld();
+            answerPings();
             nextTick += kTickLength;
             if (now - nextTick > std::chrono::seconds(1)) nextTick = now;  // fell far behind: don't try to catch up
             continue;
@@ -159,8 +161,17 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
     using protocol::MessageType;
     const auto type = protocol::typeOf(bytes);
     if (!type) return;
-    // Until a player is in the world, Hello is the only thing they can do.
-    if (client.name.empty() && *type != MessageType::Hello) return;
+    // An observer only ever pings; everything else it sends is ignored.
+    if (client.observing) {
+        if (*type == MessageType::ProbePing) {
+            if (const auto ping = protocol::decode<protocol::ProbePing>(bytes)) {
+                client.pendingPing = ping->id;  // a newer ping replaces one not answered yet
+            }
+        }
+        return;
+    }
+    // Until a player is in the world, Hello (or Observe, for a probe) is the only thing they can do.
+    if (client.name.empty() && *type != MessageType::Hello && *type != MessageType::Observe) return;
     switch (*type) {
         case MessageType::Hello:
             if (const auto hello = protocol::decode<protocol::Hello>(bytes); hello && client.name.empty()) {
@@ -173,10 +184,17 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
                     sendTo(client, protocol::ErrorMessage{"Name already in use"});
                     return;
                 }
+                if (playersOnline() >= protocol::kMaxPlayers) {
+                    sendTo(client, protocol::ErrorMessage{"Server is full"});
+                    return;
+                }
                 client.name = hello->name;
                 std::printf("Player %d is %s\n", client.id, client.name.c_str());
                 enterWorld(client);
             }
+            break;
+        case MessageType::Observe:
+            if (protocol::decode<protocol::Observe>(bytes) && client.name.empty()) observe(client);
             break;
         case MessageType::Input:
             if (const auto input = protocol::decode<protocol::InputMessage>(bytes); input && world_) {
@@ -204,7 +222,11 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
 }
 
 void Server::disconnect(Client& client) {
-    std::printf("Player %d (%s) disconnected\n", client.id, client.name.c_str());
+    if (client.observing) {
+        std::printf("Observer %d disconnected\n", client.id);
+    } else {
+        std::printf("Player %d (%s) disconnected\n", client.id, client.name.c_str());
+    }
     const int id = client.id;
     const std::string name = client.name;
     const auto played = std::chrono::steady_clock::now() - client.joinedAt;
@@ -234,6 +256,7 @@ void Server::startWorld() {
         observer_ = std::make_unique<StatsObserver>(world_->seed());
         report("WorldStarted", "", 1);
     }
+    sendWorldToObservers();
 }
 
 void Server::enterWorld(Client& client) {
@@ -277,6 +300,9 @@ void Server::tickWorld() {
     for (const int memberId : world_->memberIds()) {
         if (const Client* client = clientOf(memberId)) sendTo(*client, message);
     }
+    for (const auto& [id, client] : clients_) {
+        if (client.observing) sendTo(client, message);
+    }
     if (observer_) {
         // The same tick the players got, on the server's copy of the world: what they did, for the stats.
         const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -302,6 +328,38 @@ Server::Client* Server::clientOf(int clientId) {
 int Server::playersOnline() const {
     return static_cast<int>(std::count_if(clients_.begin(), clients_.end(),
                                           [](const auto& entry) { return !entry.second.name.empty(); }));
+}
+
+void Server::observe(Client& client) {
+    if (observersOnline() >= protocol::kMaxObservers) {
+        sendTo(client, protocol::ErrorMessage{"Too many observers"});
+        if (const std::shared_ptr<ix::WebSocket> socket = client.socket.lock()) socket->close();
+        return;
+    }
+    client.observing = true;
+    std::printf("Connection %d is an observer\n", client.id);
+    if (world_) {
+        sendTo(client, protocol::Joined{world_->seed(), world_->history()});
+    } else {
+        sendTo(client, protocol::Joined{});  // no world: seed 0, nothing to replay; the next one comes when it starts
+    }
+}
+
+void Server::sendWorldToObservers() {
+    for (const auto& [id, client] : clients_) {
+        if (client.observing) sendTo(client, protocol::Joined{world_->seed(), world_->history()});
+    }
+}
+
+void Server::answerPings() {
+    for (auto& [id, client] : clients_) {
+        if (client.pendingPing) sendTo(client, protocol::ProbePong{*std::exchange(client.pendingPing, std::nullopt)});
+    }
+}
+
+int Server::observersOnline() const {
+    return static_cast<int>(std::count_if(clients_.begin(), clients_.end(),
+                                          [](const auto& entry) { return entry.second.observing; }));
 }
 
 bool Server::nameInUse(const std::string& name) const {

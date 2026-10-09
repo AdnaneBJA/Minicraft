@@ -57,6 +57,8 @@ private:
         int id = 0;
         std::string name;  // empty until their Hello is accepted; from then on they're in the world
         std::chrono::steady_clock::time_point joinedAt;
+        bool observing = false;          // a monitoring probe: gets the world and its ticks, but isn't in it
+        std::optional<int> pendingPing;  // observers: a ProbePing to answer after the next tick
     };
 
     // What a connection's thread saw, waiting for run().
@@ -88,6 +90,13 @@ private:
     void startWorld();
     // Online players, for the stats heartbeat.
     int playersOnline() const;
+    // An observer's Observe: they get the world (if any) and its ticks from now on.
+    void observe(Client& client);
+    // Every observer's waiting ping gets its pong. Runs on every tick of the clock, world or not.
+    void answerPings();
+    int observersOnline() const;
+    // Observers get the current world: its seed and history.
+    void sendWorldToObservers();
 
     Client* clientOf(int clientId);
     bool nameInUse(const std::string& name) const;
