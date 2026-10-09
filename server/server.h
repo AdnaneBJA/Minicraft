@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lobby.h"
+#include "process_usage.h"
 #include "stats_observer.h"
 #include "stats_reporter.h"
 
@@ -97,6 +98,8 @@ private:
     int observersOnline() const;
     // Observers get the current world: its seed and history.
     void sendWorldToObservers();
+    // Stats only: the online count and the server's health, on every tick of the clock (world or not).
+    void publishHealth();
 
     Client* clientOf(int clientId);
     bool nameInUse(const std::string& name) const;
@@ -119,4 +122,8 @@ private:
     std::unique_ptr<StatsObserver> observer_;  // the current world, replayed for the stats
     std::string reportPrefix_;                 // makes the server's own event ids unique
     int reportCounter_ = 0;
+    std::int64_t ticksSent_ = 0;
+    std::int64_t historyBytes_ = 0;  // the current world's Joined, in bytes
+    ProcessUsage usage_;             // read once a second, not every tick
+    std::chrono::steady_clock::time_point usageReadAt_;
 };

@@ -114,6 +114,7 @@ void Server::run() {
         if (now >= nextTick) {
             tickWorld();
             answerPings();
+            publishHealth();
             nextTick += kTickLength;
             if (now - nextTick > std::chrono::seconds(1)) nextTick = now;  // fell far behind: don't try to catch up
             continue;
@@ -238,6 +239,7 @@ void Server::disconnect(Client& client) {
         std::printf("Everyone left: the world ends\n");
         world_.reset();
         observer_.reset();
+        historyBytes_ = 0;
         resetWarned_ = false;
     } else {
         tellEveryone("", name + " left the game");
@@ -250,6 +252,7 @@ void Server::disconnect(Client& client) {
 void Server::startWorld() {
     std::random_device random;
     world_ = std::make_unique<Lobby>(random());
+    historyBytes_ = 9;  // Joined's type, seed and tick count
     resetWarned_ = false;
     std::printf("A new world begins (seed %u)\n", world_->seed());
     if (reporter_) {
@@ -297,6 +300,8 @@ void Server::tellEveryone(const std::string& from, const std::string& text) {
 void Server::tickWorld() {
     if (!world_) return;
     const protocol::TickMessage message{world_->nextTick()};
+    ++ticksSent_;
+    historyBytes_ += static_cast<std::int64_t>(protocol::encode(message).size()) - 1;  // the tick without its type
     for (const int memberId : world_->memberIds()) {
         if (const Client* client = clientOf(memberId)) sendTo(*client, message);
     }
@@ -309,7 +314,6 @@ void Server::tickWorld() {
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
         reporter_->add(observer_->apply(message.input, now));
-        reporter_->setOnline(playersOnline());
     }
     const int age = static_cast<int>(world_->history().size());
     constexpr int kWarningTicks = 60 * 60;  // a minute before the reset
@@ -343,6 +347,22 @@ void Server::observe(Client& client) {
     } else {
         sendTo(client, protocol::Joined{});  // no world: seed 0, nothing to replay; the next one comes when it starts
     }
+}
+
+void Server::publishHealth() {
+    if (!reporter_) return;
+    if (const auto now = Clock::now(); now - usageReadAt_ >= std::chrono::seconds(1)) {
+        usage_ = currentProcessUsage();
+        usageReadAt_ = now;
+    }
+    reporter_->setOnline(playersOnline());
+    reporter_->setHealth({.connections = static_cast<int>(clients_.size()),
+                          .observers = observersOnline(),
+                          .ticks = ticksSent_,
+                          .historyTicks = world_ ? static_cast<int>(world_->history().size()) : 0,
+                          .historyBytes = world_ ? historyBytes_ : 0,
+                          .rssBytes = usage_.rssBytes,
+                          .cpuSeconds = usage_.cpuSeconds});
 }
 
 void Server::sendWorldToObservers() {
