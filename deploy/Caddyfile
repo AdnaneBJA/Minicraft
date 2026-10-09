@@ -1,5 +1,5 @@
-# Caddy gets a Let's Encrypt certificate for $DOMAIN, serves the stats dashboard under /stats, and passes
-# everything else (the game's WebSocket) on to the game server.
+# Caddy gets a Let's Encrypt certificate for $DOMAIN, serves the stats dashboard under /stats and the monitoring
+# under /grafana, and passes everything else (the game's WebSocket) on to the game server.
 {
 	servers {
 		# Plain HTTP/1.1 only: browsers always open the WebSocket with the classic Upgrade handshake, and keep no
@@ -12,6 +12,10 @@
 {$DOMAIN} {
 	# The public dashboard and its JSON API. The stats service's /events (where the game server reports) is not
 	# routed: only the game server reaches it, inside the Docker network.
+	# The monitoring dashboards: public and read-only (anonymous viewers). Prometheus is not routed.
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
 	handle /stats* {
 		reverse_proxy stats:8080
 	}

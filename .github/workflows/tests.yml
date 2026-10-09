@@ -54,6 +54,22 @@ jobs:
         run: docker build -f server/Dockerfile -t minicraft-server .
       - name: Build the stats service image
         run: docker build -f stats/Dockerfile -t minicraft-stats .
+      - name: Build the probe image
+        run: docker build -f loadtest/Dockerfile -t minicraft-probe .
+
+  monitoring:
+    # Prometheus's config and the SLO rules (with their unit tests), and the Grafana files parse.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prometheus config
+        run: docker run --rm -v "$PWD/deploy/prometheus:/p" -w /p --entrypoint promtool prom/prometheus:v3.5.0 check config prometheus.yml
+      - name: SLO rule tests
+        run: docker run --rm -v "$PWD/deploy/prometheus:/p" -w /p --entrypoint promtool prom/prometheus:v3.5.0 test rules slo-rules.test.yml
+      - name: Grafana files parse
+        run: |
+          python3 -c "import json,sys; [json.load(open(f)) for f in sys.argv[1:]]" deploy/grafana/dashboards/*.json
+          python3 -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" $(find deploy/grafana/provisioning -name '*.yml')
 
   loadtest:
     # The Go load-testing bots: their tests, then a short load test against the real server.
