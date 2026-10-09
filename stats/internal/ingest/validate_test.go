@@ -21,6 +21,9 @@ func TestValidate(t *testing.T) {
 	}{
 		{"good", Batch{Online: 2, Events: []Event{goodEvent()}}, true},
 		{"empty heartbeat", Batch{Online: 0}, true},
+		{"health", Batch{Health: &Health{At: 1, Connections: 3, Ticks: 10, HistoryTicks: 5, HistoryBytes: 90}}, true},
+		{"negative health", Batch{Health: &Health{At: 1, Connections: -1}}, false},
+		{"health without a time", Batch{Health: &Health{}}, false},
 		{"unknown type", Batch{Events: []Event{{ID: "1", Type: "Teleported"}}}, false},
 		{"name too long", Batch{Events: []Event{{ID: "1", Type: "ChatSent", Player: "ThisNameIsWayTooLong"}}}, false},
 		{"name with spaces", Batch{Events: []Event{{ID: "1", Type: "ChatSent", Player: "bad name"}}}, false},

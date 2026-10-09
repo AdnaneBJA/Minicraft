@@ -15,10 +15,25 @@ type Event struct {
 }
 
 // Batch is one POST from the game server. Online is how many players are in the world right now: batches come
-// every second, empty or not, so it doubles as a heartbeat.
+// every second, empty or not, so it doubles as a heartbeat. Health is how the server is doing (absent from servers
+// older than it).
 type Batch struct {
 	Online int     `json:"online"`
 	Events []Event `json:"events"`
+	Health *Health `json:"health"`
+}
+
+// Health is the game server's state when it cut the batch.
+type Health struct {
+	At           int64   `json:"at"` // Unix milliseconds, when the batch was cut
+	Connections  int     `json:"connections"`
+	Observers    int     `json:"observers"`
+	Ticks        int64   `json:"ticks"`
+	HistoryTicks int64   `json:"historyTicks"`
+	HistoryBytes int64   `json:"historyBytes"`
+	Backlog      int     `json:"backlog"`
+	RSSBytes     int64   `json:"rssBytes"`
+	CPUSeconds   float64 `json:"cpuSeconds"`
 }
 
 // The event types the game server sends.
