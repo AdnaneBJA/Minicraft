@@ -42,7 +42,8 @@ void appendField(std::string& out, const char* name, std::int64_t value) {
 
 }  // namespace
 
-std::string toJson(int online, const std::vector<StatEvent>& events) {
+std::string toJson(int online, const std::vector<StatEvent>& events, std::int64_t at, const ServerHealth& health,
+                   std::size_t backlog) {
     std::string out = "{\"online\":" + std::to_string(online) + ",\"events\":[";
     for (std::size_t i = 0; i < events.size(); ++i) {
         const StatEvent& e = events[i];
@@ -65,6 +66,24 @@ std::string toJson(int online, const std::vector<StatEvent>& events) {
         appendField(out, "icon", e.icon);
         out += '}';
     }
-    out += "]}";
+    out += "],\"health\":{";
+    appendField(out, "at", at);
+    out += ',';
+    appendField(out, "connections", health.connections);
+    out += ',';
+    appendField(out, "observers", health.observers);
+    out += ',';
+    appendField(out, "ticks", health.ticks);
+    out += ',';
+    appendField(out, "historyTicks", health.historyTicks);
+    out += ',';
+    appendField(out, "historyBytes", health.historyBytes);
+    out += ',';
+    appendField(out, "backlog", static_cast<std::int64_t>(backlog));
+    out += ',';
+    appendField(out, "rssBytes", health.rssBytes);
+    char cpu[48];
+    std::snprintf(cpu, sizeof cpu, ",\"cpuSeconds\":%.3f}}", health.cpuSeconds);
+    out += cpu;
     return out;
 }

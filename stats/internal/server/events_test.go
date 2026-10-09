@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AdnaneBJA/Minicraft/stats/internal/metrics"
 	"github.com/AdnaneBJA/Minicraft/stats/internal/store"
 	"github.com/AdnaneBJA/Minicraft/stats/internal/testdb"
 )
@@ -27,7 +28,7 @@ func newServer(t *testing.T) (*Server, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(st.Close)
-	return New(st, "secret", http.NotFoundHandler()), st
+	return New(st, "secret", http.NotFoundHandler(), metrics.New()), st
 }
 
 func post(h http.Handler, token, body string) *httptest.ResponseRecorder {
@@ -112,5 +113,26 @@ func TestOnlineExpires(t *testing.T) {
 	now = now.Add(2 * time.Second)
 	if got := srv.Online(); got != 0 {
 		t.Errorf("after 31 s of silence online = %d, want 0", got)
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	srv, _ := newServer(t)
+	batch := `{"online":1,"events":[],"health":{"at":5,"connections":2,"observers":1,"ticks":60,` +
+		`"historyTicks":60,"historyBytes":600,"backlog":0,"rssBytes":1,"cpuSeconds":0.1}}`
+	if rec := post(srv, "secret", batch); rec.Code != http.StatusOK {
+		t.Fatalf("post: %d %s", rec.Code, rec.Body)
+	}
+	post(srv, "wrong", batch)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+	for _, want := range []string{
+		"minicraft_connections 2", "minicraft_observers 1", `stats_batches_total{result="accepted"} 1`,
+		`stats_batches_total{result="unauthorized"} 1`, "stats_db_write_seconds_count 1",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/metrics lacks %q", want)
+		}
 	}
 }

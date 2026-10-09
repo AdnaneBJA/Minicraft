@@ -10,12 +10,16 @@
 #include <chrono>
 #include <cstdio>
 #include <random>
+#include <utility>
 
 namespace {
 
 using Clock = std::chrono::steady_clock;
 constexpr auto kTickLength = std::chrono::microseconds(1'000'000 / 60);
 constexpr int kListenBacklog = 16;
+// Sockets beyond the players and observers, so a would-be player always gets as far as Hello and hears "Server is
+// full" instead of being cut off at the socket.
+constexpr int kSpareConnections = 8;
 // Every connection is pinged this often, and closed if the previous ping got no answer: a player whose laptop
 // went to sleep leaves the game after 5-10 seconds instead of whenever TCP gives up (many minutes).
 constexpr int kPingIntervalSeconds = 5;
@@ -24,6 +28,14 @@ constexpr int kPingIntervalSeconds = 5;
 
 namespace {
 
+// Compares every byte whatever the first difference, so the time taken says nothing about the token.
+bool sameSecret(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    unsigned char diff = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) diff |= static_cast<unsigned char>(a[i] ^ b[i]);
+    return diff == 0;
+}
+
 std::int64_t nowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
         .count();
@@ -31,7 +43,8 @@ std::int64_t nowMs() {
 
 }  // namespace
 
-Server::Server(int resetAfterTicks, std::optional<StatsConfig> stats) : resetAfterTicks_(resetAfterTicks) {
+Server::Server(int resetAfterTicks, std::optional<StatsConfig> stats, std::string probeToken)
+    : resetAfterTicks_(resetAfterTicks), probeToken_(std::move(probeToken)) {
     if (stats) {
         reporter_ = std::make_unique<StatsReporter>(stats->url, stats->token);
         reportPrefix_ = "server" + std::to_string(nowMs());
@@ -57,7 +70,7 @@ Server::~Server() {
 bool Server::start(std::uint16_t port) {
     ix::initNetSystem();
     socketServer_ = std::make_unique<ix::WebSocketServer>(
-        port, "0.0.0.0", kListenBacklog, static_cast<std::size_t>(protocol::kMaxPlayers),
+        port, "0.0.0.0", kListenBacklog, static_cast<std::size_t>(protocol::kMaxPlayers + protocol::kMaxObservers + kSpareConnections),
         ix::WebSocketServer::kDefaultHandShakeTimeoutSecs, ix::SocketServer::kDefaultAddressFamily,
         kPingIntervalSeconds);
     // A new connection gets an id; from then on its thread only queues what it hears.
@@ -112,6 +125,8 @@ void Server::run() {
         const auto now = Clock::now();
         if (now >= nextTick) {
             tickWorld();
+            answerPings();
+            publishHealth();
             nextTick += kTickLength;
             if (now - nextTick > std::chrono::seconds(1)) nextTick = now;  // fell far behind: don't try to catch up
             continue;
@@ -159,8 +174,17 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
     using protocol::MessageType;
     const auto type = protocol::typeOf(bytes);
     if (!type) return;
-    // Until a player is in the world, Hello is the only thing they can do.
-    if (client.name.empty() && *type != MessageType::Hello) return;
+    // An observer only ever pings; everything else it sends is ignored.
+    if (client.observing) {
+        if (*type == MessageType::ProbePing) {
+            if (const auto ping = protocol::decode<protocol::ProbePing>(bytes)) {
+                client.pendingPing = ping->id;  // a newer ping replaces one not answered yet
+            }
+        }
+        return;
+    }
+    // Until a player is in the world, Hello (or Observe, for a probe) is the only thing they can do.
+    if (client.name.empty() && *type != MessageType::Hello && *type != MessageType::Observe) return;
     switch (*type) {
         case MessageType::Hello:
             if (const auto hello = protocol::decode<protocol::Hello>(bytes); hello && client.name.empty()) {
@@ -173,9 +197,18 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
                     sendTo(client, protocol::ErrorMessage{"Name already in use"});
                     return;
                 }
+                if (playersOnline() >= protocol::kMaxPlayers) {
+                    sendTo(client, protocol::ErrorMessage{"Server is full"});
+                    return;
+                }
                 client.name = hello->name;
                 std::printf("Player %d is %s\n", client.id, client.name.c_str());
                 enterWorld(client);
+            }
+            break;
+        case MessageType::Observe:
+            if (const auto observe = protocol::decode<protocol::Observe>(bytes); observe && client.name.empty()) {
+                this->observe(client, observe->token);
             }
             break;
         case MessageType::Input:
@@ -204,7 +237,11 @@ void Server::handleMessage(Client& client, std::span<const std::uint8_t> bytes) 
 }
 
 void Server::disconnect(Client& client) {
-    std::printf("Player %d (%s) disconnected\n", client.id, client.name.c_str());
+    if (client.observing) {
+        std::printf("Observer %d disconnected\n", client.id);
+    } else {
+        std::printf("Player %d (%s) disconnected\n", client.id, client.name.c_str());
+    }
     const int id = client.id;
     const std::string name = client.name;
     const auto played = std::chrono::steady_clock::now() - client.joinedAt;
@@ -216,6 +253,7 @@ void Server::disconnect(Client& client) {
         std::printf("Everyone left: the world ends\n");
         world_.reset();
         observer_.reset();
+        historyBytes_ = 0;
         resetWarned_ = false;
     } else {
         tellEveryone("", name + " left the game");
@@ -228,12 +266,14 @@ void Server::disconnect(Client& client) {
 void Server::startWorld() {
     std::random_device random;
     world_ = std::make_unique<Lobby>(random());
+    historyBytes_ = 9;  // Joined's type, seed and tick count
     resetWarned_ = false;
     std::printf("A new world begins (seed %u)\n", world_->seed());
     if (reporter_) {
         observer_ = std::make_unique<StatsObserver>(world_->seed());
         report("WorldStarted", "", 1);
     }
+    sendWorldToObservers();
 }
 
 void Server::enterWorld(Client& client) {
@@ -274,8 +314,13 @@ void Server::tellEveryone(const std::string& from, const std::string& text) {
 void Server::tickWorld() {
     if (!world_) return;
     const protocol::TickMessage message{world_->nextTick()};
+    ++ticksSent_;
+    historyBytes_ += static_cast<std::int64_t>(protocol::encode(message).size()) - 1;  // the tick without its type
     for (const int memberId : world_->memberIds()) {
         if (const Client* client = clientOf(memberId)) sendTo(*client, message);
+    }
+    for (const auto& [id, client] : clients_) {
+        if (client.observing) sendTo(client, message);
     }
     if (observer_) {
         // The same tick the players got, on the server's copy of the world: what they did, for the stats.
@@ -283,7 +328,6 @@ void Server::tickWorld() {
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
         reporter_->add(observer_->apply(message.input, now));
-        reporter_->setOnline(playersOnline());
     }
     const int age = static_cast<int>(world_->history().size());
     constexpr int kWarningTicks = 60 * 60;  // a minute before the reset
@@ -302,6 +346,55 @@ Server::Client* Server::clientOf(int clientId) {
 int Server::playersOnline() const {
     return static_cast<int>(std::count_if(clients_.begin(), clients_.end(),
                                           [](const auto& entry) { return !entry.second.name.empty(); }));
+}
+
+void Server::observe(Client& client, const std::string& token) {
+    const auto refuse = [&](const std::string& why) {
+        sendTo(client, protocol::ErrorMessage{why});
+        if (const std::shared_ptr<ix::WebSocket> socket = client.socket.lock()) socket->close();
+    };
+    if (probeToken_.empty() || !sameSecret(token, probeToken_)) return refuse("Not allowed to observe");
+    if (observersOnline() >= protocol::kMaxObservers) return refuse("Too many observers");
+    client.observing = true;
+    std::printf("Connection %d is an observer\n", client.id);
+    if (world_) {
+        sendTo(client, protocol::Joined{world_->seed(), world_->history()});
+    } else {
+        sendTo(client, protocol::Joined{});  // no world: seed 0, nothing to replay; the next one comes when it starts
+    }
+}
+
+void Server::publishHealth() {
+    if (!reporter_) return;
+    if (const auto now = Clock::now(); now - usageReadAt_ >= std::chrono::seconds(1)) {
+        usage_ = currentProcessUsage();
+        usageReadAt_ = now;
+    }
+    reporter_->setOnline(playersOnline());
+    reporter_->setHealth({.connections = static_cast<int>(clients_.size()),
+                          .observers = observersOnline(),
+                          .ticks = ticksSent_,
+                          .historyTicks = world_ ? static_cast<int>(world_->history().size()) : 0,
+                          .historyBytes = world_ ? historyBytes_ : 0,
+                          .rssBytes = usage_.rssBytes,
+                          .cpuSeconds = usage_.cpuSeconds});
+}
+
+void Server::sendWorldToObservers() {
+    for (const auto& [id, client] : clients_) {
+        if (client.observing) sendTo(client, protocol::Joined{world_->seed(), world_->history()});
+    }
+}
+
+void Server::answerPings() {
+    for (auto& [id, client] : clients_) {
+        if (client.pendingPing) sendTo(client, protocol::ProbePong{*std::exchange(client.pendingPing, std::nullopt)});
+    }
+}
+
+int Server::observersOnline() const {
+    return static_cast<int>(std::count_if(clients_.begin(), clients_.end(),
+                                          [](const auto& entry) { return entry.second.observing; }));
 }
 
 bool Server::nameInUse(const std::string& name) const {

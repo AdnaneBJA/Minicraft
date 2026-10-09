@@ -20,6 +20,12 @@ func Validate(b Batch) error {
 	if b.Online < 0 || b.Online > 10000 {
 		return errors.New("online out of range")
 	}
+	if h := b.Health; h != nil {
+		if h.At <= 0 || h.Connections < 0 || h.Connections > 10000 || h.Observers < 0 || h.Ticks < 0 ||
+			h.HistoryTicks < 0 || h.HistoryBytes < 0 || h.Backlog < 0 || h.RSSBytes < 0 || h.CPUSeconds < 0 {
+			return errors.New("health out of range")
+		}
+	}
 	if len(b.Events) > MaxEventsPerBatch {
 		return fmt.Errorf("too many events (%d)", len(b.Events))
 	}

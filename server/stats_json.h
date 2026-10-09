@@ -18,5 +18,18 @@ struct StatEvent {
     int icon = -1;           // items: their place in items.png
 };
 
-// A batch as JSON: {"online":N,"events":[...]}.
-std::string toJson(int online, const std::vector<StatEvent>& events);
+// How the game server is doing, sent with every batch (the stats service turns it into metrics).
+struct ServerHealth {
+    int connections = 0;            // open WebSocket connections: players, observers, and ones still saying Hello
+    int observers = 0;              // monitoring probes watching
+    std::int64_t ticks = 0;         // ticks sent since the server started
+    int historyTicks = 0;           // the current world's age in ticks (0: no world)
+    std::int64_t historyBytes = 0;  // what a player joining now downloads (Joined)
+    std::int64_t rssBytes = 0;      // the server's resident memory
+    double cpuSeconds = 0;          // the server's CPU time so far
+};
+
+// A batch as JSON: {"online":N,"events":[...],"health":{...}}. `at` (Unix ms) is when the batch was cut, `backlog`
+// how many batches were waiting to go out.
+std::string toJson(int online, const std::vector<StatEvent>& events, std::int64_t at, const ServerHealth& health,
+                   std::size_t backlog);

@@ -100,10 +100,16 @@ StatEvent event(const std::string& id) { return {.id = id, .type = "ChatSent", .
 TEST(StatsJson, EscapesAndShapesBatch) {
     StatEvent e{.id = "7-1-0", .type = "ItemCollected", .at = 42, .player = "Alice", .subject = "Wo\"od\\",
                 .killerKind = "", .count = 3, .icon = 0};
-    EXPECT_EQ(toJson(2, {e}),
+    const ServerHealth health{.connections = 3, .observers = 1, .ticks = 600, .historyTicks = 500,
+                              .historyBytes = 9000, .rssBytes = 4096, .cpuSeconds = 1.5};
+    EXPECT_EQ(toJson(2, {e}, 1000, health, 4),
               R"({"online":2,"events":[{"id":"7-1-0","type":"ItemCollected","at":42,"player":"Alice",)"
-              R"("subject":"Wo\"od\\","killerKind":"","count":3,"icon":0}]})");
-    EXPECT_EQ(toJson(0, {}), R"({"online":0,"events":[]})");
+              R"("subject":"Wo\"od\\","killerKind":"","count":3,"icon":0}],)"
+              R"("health":{"at":1000,"connections":3,"observers":1,"ticks":600,"historyTicks":500,)"
+              R"("historyBytes":9000,"backlog":4,"rssBytes":4096,"cpuSeconds":1.500}})");
+    EXPECT_EQ(toJson(0, {}, 5, {}, 0),
+              R"({"online":0,"events":[],"health":{"at":5,"connections":0,"observers":0,"ticks":0,)"
+              R"("historyTicks":0,"historyBytes":0,"backlog":0,"rssBytes":0,"cpuSeconds":0.000}})");
 }
 
 TEST(StatsObserver, ReportsNamedActions) {
@@ -174,7 +180,7 @@ TEST(StatsReporter, SendsHeartbeatsWithoutEvents) {
     FakeStatsService service(28780);
     StatsReporter reporter("http://127.0.0.1:28780/events", "secret", 50ms);
     reporter.setOnline(1);
-    EXPECT_TRUE(waitFor([&] { return service.count("\"online\":1,\"events\":[]") >= 2; }));
+    EXPECT_TRUE(waitFor([&] { return service.count("\"online\":1,\"events\":[],\"health\"") >= 2; }));
 }
 
 TEST(StatsReporter, RetriesUntilAccepted) {
@@ -208,6 +214,13 @@ TEST(StatsReporter, DropsBatchOnClientError) {
     // The refused batch went once and was dropped: only heartbeats follow, nothing piles up.
     EXPECT_EQ(service.requestsMentioning("\"id\":\"bad\""), 1);
     EXPECT_LE(reporter.backlog(), 1u);
+}
+
+TEST(StatsReporter, SendsHealth) {
+    FakeStatsService service(28786);
+    StatsReporter reporter("http://127.0.0.1:28786/events", "secret", 50ms);
+    reporter.setHealth({.connections = 5, .observers = 1, .ticks = 77});
+    EXPECT_TRUE(waitFor([&] { return service.count("\"connections\":5,\"observers\":1,\"ticks\":77") >= 1; }));
 }
 
 class ServerStats : public ::testing::Test {
@@ -255,6 +268,40 @@ TEST_F(ServerStats, NoStatsConfigNoReporting) {
     ASSERT_TRUE(join(alice, "Alice"));
     std::this_thread::sleep_for(1500ms);
     EXPECT_EQ(service.calls(), 0);
+}
+
+TEST_F(ServerStats, OnlineDropsToZeroWhenWorldEnds) {
+    FakeStatsService service(28787);
+    start(StatsConfig{"http://127.0.0.1:28787/events", "secret"});
+    {
+        NetworkClient alice;
+        ASSERT_TRUE(join(alice, "Alice"));
+        ASSERT_TRUE(waitFor([&] {
+            alice.poll();
+            return service.count("\"online\":1,") >= 1;
+        }, 5000ms));
+    }  // Alice leaves; the world ends
+    const int before = service.count("\"online\":0,");
+    EXPECT_TRUE(waitFor([&] { return service.count("\"online\":0,") > before + 1; }, 5000ms));
+}
+
+TEST_F(ServerStats, HealthCountsConnectionsAndHistory) {
+    FakeStatsService service(28788);
+    start(StatsConfig{"http://127.0.0.1:28788/events", "secret"});
+    NetworkClient alice;
+    ASSERT_TRUE(join(alice, "Alice"));
+    // One player connected, a world that has ticked, and history growing in bytes.
+    EXPECT_TRUE(waitFor([&] {
+        alice.poll();
+        for (const std::string& body : service.accepted()) {
+            if (body.find("\"connections\":1,\"observers\":0") != std::string::npos &&
+                body.find("\"historyTicks\":0,") == std::string::npos &&
+                body.find("\"historyBytes\":0,") == std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }, 5000ms));
 }
 
 }  // namespace

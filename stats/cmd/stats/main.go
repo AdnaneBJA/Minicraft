@@ -1,5 +1,5 @@
 // stats: the Minicraft stats service. The game server posts what players do to /events; the dashboard at /stats
-// shows it.
+// shows it, and /metrics shows Prometheus the game's health and the service's own work.
 //
 // Environment:
 //
@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AdnaneBJA/Minicraft/stats/internal/metrics"
 	"github.com/AdnaneBJA/Minicraft/stats/internal/server"
 	"github.com/AdnaneBJA/Minicraft/stats/internal/store"
 	"github.com/AdnaneBJA/Minicraft/stats/internal/web"
@@ -66,7 +67,7 @@ func run() error {
 	// The pages show the players online, which the ingestion side knows: hence the late-bound closure.
 	var srv *server.Server
 	public := web.Handler(st, func() int { return srv.Online() }, envOr("SPRITES_DIR", "/sprites"))
-	srv = server.New(st, token, public)
+	srv = server.New(st, token, public, metrics.New())
 	httpServer := &http.Server{Addr: listen, Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

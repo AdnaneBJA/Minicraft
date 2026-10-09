@@ -44,6 +44,9 @@ func TestFixturesDecode(t *testing.T) {
 		{"tick", Message{Type: Tick, Tick: exampleTick}},
 		{"chatline", Message{Type: ChatLine, From: "Alice", Text: "hello"}},
 		{"error", Message{Type: Error, Text: "Name already in use"}},
+		{"observe", Message{Type: Observe, Text: "secret"}},
+		{"probeping", Message{Type: ProbePing, PingID: 5}},
+		{"probepong", Message{Type: ProbePong, PingID: 5}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -64,14 +67,17 @@ func TestFixturesDecode(t *testing.T) {
 
 func TestFixturesReencode(t *testing.T) {
 	cases := map[string][]byte{
-		"hello":    EncodeHello("Alice"),
-		"input":    EncodeInput(KeyRight | KeyUp | KeyAttack | KeyPressed),
-		"chat":     EncodeChat("hi there"),
-		"welcome":  EncodeWelcome(7),
-		"joined":   EncodeJoined(99, exampleHistory),
-		"tick":     EncodeTick(exampleTick),
-		"chatline": EncodeChatLine("Alice", "hello"),
-		"error":    EncodeError("Name already in use"),
+		"hello":     EncodeHello("Alice"),
+		"input":     EncodeInput(KeyRight | KeyUp | KeyAttack | KeyPressed),
+		"chat":      EncodeChat("hi there"),
+		"welcome":   EncodeWelcome(7),
+		"joined":    EncodeJoined(99, exampleHistory),
+		"tick":      EncodeTick(exampleTick),
+		"chatline":  EncodeChatLine("Alice", "hello"),
+		"error":     EncodeError("Name already in use"),
+		"observe":   EncodeObserve("secret"),
+		"probeping": EncodeProbePing(5),
+		"probepong": EncodeProbePong(5),
 	}
 	for name, got := range cases {
 		if want := fixture(t, name); !bytes.Equal(got, want) {
@@ -88,7 +94,9 @@ func TestDecodeRejectsMalformed(t *testing.T) {
 	tickHeader := func(turns int32) []byte { return cat([]byte{byte(Tick)}, le32(1), le32(turns)) }
 	cases := map[string][]byte{
 		"empty":               {},
-		"unknown type":        {10},
+		"unknown type":        {13},
+		"truncated ping":      {byte(ProbePing), 1},
+		"observe with a body": {byte(Observe), 0},
 		"truncated i32":       {byte(Welcome), 1, 2},
 		"negative string":     cat([]byte{byte(Hello)}, le32(-1)),
 		"name too long":       cat([]byte{byte(Hello)}, le32(13), []byte("abcdefghijklm")),
@@ -129,10 +137,29 @@ func TestDecodeJoinedLargeHistory(t *testing.T) {
 }
 
 func FuzzDecode(f *testing.F) {
-	for _, name := range []string{"hello", "input", "chat", "welcome", "joined", "tick", "chatline", "error"} {
+	for _, name := range []string{"hello", "input", "chat", "welcome", "joined", "tick", "chatline", "error", "observe", "probeping", "probepong"} {
 		f.Add(fixture(f, name))
 	}
 	f.Fuzz(func(t *testing.T, b []byte) {
 		_, _ = Decode(b) // must not panic
 	})
+}
+
+func TestReadMessageStreamsJoined(t *testing.T) {
+	history := make([]TickMsg, 1000)
+	for i := range history {
+		history[i] = TickMsg{Tick: int32(i + 1), Turns: []Turn{{PlayerID: 1, Keys: KeyRight}}}
+	}
+	joined := EncodeJoined(9, history)
+	msg, n, err := ReadMessage(bytes.NewReader(joined), 64) // far smaller than the history: it's not buffered
+	if err != nil || msg.Type != Joined || msg.Seed != 9 || msg.HistoryLen != 1000 || n != int64(len(joined)) {
+		t.Fatalf("got %+v, %d bytes, %v", msg, n, err)
+	}
+	msg, n, err = ReadMessage(bytes.NewReader(EncodeProbePong(3)), 64)
+	if err != nil || msg.Type != ProbePong || msg.PingID != 3 || n != 5 {
+		t.Fatalf("got %+v, %d bytes, %v", msg, n, err)
+	}
+	if _, _, err := ReadMessage(bytes.NewReader(EncodeChat("a long line of chat")), 8); err == nil {
+		t.Error("a message over the limit must fail")
+	}
 }

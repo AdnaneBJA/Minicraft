@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 )
 
 // MsgType is a message's first byte.
@@ -24,6 +25,9 @@ const (
 	Tick
 	ChatLine
 	Error
+	Observe   // client -> server (monitoring): watch the world without playing
+	ProbePing // client -> server (observers only)
+	ProbePong // server -> client: the answer, after the next tick
 )
 
 // Limits, as in the C++ decoder.
@@ -32,6 +36,7 @@ const (
 	MaxChatLength     = 80
 	maxChatLineText   = MaxChatLength * 2
 	maxErrorLength    = 200
+	maxTokenLength    = 64
 	maxTurnsPerTick   = 64
 	maxCommandsInTurn = 18
 	maxHistory        = 60 * 60 * 60 * 6
@@ -86,7 +91,8 @@ type Message struct {
 	Tick       TickMsg // Tick
 	Keys       Keys    // Input
 	From       string  // ChatLine
-	Text       string  // Hello (the name), Chat, ChatLine, Error
+	Text       string  // Hello (the name), Chat, ChatLine, Error, Observe (the token)
+	PingID     int32   // ProbePing, ProbePong
 }
 
 // --- Encoding
@@ -153,6 +159,15 @@ func EncodeChatLine(from, text string) []byte {
 
 // EncodeError sends an error.
 func EncodeError(text string) []byte { w := start(Error); w.str(text); return w.b }
+
+// EncodeObserve asks to watch the world without playing (monitoring probes), with the server's probe token.
+func EncodeObserve(token string) []byte { w := start(Observe); w.str(token); return w.b }
+
+// EncodeProbePing asks for an answer with the next tick.
+func EncodeProbePing(id int32) []byte { w := start(ProbePing); w.i32(id); return w.b }
+
+// EncodeProbePong answers a ping.
+func EncodeProbePong(id int32) []byte { w := start(ProbePong); w.i32(id); return w.b }
 
 // --- Decoding
 
@@ -268,6 +283,10 @@ func Decode(b []byte) (Message, error) {
 		m.Text = r.str(maxChatLineText)
 	case Error:
 		m.Text = r.str(maxErrorLength)
+	case Observe:
+		m.Text = r.str(maxTokenLength)
+	case ProbePing, ProbePong:
+		m.PingID = r.i32()
 	default:
 		return Message{}, fmt.Errorf("%w: type %d", ErrMalformed, b[0])
 	}
@@ -295,8 +314,44 @@ func DecodeJoinedHistory(b []byte) (uint32, []TickMsg, error) {
 	return seed, history, nil
 }
 
+// ReadMessage reads one message from a WebSocket message reader, and how many bytes it was. The world's history
+// (Joined) is streamed: its header is read and the rest only counted, so a history of any size never sits in
+// memory. Every other message must fit in maxMessage.
+func ReadMessage(r io.Reader, maxMessage int64) (Message, int64, error) {
+	var header [9]byte // type, then Joined's seed and tick count
+	n, err := io.ReadFull(r, header[:1])
+	if err != nil {
+		return Message{}, 0, err
+	}
+	if MsgType(header[0]) == Joined {
+		if _, err := io.ReadFull(r, header[1:]); err != nil {
+			return Message{}, 0, err
+		}
+		rest, err := io.Copy(io.Discard, r)
+		if err != nil {
+			return Message{}, 0, err
+		}
+		count := int32(binary.LittleEndian.Uint32(header[5:]))
+		if count < 0 {
+			return Message{}, 0, fmt.Errorf("%w: Joined history count %d", ErrMalformed, count)
+		}
+		return Message{Type: Joined, Seed: binary.LittleEndian.Uint32(header[1:]), HistoryLen: int(count)},
+			int64(len(header)) + rest, nil
+	}
+	body, err := io.ReadAll(io.LimitReader(r, maxMessage))
+	if err != nil {
+		return Message{}, 0, err
+	}
+	if extra, _ := io.Copy(io.Discard, r); extra > 0 {
+		return Message{}, 0, fmt.Errorf("message over %d bytes", maxMessage)
+	}
+	data := append(header[:n:n], body...)
+	msg, err := Decode(data)
+	return msg, int64(len(data)), err
+}
+
 func (t MsgType) String() string {
-	names := [...]string{"Hello", "Input", "Command", "Chat", "StateHash", "Welcome", "Joined", "Tick", "ChatLine", "Error"}
+	names := [...]string{"Hello", "Input", "Command", "Chat", "StateHash", "Welcome", "Joined", "Tick", "ChatLine", "Error", "Observe", "ProbePing", "ProbePong"}
 	if int(t) < len(names) {
 		return names[t]
 	}

@@ -23,6 +23,8 @@ namespace protocol {
 
 constexpr std::uint16_t kDefaultPort = 7777;
 constexpr int kMaxPlayers = 32;     // per server
+constexpr int kMaxObservers = 2;    // probes watching the world, on top of kMaxPlayers
+constexpr int kMaxTokenLength = 64;  // the observers' shared secret
 constexpr int kMaxNameLength = 12;
 constexpr int kMaxChatLength = 80;
 constexpr int kMaxCommandsPerTurn = 16;
@@ -40,6 +42,11 @@ enum class MessageType : std::uint8_t {
     Tick,         // what everyone did during one tick
     ChatLine,     // a chat message (or a note from the server)
     Error,
+    // Appended, so the values above never change. Monitoring: a probe watches the world without being in it.
+    Observe,      // client -> server, instead of Hello, with the server's probe token: send me the world and its
+                  // ticks, but I'm not a player
+    ProbePing,    // client -> server (observers only): answer me with the next tick
+    ProbePong,    // server -> client: the answer, sent right after a tick went out
 };
 
 // --- Client -> server
@@ -86,6 +93,20 @@ struct StateHashMessage {
     }
 };
 
+struct Observe {
+    static constexpr MessageType kType = MessageType::Observe;
+    std::string token;  // must match the server's: only its own probes may watch unseen
+    void write(ByteWriter& out) const { out.string(token); }
+    void read(ByteReader& in) { token = in.string(kMaxTokenLength); }
+};
+
+struct ProbePing {
+    static constexpr MessageType kType = MessageType::ProbePing;
+    int id = 0;
+    void write(ByteWriter& out) const { out.i32(id); }
+    void read(ByteReader& in) { id = in.i32(); }
+};
+
 // --- Server -> client
 
 struct Welcome {
@@ -129,6 +150,13 @@ struct ErrorMessage {
     std::string text;
     void write(ByteWriter& out) const { out.string(text); }
     void read(ByteReader& in) { text = in.string(200); }
+};
+
+struct ProbePong {
+    static constexpr MessageType kType = MessageType::ProbePong;
+    int id = 0;  // the ping's
+    void write(ByteWriter& out) const { out.i32(id); }
+    void read(ByteReader& in) { id = in.i32(); }
 };
 
 // --- Bytes

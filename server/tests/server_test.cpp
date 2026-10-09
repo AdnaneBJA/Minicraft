@@ -16,8 +16,10 @@
 #include <functional>
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -54,17 +56,84 @@ bool hears(NetworkClient& client, const std::string& from, const std::string& te
     }, timeout);
 }
 
+bool waitUntil(const std::function<bool()>& done, std::chrono::milliseconds timeout = 5000ms) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (done()) return true;
+        std::this_thread::sleep_for(5ms);
+    }
+    return done();
+}
+
+// A bare WebSocket connection, for what NetworkClient doesn't do: observing and pinging.
+class RawClient {
+public:
+    explicit RawClient(int port) {
+        socket_.setUrl("ws://localhost:" + std::to_string(port));
+        socket_.disableAutomaticReconnection();
+        socket_.setOnMessageCallback([this](const ix::WebSocketMessagePtr& message) {
+            const std::lock_guard lock(mutex_);
+            if (message->type == ix::WebSocketMessageType::Open) open_ = true;
+            if (message->type == ix::WebSocketMessageType::Close) closed_ = true;
+            if (message->type == ix::WebSocketMessageType::Message) {
+                received_.emplace_back(message->str.begin(), message->str.end());
+            }
+        });
+        socket_.start();
+    }
+    ~RawClient() { socket_.stop(); }
+
+    bool waitOpen() {
+        return waitUntil([this] {
+            const std::lock_guard lock(mutex_);
+            return open_;
+        });
+    }
+    template <typename Message>
+    void send(const Message& message) {
+        const auto bytes = protocol::encode(message);
+        socket_.sendBinary(std::string(bytes.begin(), bytes.end()));
+    }
+    // Every message of this type received so far, decoded.
+    template <typename Message>
+    std::vector<Message> received() {
+        const std::lock_guard lock(mutex_);
+        std::vector<Message> out;
+        for (const auto& bytes : received_) {
+            if (auto message = protocol::decode<Message>(bytes)) out.push_back(*message);
+        }
+        return out;
+    }
+    template <typename Message>
+    bool waitFor(std::size_t count, std::chrono::milliseconds timeout = 5000ms) {
+        return waitUntil([&] { return received<Message>().size() >= count; }, timeout);
+    }
+    bool closed() {
+        const std::lock_guard lock(mutex_);
+        return closed_;
+    }
+
+private:
+    ix::WebSocket socket_;
+    std::mutex mutex_;
+    bool open_ = false;
+    bool closed_ = false;
+    std::vector<std::vector<std::uint8_t>> received_;
+};
+
+constexpr const char* kProbeToken = "probe-secret";
+
 // Every test gets its own server on its own port, running on a background thread.
 class ServerTest : public ::testing::Test {
 protected:
     void SetUp() override { startServer(Server::kDefaultResetAfterTicks); }
     void TearDown() override { stopServer(); }
 
-    void startServer(int resetAfterTicks) {
+    void startServer(int resetAfterTicks, const std::string& probeToken = kProbeToken) {
         // A port of its own per test (ctest may run several test processes at once).
         const std::string name = ::testing::UnitTest::GetInstance()->current_test_info()->name();
         port = 30000 + static_cast<int>(std::hash<std::string>{}(name) % 20000);
-        server = std::make_unique<Server>(resetAfterTicks);
+        server = std::make_unique<Server>(resetAfterTicks, std::nullopt, probeToken);
         ASSERT_TRUE(server->start(static_cast<std::uint16_t>(port)));
         thread = std::jthread([this] { server->run(); });
     }
@@ -338,6 +407,167 @@ TEST(ClientSocket, LargeJoinedRoundTrips) {
     EXPECT_EQ(back->history.size(), 6000u);
     EXPECT_EQ(back->seed, 42u);
     EXPECT_EQ(back->history.back().turns[1].input.moveY, -1);
+}
+
+TEST_F(ServerTest, ObserverWatchesWithoutPlaying) {
+    NetworkClient alice;
+    const protocol::Joined world = join(alice, "Alice");
+    RawClient probe(port);
+    ASSERT_TRUE(probe.waitOpen());
+    probe.send(protocol::Observe{kProbeToken});
+    ASSERT_TRUE(probe.waitFor<protocol::Joined>(1));
+    EXPECT_EQ(probe.received<protocol::Joined>()[0].seed, world.seed);
+    ASSERT_TRUE(probe.waitFor<protocol::TickMessage>(30));
+    // Nobody heard of it: no join line, and every tick lists Alice alone.
+    for (const auto& tick : probe.received<protocol::TickMessage>()) {
+        for (const auto& turn : tick.input.turns) EXPECT_EQ(turn.playerId, alice.playerId());
+    }
+    for (const auto& line : alice.takeChat()) {
+        if (line.text != "Alice joined the game") EXPECT_EQ(line.text.find("joined"), std::string::npos) << line.text;
+    }
+}
+
+TEST_F(ServerTest, PingIsAnsweredAfterTheNextTick) {
+    NetworkClient alice;
+    join(alice, "Alice");
+    RawClient probe(port);
+    ASSERT_TRUE(probe.waitOpen());
+    probe.send(protocol::Observe{kProbeToken});
+    ASSERT_TRUE(probe.waitFor<protocol::TickMessage>(1));
+    const auto sent = std::chrono::steady_clock::now();
+    probe.send(protocol::ProbePing{42});
+    ASSERT_TRUE(probe.waitFor<protocol::ProbePong>(1));
+    const auto took = std::chrono::steady_clock::now() - sent;
+    EXPECT_EQ(probe.received<protocol::ProbePong>()[0].id, 42);
+    EXPECT_LT(took, 200ms);  // a tick is 16.7 ms; leave room for a slow CI machine
+}
+
+TEST_F(ServerTest, PingWorksWithoutAWorld) {
+    RawClient probe(port);
+    ASSERT_TRUE(probe.waitOpen());
+    probe.send(protocol::Observe{kProbeToken});
+    ASSERT_TRUE(probe.waitFor<protocol::Joined>(1));
+    probe.send(protocol::ProbePing{7});
+    ASSERT_TRUE(probe.waitFor<protocol::ProbePong>(1));
+    EXPECT_EQ(probe.received<protocol::ProbePong>()[0].id, 7);
+}
+
+TEST_F(ServerTest, PingFromPlayerIsIgnored) {
+    RawClient player(port);
+    ASSERT_TRUE(player.waitOpen());
+    player.send(protocol::Hello{"Alice"});
+    ASSERT_TRUE(player.waitFor<protocol::Joined>(1));
+    player.send(protocol::ProbePing{1});
+    ASSERT_TRUE(player.waitFor<protocol::TickMessage>(20));
+    EXPECT_TRUE(player.received<protocol::ProbePong>().empty());
+}
+
+TEST_F(ServerTest, ObserverOnEmptyServerGetsWorldLater) {
+    RawClient probe(port);
+    ASSERT_TRUE(probe.waitOpen());
+    probe.send(protocol::Observe{kProbeToken});
+    ASSERT_TRUE(probe.waitFor<protocol::Joined>(1));
+    EXPECT_EQ(probe.received<protocol::Joined>()[0].seed, 0u);  // no world: nothing to watch yet
+    std::this_thread::sleep_for(200ms);
+    EXPECT_TRUE(probe.received<protocol::TickMessage>().empty());  // and the observer didn't start one
+    NetworkClient alice;
+    const protocol::Joined world = join(alice, "Alice");
+    ASSERT_TRUE(probe.waitFor<protocol::Joined>(2));
+    EXPECT_EQ(probe.received<protocol::Joined>()[1].seed, world.seed);
+    EXPECT_TRUE(probe.waitFor<protocol::TickMessage>(10));
+}
+
+TEST_F(ServerTest, ObserverDoesNotKeepWorldAlive) {
+    NetworkClient alice;
+    const protocol::Joined first = join(alice, "Alice");
+    RawClient probe(port);
+    ASSERT_TRUE(probe.waitOpen());
+    probe.send(protocol::Observe{kProbeToken});
+    ASSERT_TRUE(probe.waitFor<protocol::TickMessage>(1));
+    alice.disconnect();
+    NetworkClient bob;
+    const protocol::Joined second = join(bob, "Bob");
+    EXPECT_NE(second.seed, first.seed);  // the world ended with Alice, observer or not
+}
+
+TEST_F(ServerTest, ObserverCannotPlay) {
+    NetworkClient alice;
+    join(alice, "Alice");
+    RawClient probe(port);
+    ASSERT_TRUE(probe.waitOpen());
+    probe.send(protocol::Observe{kProbeToken});
+    ASSERT_TRUE(probe.waitFor<protocol::Joined>(1));
+    probe.send(protocol::Hello{"Sneaky"});
+    probe.send(protocol::InputMessage{{.moveX = 1}});
+    probe.send(protocol::ChatMessage{"hello"});
+    ASSERT_TRUE(probe.waitFor<protocol::TickMessage>(30));
+    for (const auto& tick : probe.received<protocol::TickMessage>()) {
+        for (const auto& turn : tick.input.turns) EXPECT_EQ(turn.playerId, alice.playerId());
+    }
+    for (const auto& line : alice.takeChat()) {
+        EXPECT_EQ(line.text.find("Sneaky"), std::string::npos);
+        EXPECT_NE(line.text, "hello");
+    }
+}
+
+TEST_F(ServerTest, ObserverLimit) {
+    RawClient a(port), b(port), c(port);
+    for (RawClient* probe : {&a, &b, &c}) {
+        ASSERT_TRUE(probe->waitOpen());
+        probe->send(protocol::Observe{kProbeToken});
+    }
+    ASSERT_TRUE(a.waitFor<protocol::Joined>(1));
+    ASSERT_TRUE(b.waitFor<protocol::Joined>(1));
+    ASSERT_TRUE(c.waitFor<protocol::ErrorMessage>(1));
+    EXPECT_EQ(c.received<protocol::ErrorMessage>()[0].text, "Too many observers");
+    EXPECT_TRUE(waitUntil([&] { return c.closed(); }));
+    EXPECT_TRUE(c.received<protocol::Joined>().empty());
+}
+
+TEST_F(ServerTest, FullServerRefusesPlayerNotObserver) {
+    std::vector<std::unique_ptr<RawClient>> players;
+    for (int i = 0; i < protocol::kMaxPlayers; ++i) {
+        players.push_back(std::make_unique<RawClient>(port));
+        ASSERT_TRUE(players.back()->waitOpen());
+        players.back()->send(protocol::Hello{"P" + std::to_string(i)});
+    }
+    for (auto& player : players) ASSERT_TRUE(player->waitFor<protocol::Joined>(1));
+    RawClient probe(port), probe2(port);  // both observer slots taken
+    for (RawClient* p : {&probe, &probe2}) {
+        ASSERT_TRUE(p->waitOpen());
+        p->send(protocol::Observe{kProbeToken});
+        ASSERT_TRUE(p->waitFor<protocol::Joined>(1));
+    }
+    RawClient late(port);
+    ASSERT_TRUE(late.waitOpen());
+    late.send(protocol::Hello{"Late"});
+    ASSERT_TRUE(late.waitFor<protocol::ErrorMessage>(1));
+    EXPECT_EQ(late.received<protocol::ErrorMessage>()[0].text, "Server is full");
+    EXPECT_TRUE(late.received<protocol::Joined>().empty());
+}
+
+TEST_F(ServerTest, ObserveNeedsTheToken) {
+    NetworkClient alice;
+    join(alice, "Alice");
+    RawClient snoop(port);
+    ASSERT_TRUE(snoop.waitOpen());
+    snoop.send(protocol::Observe{"guess"});
+    ASSERT_TRUE(snoop.waitFor<protocol::ErrorMessage>(1));
+    EXPECT_EQ(snoop.received<protocol::ErrorMessage>()[0].text, "Not allowed to observe");
+    EXPECT_TRUE(waitUntil([&] { return snoop.closed(); }));
+    EXPECT_TRUE(snoop.received<protocol::Joined>().empty());
+    EXPECT_TRUE(snoop.received<protocol::TickMessage>().empty());
+}
+
+TEST_F(ServerTest, NoTokenNoObservers) {
+    stopServer();
+    startServer(Server::kDefaultResetAfterTicks, "");  // observing is off
+    RawClient snoop(port);
+    ASSERT_TRUE(snoop.waitOpen());
+    snoop.send(protocol::Observe{""});
+    ASSERT_TRUE(snoop.waitFor<protocol::ErrorMessage>(1));
+    EXPECT_EQ(snoop.received<protocol::ErrorMessage>()[0].text, "Not allowed to observe");
+    EXPECT_TRUE(snoop.received<protocol::Joined>().empty());
 }
 
 }  // namespace

@@ -1,0 +1,87 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: SLOs
+    folder: Minicraft
+    interval: 1m
+    rules:
+      - uid: slo-availability
+        title: Availability below 99%
+        condition: B
+        for: 5m
+        noDataState: NoData
+        execErrState: Error
+        annotations:
+          summary: Fewer than 99% of probe runs succeeded over the last hour.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: "slo:probe_success:ratio_1h", instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [0.99] } }]
+      - uid: slo-join
+        title: Joins over 1 s
+        condition: B
+        for: 5m
+        noDataState: NoData
+        execErrState: Error
+        annotations:
+          summary: Fewer than 99% of joins finished within 1 s over the last hour.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: "slo:probe_join_under_1s:ratio_1h", instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [0.99] } }]
+      - uid: slo-latency
+        title: Latency over 50 ms
+        condition: B
+        for: 5m
+        noDataState: NoData
+        execErrState: Error
+        annotations:
+          summary: Fewer than 99% of probe pings were answered within 50 ms over the last hour.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: "slo:probe_latency_under_50ms:ratio_1h", instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions: [{ evaluator: { type: lt, params: [0.99] } }]
+      - uid: slo-freshness
+        title: Game server silent or a target down
+        condition: C
+        for: 1m
+        noDataState: Alerting
+        execErrState: Error
+        annotations:
+          summary: The game server hasn't reported for 30 s, or Prometheus can't scrape a target.
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: "slo:game_report_age_seconds", instant: true }
+          - refId: B
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: B, expr: "slo:targets_down", instant: true }
+          - refId: C
+            datasourceUid: __expr__
+            model: { refId: C, type: math, expression: "$A > 30 || $B > 0" }

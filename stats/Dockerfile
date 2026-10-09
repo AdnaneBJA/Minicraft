@@ -1,6 +1,6 @@
 # The stats service in a container. Build from the repository root:
 #   docker build -f stats/Dockerfile -t minicraft-stats .
-FROM golang:1.25-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src/stats
 COPY stats/go.mod stats/go.sum ./
 RUN go mod download

@@ -1,0 +1,80 @@
+# promtool test rules slo-rules.test.yml
+rule_files:
+  - slo-rules.yml
+evaluation_interval: 1m
+tests:
+  - name: all good
+    interval: 1m
+    input_series:
+      - series: 'probe_runs_total{result="ok"}'
+        values: '0+2x120'
+      - series: 'probe_runs_total{result="timeout"}'
+        values: '0x120'
+      - series: 'probe_join_seconds_bucket{le="1.0"}'
+        values: '0+2x120'
+      - series: 'probe_join_seconds_count'
+        values: '0+2x120'
+      - series: 'probe_latency_seconds_bucket{le="0.05"}'
+        values: '0+20x120'
+      - series: 'probe_latency_seconds_count'
+        values: '0+20x120'
+    promql_expr_test:
+      - expr: slo:probe_success:ratio_1h
+        eval_time: 2h
+        exp_samples:
+          - labels: 'slo:probe_success:ratio_1h'
+            value: 1
+      - expr: slo:probe_join_under_1s:ratio_1h
+        eval_time: 2h
+        exp_samples:
+          - labels: 'slo:probe_join_under_1s:ratio_1h'
+            value: 1
+      - expr: slo:probe_latency_under_50ms:ratio_1h
+        eval_time: 2h
+        exp_samples:
+          - labels: 'slo:probe_latency_under_50ms:ratio_1h'
+            value: 1
+  - name: failures and slow pings
+    interval: 1m
+    input_series:
+      # 2 runs a minute: 1 in 4 ends in a timeout.
+      - series: 'probe_runs_total{result="ok"}'
+        values: '0+1.5x120'
+      - series: 'probe_runs_total{result="timeout"}'
+        values: '0+0.5x120'
+      # 20 pings a minute, 15 of them under 50 ms.
+      - series: 'probe_latency_seconds_bucket{le="0.05"}'
+        values: '0+15x120'
+      - series: 'probe_latency_seconds_count'
+        values: '0+20x120'
+    promql_expr_test:
+      - expr: slo:probe_success:ratio_1h
+        eval_time: 2h
+        exp_samples:
+          - labels: 'slo:probe_success:ratio_1h'
+            value: 0.75
+      - expr: slo:probe_latency_under_50ms:ratio_1h
+        eval_time: 2h
+        exp_samples:
+          - labels: 'slo:probe_latency_under_50ms:ratio_1h'
+            value: 0.75
+  - name: freshness
+    interval: 1m
+    input_series:
+      - series: 'minicraft_last_report_timestamp_seconds'
+        values: '60 120 180 180 180'   # the game server stops reporting after 3 minutes
+      - series: 'up{job="stats"}'
+        values: '1 1 1 1 1'
+      - series: 'up{job="probe"}'
+        values: '1 1 1 0 0'
+    promql_expr_test:
+      - expr: slo:game_report_age_seconds
+        eval_time: 4m
+        exp_samples:
+          - labels: 'slo:game_report_age_seconds'
+            value: 60
+      - expr: slo:targets_down
+        eval_time: 4m
+        exp_samples:
+          - labels: 'slo:targets_down'
+            value: 1

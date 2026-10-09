@@ -34,7 +34,9 @@ int main(int argc, char* argv[]) {
         const char* token = std::getenv("STATS_TOKEN");
         stats = StatsConfig{url, token ? token : ""};
     }
-    Server server(Server::kDefaultResetAfterTicks, std::move(stats));
+    // With PROBE_TOKEN set, the monitoring probe (which sends the same token) may watch the world unseen.
+    const char* probeToken = std::getenv("PROBE_TOKEN");
+    Server server(Server::kDefaultResetAfterTicks, std::move(stats), probeToken ? probeToken : "");
     if (!server.start(static_cast<std::uint16_t>(port))) return 1;
     runningServer = &server;
     std::signal(SIGINT, onStopSignal);

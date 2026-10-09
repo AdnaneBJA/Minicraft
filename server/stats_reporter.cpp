@@ -35,6 +35,11 @@ void StatsReporter::add(std::vector<StatEvent> events) {
     pending_.insert(pending_.end(), std::make_move_iterator(events.begin()), std::make_move_iterator(events.end()));
 }
 
+void StatsReporter::setHealth(const ServerHealth& health) {
+    const std::lock_guard lock(mutex_);
+    health_ = health;
+}
+
 std::size_t StatsReporter::backlog() const {
     const std::lock_guard lock(mutex_);
     return batches_.size();
@@ -49,7 +54,10 @@ void StatsReporter::run() {
         if (stopping_) return;
         // A new batch every interval, even an empty one: it's the heartbeat with the players online.
         if (std::chrono::steady_clock::now() >= nextBatch) {
-            batches_.push_back(toJson(online_, std::exchange(pending_, {})));
+            const auto at = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+            batches_.push_back(toJson(online_, std::exchange(pending_, {}), at, health_, batches_.size()));
             while (batches_.size() > maxBacklog_) {
                 batches_.pop_front();
                 std::printf("Stats: the stats service is unreachable, dropped the oldest batch\n");

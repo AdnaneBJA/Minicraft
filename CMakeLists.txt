@@ -100,7 +100,7 @@ target_link_libraries(net_client PUBLIC net_common)
 # The multiplayer server: lobbies, the 60 Hz tick relay and chat. It runs no game itself.
 if(NOT EMSCRIPTEN)
     add_library(server_lib STATIC server/server.cpp server/lobby.cpp server/stats_observer.cpp
-        server/stats_reporter.cpp server/stats_json.cpp)
+        server/stats_reporter.cpp server/stats_json.cpp server/process_usage.cpp)
     target_include_directories(server_lib PUBLIC server)
     target_link_libraries(server_lib PUBLIC net_common ixwebsocket)
     add_executable(minicraft-server server/main.cpp)
