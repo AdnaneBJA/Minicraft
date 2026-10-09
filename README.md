@@ -14,7 +14,7 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - **In the browser:** the same C++ compiled to **WebAssembly** with Emscripten, published on GitHub Pages by CI. It stores nothing in the browser.
 - **Multiplayer:** a lockstep design over **WebSockets**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. One shared world per server, with chat, PvP, joining a world already in progress, and automatic desync detection.
 - **Live stats:** the game server replays the world itself and reports every action (trees chopped, ores mined, creatures killed, deaths, levels reached) to a **Go** service backed by **PostgreSQL**, which serves a public dashboard with leaderboards. Each action counts exactly once, and nothing a browser sends can fake it.
-- **Load-tested:** a Go bot fleet (`loadtest/`) plays the real protocol. With 32 players on a local Linux server (2 cores), a key press shows up in the world in 8.6 ms at the median (17 ms p99), plus the player's network round trip; the bots received ticks within 0.65 ms of schedule (p99), and the server used under 5% of one core.
+- **Load-tested:** a Go bot fleet (`loadtest/`) plays the real protocol. With 32 players on an AWS t3.micro (the production machine type), a key press shows up in the world in 9.7 ms at the median (20 ms p99) plus the player's network round trip (32 ms median from a home PC), and the server used 4% of one core and 23 MB.
 - **Tests:** 80 GoogleTest tests (the core rules, two-client lockstep, late-join replay, the stat events, the real server with real clients over localhost WebSockets) and Go tests against a real PostgreSQL. A Playwright script plays the web build in headless Chromium and checks the dashboard counted it.
 
 ---
@@ -87,19 +87,22 @@ Why the server replays the world: **[ADR 0003](docs/adr/0003-stats-from-an-autho
 
 ## Performance
 
-Measured with the Go bot fleet in [`loadtest/`](loadtest): each bot joins over the real binary protocol, walks, attacks and chats, and times what a player feels.
+Measured with the Go bot fleet in [`loadtest/`](loadtest): each bot joins over the real binary protocol, walks, attacks and chats, and times what a player feels. Every run had 32 players for 3.5 minutes.
 
-| 32 players, 3.5 min | p50 | p99 | max |
+| | On the production machine type<br/>(AWS t3.micro, bots on the box) | From a home PC<br/>(over the internet to us-east-1) | Local Linux<br/>(WSL2, 2 cores) |
 |---|---|---|---|
-| **Input latency** (key change sent → first tick that carries it) | 8.6 ms | 17 ms | 21 ms |
-| **Tick jitter** (gap between ticks vs 16.7 ms) | 0.10 ms | 0.65 ms | 9.7 ms |
-| **Join time** (connect → world received) | 4.2 ms | 17 ms | 17 ms |
+| **Input latency** p50 / p99<br/>*key change sent → first tick that carries it* | **9.7 ms / 20 ms** | **32 ms / 73 ms** | 8.6 ms / 17 ms |
+| **Tick jitter** p99<br/>*gap between ticks vs 16.7 ms, as received* | 6.2 ms | 9.0 ms | 0.65 ms |
+| **Join time** p50 | 3.1 ms | 183 ms | 4.2 ms |
+| **Server CPU** avg / max (of one core) | 4.0% / 13% | not sampled (remote) | 1.9% / 4.0% |
+| **Server memory** (max) | 23 MB | not sampled (remote) | 23 MB |
 
-- **Server cost:** 1.9% of one core on average (4.0% max) and 23 MB of memory, for 32 players and 520 KB/s of ticks out.
-- **Breaking point:** ramping 4 bots every 15 s, latency stays flat (p99 17 ms at every step) until 36 bots, where the server's 32-player limit refuses connections. The limit is a design choice, not a capacity one.
-- **Why 8.6 ms:** in lockstep a key press waits for the next 60 Hz tick: on average half a tick (8.3 ms), at most one (16.7 ms). Locally that's the whole latency; over the internet, one network round trip is added. See [ADR 0004](docs/adr/0004-lockstep-input-latency.md).
+- **What a player feels:** about one network round trip plus half a tick. From the home PC the round trip to the server was 27 ms (median TCP connect), plus 8 ms of waiting for the next tick on average: 35 ms predicted, 32 ms measured. In lockstep a key press waits for the next 60 Hz tick: on average half a tick (8.3 ms), at most one (16.7 ms). See [ADR 0004](docs/adr/0004-lockstep-input-latency.md).
+- **The server isn't the bottleneck:** 32 players cost a t3.micro 4% of one core and 23 MB of memory, for 520 KB/s of ticks out.
+- **Breaking point:** ramping 4 bots every 15 s on the t3.micro, latency stays flat (p99 17–36 ms at every step) until 36 bots, where the server's 32-player limit refuses connections. The limit is a design choice, not a capacity one.
+- **One thing it found:** a player joining late downloads the world's whole tick history (about 1–2 MB after a few minutes with 20+ players). Ramping 32 bots from one home connection, each wave of joins briefly saturated that connection and delayed everyone's ticks (p99 up to 430 ms while p50 stayed at 33 ms). The same ramp on the server machine stayed flat, so this is about many players sharing one link, not the server. Shorter histories (snapshots instead of a full replay) would shrink these downloads.
 
-Environment: WSL2 Ubuntu on a Windows 11 desktop, server pinned to 2 cores, bots on the same machine. Full reports: [`docs/perf/`](docs/perf). Reproduce:
+Full reports, with their environments: [`docs/perf/`](docs/perf). Reproduce:
 ```sh
 cd loadtest
 go run ./cmd/loadtest --bots 32 --ramp 30s --duration 3m --server-pid <pid>   # steady

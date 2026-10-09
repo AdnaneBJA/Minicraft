@@ -1,0 +1,58 @@
+{
+  "config": {
+    "url": "ws://localhost:7777",
+    "mode": "steady",
+    "bots": 32,
+    "ramp": 30000000000,
+    "duration": 180000000000,
+    "step": 4,
+    "every": 15000000000,
+    "maxP99": 150000000
+  },
+  "startedAt": "2026-10-08T23:55:46.800805482Z",
+  "duration": 209088139568,
+  "cancelled": false,
+  "inputLatency": {
+    "n": 4970,
+    "p50": 9693323,
+    "p95": 17609828,
+    "p99": 20444463,
+    "max": 56478529,
+    "mean": 9882284
+  },
+  "tickJitter": {
+    "n": 373511,
+    "p50": 264323,
+    "p95": 1392530,
+    "p99": 6194565,
+    "max": 66827974,
+    "mean": 537682
+  },
+  "joinTime": {
+    "n": 32,
+    "p50": 3056281,
+    "p95": 11031905,
+    "p99": 11827696,
+    "max": 11870740,
+    "mean": 3777076
+  },
+  "counters": {
+    "Connected": 0,
+    "Joined": 32,
+    "JoinFailed": 0,
+    "Refused": 0,
+    "Dropped": 0,
+    "Messages": 378513,
+    "Bytes": 111337129,
+    "Sent": 5139,
+    "ChatLines": 4906,
+    "Superseded": 0
+  },
+  "server": {
+    "samples": 209,
+    "maxCpu": 13.016225753683813,
+    "avgCpu": 4.0049462886604905,
+    "maxRss": 24064000,
+    "avgRss": 15721957
+  }
+}

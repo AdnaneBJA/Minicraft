@@ -1,0 +1,190 @@
+{
+  "config": {
+    "url": "ws://localhost:7777",
+    "mode": "ramp",
+    "bots": 40,
+    "ramp": 10000000000,
+    "duration": 60000000000,
+    "step": 4,
+    "every": 15000000000,
+    "maxP99": 300000000
+  },
+  "startedAt": "2026-10-08T23:53:20.799584177Z",
+  "duration": 135014091601,
+  "cancelled": false,
+  "inputLatency": {
+    "n": 2116,
+    "p50": 9502326,
+    "p95": 17262844,
+    "p99": 22138424,
+    "max": 43056373,
+    "mean": 9773358
+  },
+  "tickJitter": {
+    "n": 158363,
+    "p50": 210253,
+    "p95": 1584829,
+    "p99": 6980191,
+    "max": 46730346,
+    "mean": 515066
+  },
+  "joinTime": {
+    "n": 32,
+    "p50": 12431027,
+    "p95": 38266810,
+    "p99": 48588695,
+    "max": 48712032,
+    "mean": 15357741
+  },
+  "counters": {
+    "Connected": 0,
+    "Joined": 32,
+    "JoinFailed": 0,
+    "Refused": 4,
+    "Dropped": 0,
+    "Messages": 160224,
+    "Bytes": 47930244,
+    "Sent": 2196,
+    "ChatLines": 1765,
+    "Superseded": 0
+  },
+  "server": {
+    "samples": 135,
+    "maxCpu": 10.004352683761295,
+    "avgCpu": 2.9411160365744338,
+    "maxRss": 24842240,
+    "avgRss": 13797330
+  },
+  "steps": [
+    {
+      "bots": 4,
+      "latency": {
+        "n": 45,
+        "p50": 10392554,
+        "p95": 16755147,
+        "p99": 17091925,
+        "max": 17173270,
+        "mean": 10138439
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 8,
+      "latency": {
+        "n": 97,
+        "p50": 9408243,
+        "p95": 16755147,
+        "p99": 17262844,
+        "max": 17292036,
+        "mean": 9244118
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 12,
+      "latency": {
+        "n": 143,
+        "p50": 11479845,
+        "p95": 20855397,
+        "p99": 31674966,
+        "max": 32562795,
+        "mean": 11591688
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 16,
+      "latency": {
+        "n": 200,
+        "p50": 9041137,
+        "p95": 16755147,
+        "p99": 17091925,
+        "max": 17705796,
+        "mean": 8956013
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 20,
+      "latency": {
+        "n": 244,
+        "p50": 8349338,
+        "p95": 16922698,
+        "p99": 17609828,
+        "max": 20414302,
+        "mean": 8866198
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 24,
+      "latency": {
+        "n": 287,
+        "p50": 8862991,
+        "p95": 16922698,
+        "p99": 17609828,
+        "max": 17863790,
+        "mean": 8903114
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 28,
+      "latency": {
+        "n": 331,
+        "p50": 10601444,
+        "p95": 19646727,
+        "p99": 35692145,
+        "max": 43056373,
+        "mean": 11081256
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 32,
+      "latency": {
+        "n": 381,
+        "p50": 10392554,
+        "p95": 17435473,
+        "p99": 18508106,
+        "max": 28935291,
+        "mean": 10218738
+      },
+      "refused": 0,
+      "dropped": 0,
+      "joinFailed": 0
+    },
+    {
+      "bots": 36,
+      "latency": {
+        "n": 388,
+        "p50": 9131548,
+        "p95": 17262844,
+        "p99": 18143423,
+        "max": 18913347,
+        "mean": 9275573
+      },
+      "refused": 4,
+      "dropped": 0,
+      "joinFailed": 0
+    }
+  ],
+  "breakingPoint": {
+    "bots": 36,
+    "cause": "4 connections refused"
+  }
+}
