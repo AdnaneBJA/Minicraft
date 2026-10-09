@@ -15,7 +15,8 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - **Multiplayer:** a lockstep design over **WebSockets**. A small relay server collects every player's inputs and sends the same 60 Hz ticks to everyone, and each client runs the identical simulation. One shared world per server, with chat, PvP, joining a world already in progress, and automatic desync detection.
 - **Live stats:** the game server replays the world itself and reports every action (trees chopped, ores mined, creatures killed, deaths, levels reached) to a **Go** service backed by **PostgreSQL**, which serves a public dashboard with leaderboards. Each action counts exactly once, and nothing a browser sends can fake it.
 - **Load-tested:** a Go bot fleet (`loadtest/`) plays the real protocol. With 32 players on an AWS t3.micro (the production machine type), a key press shows up in the world in 9.7 ms at the median (20 ms p99) plus the player's network round trip (32 ms median from a home PC), and the server used 4% of one core and 23 MB.
-- **Tests:** 80 GoogleTest tests (the core rules, two-client lockstep, late-join replay, the stat events, the real server with real clients over localhost WebSockets) and Go tests against a real PostgreSQL. A Playwright script plays the web build in headless Chromium and checks the dashboard counted it.
+- **Observability:** a Go probe plays the live game every 30 s as a hidden observer and times joins and round trips through the tick loop; the game's health goes to **Prometheus**; public **Grafana** dashboards track four SLOs, whose recording rules are unit-tested in CI.
+- **Tests:** 92 GoogleTest tests (the core rules, two-client lockstep, late-join replay, the stat events, the real server with real clients over localhost WebSockets) and Go tests against a real PostgreSQL. A Playwright script plays the web build in headless Chromium and checks the dashboard counted it.
 
 ---
 
@@ -24,6 +25,7 @@ Chop trees, mine down through three dark cave levels, craft your way from wooden
 - [Multiplayer](#multiplayer)
 - [Live stats](#live-stats)
 - [Performance](#performance)
+- [Observability](#observability)
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
 - [Controls](#controls)
@@ -110,6 +112,23 @@ go run ./cmd/loadtest --mode ramp --bots 40 --step 4 --every 15s              # 
 ```
 CI runs an 8-bot load test against the real server on every push.
 
+## Observability
+
+Live, public dashboards: **[minicraft-adnane.duckdns.org/grafana](https://minicraft-adnane.duckdns.org/grafana/)** (read-only).
+
+- **A synthetic player.** A Go probe ([`loadtest/cmd/probe`](loadtest/cmd/probe)) joins the live game every 30 s through the public `wss://` address, as a **hidden observer**: it gets the world and its ticks, but no player sees it and it counts nowhere. It times the join, then 10 pings that the server answers right after its next tick, the same path a key press takes.
+- **The game's health.** With every stats batch (once a second), the game server also reports its connections, ticks, the world's history size (what a late joiner downloads), its backlog, memory and CPU. The Go stats service serves them, with its own ingest numbers, to **Prometheus**.
+- **Two Grafana dashboards:** *player experience* (probe results, join time, input latency, tick jitter, SLO status) and *server internals* (players, history growth, memory and CPU per service, ingest, scrape health).
+
+| SLO (rolling hour) | Target |
+|---|---|
+| Probe runs that succeed | ≥ 99% |
+| Joins under 1 s | ≥ 99% |
+| Pings answered under 50 ms | ≥ 99% |
+| Game server reported in the last 30 s, every target up | always |
+
+The SLO ratios are Prometheus recording rules, unit-tested with `promtool test rules` in CI. Alerts show on the dashboard. Why it's built this way: [ADR 0005](docs/adr/0005-observability.md).
+
 ## How it works
 
 ### Architecture
@@ -137,7 +156,9 @@ flowchart LR
 | [`net-common/`](net-common) | The messages the client and server exchange ([`protocol.h`](net-common/protocol.h) explains the design at the top), and how they are turned into bytes. Every read from the network is bounds-checked. |
 | [`server/`](server) | `minicraft-server`: WebSocket server, the one world's 60 Hz tick relay, tick history for late joiners, chat, desync detection. **It runs no game.** |
 | [`client/`](client) | The SDL3 game: renderers, menus, audio, chat, and the network client. |
-| [`stats/`](stats) | The Go stats service: ingestion into PostgreSQL, the JSON API and the dashboard. |
+| [`stats/`](stats) | The Go stats service: ingestion into PostgreSQL, the JSON API, the dashboard, and the game's metrics for Prometheus. |
+| [`loadtest/`](loadtest) | The Go load-testing bots and the monitoring probe. |
+| [`deploy/`](deploy) | Docker Compose: the server, the stats service, PostgreSQL, the probe, Prometheus and Grafana, behind Caddy. |
 
 ### Lockstep: why the server runs no game
 
@@ -231,11 +252,13 @@ ctest --test-dir build --output-on-failure
 - **Multiplayer:** joining and leaving, PvP punches and arrows, several levels simulated at once, beds.
 - **Stat events:** chopping a tree and picking up the wood, sword and arrow kills credited to the right player, a death in lava, a PvP kill, a creeper blast (no self-kills), the boss defeat (for everyone, credited to its killer), crafting, reaching a cave once per life, and the same events from two simulations fed the same ticks.
 
-28 tests on the server (`server_tests`), including one that keeps the Go bots' protocol in step with C++ (it writes byte fixtures the Go tests decode), and the stats reporting (named events from the replay, batches with the token, heartbeats, retries that arrive once, the bounded backlog, no reporting without configuration). The rest: a real `minicraft-server` on localhost and real game clients over WebSockets. They cover joining the world, both players getting the same ticks, chat, leaving, a late joiner's history, the world ending when empty and resetting when old, invalid and duplicate names, a large message, an unreachable or silent server, an unresponsive client, and a player vanishing mid-game.
+40 tests on the server (`server_tests`), including one that keeps the Go bots' protocol in step with C++ (it writes byte fixtures the Go tests decode), and the stats reporting (named events from the replay, batches with the token, heartbeats, retries that arrive once, the bounded backlog, no reporting without configuration). The rest: a real `minicraft-server` on localhost and real game clients over WebSockets. They cover joining the world, both players getting the same ticks, chat, leaving, a late joiner's history, the world ending when empty and resetting when old, invalid and duplicate names, a full server, a large message, an unreachable or silent server, an unresponsive client, and a player vanishing mid-game. And the monitoring probe's side: an observer gets the world and its ticks without being in it (or able to play), pings are answered after the next tick (even with no world), the observer limit, and the health sent with every stats batch.
 
-**Stats service (Go):** `cd stats && go test ./...` runs against a real PostgreSQL 17 (an embedded one locally, a service container in CI): validation, idempotent ingestion, every tally, the leaderboards, the JSON API, the pages (also over an empty database) and the token check.
+**Stats service (Go):** `cd stats && go test ./...` runs against a real PostgreSQL 17 (an embedded one locally, a service container in CI): validation, idempotent ingestion, every tally, the leaderboards, the JSON API, the pages (also over an empty database), the token check, and the `/metrics` output (a retried old batch never rolls the gauges back).
 
-**Load-testing bots (Go):** `cd loadtest && go test -race ./...`: the protocol against the C++ fixtures (and fuzzed), the histograms, the bots against a fake server with a known delay, and every run mode.
+**Load-testing bots (Go):** `cd loadtest && go test -race ./...`: the protocol against the C++ fixtures (and fuzzed), the histograms, the bots against a fake server with a known delay, every run mode, and the probe (a good run, a refusal, a dead address, a stalled server, lost pongs, a world reset mid-run).
+
+**Monitoring:** `promtool check config` and `promtool test rules` on the Prometheus config and SLO rules, and the Grafana files parse.
 
 **Browser:** [`web/smoke/smoke.mjs`](web/smoke/smoke.mjs) plays the web build in headless Chromium with Playwright. Two players type names, land in the same world and chat; one leaves and rejoins; a third can't take a name in use; and the canvas follows the window. Given the stats service's address, it also checks the dashboard counted the visit.
 
@@ -247,11 +270,11 @@ CI runs the tests on Linux for every push, and builds the web version for every 
 game-core/    the simulation (static library, no SDL) + tests/
 net-common/   client/server protocol and the WebSocket client (browser and native)
 server/       minicraft-server + tests/, and its Dockerfile
-loadtest/     the Go load-testing bots (protocol, bots, metrics, reports)
+loadtest/     the Go load-testing bots (protocol, bots, metrics, reports) and the monitoring probe
 stats/        the Go stats service (ingestion, PostgreSQL, API, dashboard) and its Dockerfile
 client/       the SDL3 game (desktop and browser)
 web/          the web page around the game (shell.html) and the browser smoke test
-deploy/       Docker Compose + Caddy for the hosted server, and how to set it up
+deploy/       Docker Compose + Caddy for the hosted server, Prometheus and Grafana, and how to set it up
 assets/       sprites, sound effects, ASSETS.md (sources and licenses)
 docs/         architecture decisions (adr/) and the media in this README
 ```
