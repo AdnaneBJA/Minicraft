@@ -6,5 +6,6 @@ CLAUDE.md
 build-web/
 deploy/.env
 .superpowers/
+docs/superpowers/
 web/smoke/node_modules/
 web/smoke/out/
